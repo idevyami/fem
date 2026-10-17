@@ -1,0 +1,723 @@
+// FEMBOY WAR — Game World Database Schema
+// SQLite via Prisma. Content definitions (items/events/npcs/...) live as typed
+// data files in src/lib/game/content — this DB stores world/player state.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Player & Identity ────────────────────────────────────────────────────────
+
+model Player {
+  id              String   @id @default(cuid())
+  telegramId      String?  @unique // set when launched from Telegram
+  name            String
+  avatar          String   @default("🐱") // emoji avatar chosen at onboarding
+  bio             String?
+  onboarded       Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  lastSeenAt      DateTime @default(now())
+  lastTickAt      DateTime @default(now())
+  restUntil       DateTime? // sleeping
+
+  // progression
+  level           Int      @default(1)
+  xp              Int      @default(0)
+  day             Int      @default(1) // in-game day counter
+
+  // core stats
+  money           Int      @default(3000)
+  debt            Int      @default(0)
+  health          Int      @default(100)
+  energy          Int      @default(100)
+  luck            Int      @default(12)
+  intelligence    Int      @default(10)
+  chaos           Int      @default(8)
+  fame            Int      @default(0)
+  crime           Int      @default(0)
+  reputation      Int      @default(0)
+
+  // life
+  currentDistrict String   @default("bazaar")
+  jobKey          String?
+  vehicleKey      String?
+  houseKey        String?
+  houseRentDue    DateTime @default(now())
+  workStreak      Int      @default(0)
+  lastWorkedAt    DateTime?
+  flags           String   @default("{}") // hidden vars, seen events, chain state, counters (JSON)
+
+  inventory       InventoryItem[]
+  pets            Pet[]
+  history         HistoryEntry[]
+  ledger          CurrencyLedger[]
+  listings        MarketListing[]
+  relationships   Relationship[]
+  memories        NpcMemory[]
+  notifications   Notification[]
+  titles          PlayerTitle[]
+  achievements    PlayerAchievement[]
+  activeEvents    ActiveEvent[]
+  opportunities   Opportunity[] @relation("PlayerOpportunities")
+  groupMemberships GroupMember[]
+  soulCharacter   SoulCharacter?
+  combats         CombatEncounter[]
+  challengesIssued  GroupChallenge[] @relation("ChallengeChallenger")
+  challengesReceived GroupChallenge[] @relation("ChallengeTarget")
+}
+
+// ─── V7: Soulbound Character System ──────────────────────────────────────────
+// هر بازیکن دقیقاً یک همدمِ روح‌بسته دارد (playerId @unique = invariant).
+// کلاس همیشگی است؛ آمار از (کلاس + سطح + مهارت‌ها) در زمانِ نمایش محاسبه
+// می‌شود — نه ذخیره‌ی تکراری. پیشرفتِ XP چند-مسیره در xpJson.
+
+model SoulCharacter {
+  id              String    @id @default(cuid())
+  playerId        String    @unique
+  name            String
+  classKey        String // کلاسِ همیشگی (shinobi|ranger|wizard|trickster|paladin|duelist|summoner|reaper)
+  evolution       Int       @default(0) // مرحله‌ی فرگشت 0..3
+  level           Int       @default(1)
+  totalXp         Int       @default(0) // مجموعِ همه‌ی مسیرها (زمام‌گیرنده‌ی سطح)
+  xpJson          String    @default("{}") // track → xp (battle|arcane|agility|fortune|guard|trickery|spirit)
+  spirit          Int       @default(100) // 0..100
+  stamina         Int       @default(18)
+  staminaMax      Int       @default(18)
+  staminaAt       DateTime  @default(now()) // نقطه‌ی مرجعِ بازسازی (server-authoritative)
+  skillPoints     Int       @default(1)
+  skillsJson      String    @default("{}") // skillId → rank
+  // ── V10: هسته‌ی عمیقِ فمبوی ──
+  masteryXp       Int       @default(0) // کلاس-تسلط: XPِ استفاده‌ی معنادار از مکانیک‌های کلاس
+  masteryDaily    String    @default("{}") // شمارنده‌های ضد-مزرعه ({day, victories, interacts, events})
+  evolutionPath   String    @default("[]") // انتخابِ شاخه‌ی هر مرحله‌ی فرگشت ([0|1, …])
+  appearanceJson  String    @default("{}") // کیهاناتِ پوشیده: {accessory?, palette?, frame?}
+  cosmeticsJson   String    @default("{}") // کیهاناتِ کسب‌شده: key → {source, at}
+  wins            Int       @default(0)
+  losses          Int       @default(0)
+  crits           Int       @default(0) // شمار تریگرهای ویژه‌ی passive/کریت
+  bond            Int       @default(0) // پیوند با بازیکن (interactions، 0..999)
+  lastInteractAt  DateTime?
+  lastNameChangeAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  player          Player    @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  logs            CharacterLog[]
+
+  @@index([classKey, level])
+}
+
+// تاریخِ همدم — اتفاق‌های معنادار (ساخت، تغییر اسم، فرگشت، رتبه، برد/باخت‌های
+// مهم، مایل‌استون‌ها). ثبتِ هر عملِ پیش‌پاافتاده ممنوع.
+model CharacterLog {
+  id          String    @id @default(cuid())
+  characterId String
+  type        String // creation|name|evolution|level|rank|victory|defeat|duel|milestone|bond
+  icon        String
+  text        String
+  isPublic    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+
+  character   SoulCharacter @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  @@index([characterId, createdAt])
+}
+
+// نبردِ روند-محور: هر راند با کال‌بک/اکشنِ سرور حل می‌شود؛ راند داخل
+// تراکنش با فلگِ شرطی جلو می‌رود تا کال‌بکِ تکراری دوباره حلش نکند.
+model CombatEncounter {
+  id          String    @id @default(cuid())
+  playerId    String
+  kind        String    @default("pve") // pve | duel (pvp)
+  enemyKey    String? // PvE
+  foeId       String? // PvP — playerId حریف
+  groupId     String? // نبردِ گروهی
+  round       Int       @default(1)
+  stateJson   String    @default("{}") // hp/باف‌ها/منبعِ کلاس/log
+  status      String    @default("active") // active|won|lost|fled
+  resultJson  String? // پاداش‌ها + روایتِ نهایی
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime? // رهاسازی → خودبه‌خود fled
+  resolvedAt  DateTime?
+
+  player      Player    @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@index([playerId, status])
+  @@index([status, expiresAt])
+}
+
+// ─── World ────────────────────────────────────────────────────────────────────
+
+model WorldState {
+  id                String   @id @default("world") // singleton
+  createdAt         DateTime @default(now())
+  weather           String   @default("clear") // clear | rain | storm | fog | red_moon
+  mood              String   @default("calm") // calm | tense | festive | weird
+  chaosLevel        Int      @default(10)
+  economyIndex      Int      @default(100) // market price multiplier base
+  dayCount          Int      @default(1)
+  activeGlobalEvent String? // key of running global event
+  globalEventEndsAt DateTime?
+  lastTickAt        DateTime @default(now())
+}
+
+model WorldFeed {
+  id        String   @id @default(cuid())
+  worldId   String   @default("world")
+  icon      String
+  text      String
+  createdAt DateTime @default(now())
+
+  @@index([worldId, createdAt])
+}
+
+// ─── Events (instances; definitions live in code) ────────────────────────────
+
+model ActiveEvent {
+  id          String    @id @default(cuid())
+  playerId    String
+  eventKey    String
+  category    String    @default("story")
+  rarity      String    @default("common")
+  chainStep   Int       @default(0) // index into event chain
+  chainKey    String? // owning chain id
+  data        String    @default("{}") // chain context / variables (JSON)
+  status      String    @default("active") // active | resolved | expired
+  optionLabel String? // chosen option label
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime?
+  resolvedAt  DateTime?
+
+  player      Player    @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@index([playerId, status])
+}
+
+// ─── Inventory / Market ───────────────────────────────────────────────────────
+
+model InventoryItem {
+  id         String   @id @default(cuid())
+  playerId   String
+  itemKey    String
+  quantity   Int      @default(1)
+  equipped   Boolean  @default(false)
+  favorite   Boolean  @default(false)
+  locked     Boolean  @default(false)
+  acquiredAt DateTime @default(now())
+
+  player     Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([playerId, itemKey])
+  @@index([playerId])
+}
+
+model MarketListing {
+  id         String    @id @default(cuid())
+  sellerId   String? // null → NPC shop stock
+  itemKey    String
+  quantity   Int       @default(1)
+  price      Int
+  status     String    @default("active") // active | sold | cancelled
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime? // فقط آگهی‌های بازیکن — NPC استوک ندارد (null = بی‌نهایت)
+  soldAt     DateTime?
+
+  seller     Player?   @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+
+  @@index([status, itemKey])
+}
+
+model MarketPrice {
+  itemKey  String   @id
+  base     Int
+  current  Int
+  trend    Int      @default(0) // % vs yesterday
+  history  String   @default("[]") // last N multipliers (JSON)
+  updatedAt DateTime @default(now())
+}
+
+// ─── Economy audit ────────────────────────────────────────────────────────────
+
+model CurrencyLedger {
+  id           String   @id @default(cuid())
+  playerId     String
+  amount       Int // signed
+  balanceAfter Int
+  source       String // event | job | market | pet | house | trade | debt | reward | gamble | misc
+  note         String   @default("")
+  createdAt    DateTime @default(now())
+
+  player       Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@index([playerId, createdAt])
+}
+
+// ─── History ──────────────────────────────────────────────────────────────────
+
+model HistoryEntry {
+  id        String   @id @default(cuid())
+  playerId  String
+  icon      String
+  text      String
+  category  String   @default("event") // event | money | pet | house | job | world | social | crime
+  isPublic  Boolean  @default(true) // can appear in world feed / profile story
+  day       Int      @default(1)
+  createdAt DateTime @default(now())
+
+  player    Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@index([playerId, createdAt])
+}
+
+// ─── NPCs ─────────────────────────────────────────────────────────────────────
+
+model Relationship {
+  id        String   @id @default(cuid())
+  playerId  String
+  npcKey    String
+  trust     Int      @default(0)
+  affection Int      @default(0)
+  respect   Int      @default(0)
+  fear      Int      @default(0)
+  updatedAt DateTime @default(now())
+
+  player    Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([playerId, npcKey])
+}
+
+model NpcMemory {
+  id        String   @id @default(cuid())
+  npcKey    String
+  playerId  String
+  memory    String // "player returned the wallet"
+  sentiment Int      @default(0) // -100..100
+  createdAt DateTime @default(now())
+
+  player    Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@index([npcKey, playerId])
+}
+
+// ─── Pets ─────────────────────────────────────────────────────────────────────
+
+model Pet {
+  id         String   @id @default(cuid())
+  playerId   String
+  speciesKey String
+  name       String
+  rarity     String   @default("common")
+  personality String  @default("curious")
+  hunger     Int      @default(70) // 0..100 (higher = fed)
+  energy     Int      @default(80)
+  loyalty    Int      @default(30)
+  mood       String   @default("content")
+  adoptedAt  DateTime @default(now())
+  petFlag    String   @default("") // e.g. "ran_away_pending"
+
+  player     Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@index([playerId])
+}
+
+// ─── Notifications ────────────────────────────────────────────────────────────
+
+model Notification {
+  id        String   @id @default(cuid())
+  playerId  String
+  icon      String
+  title     String
+  body      String
+  kind      String   @default("info") // info | event | warning | reward | npc
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  player    Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@index([playerId, read])
+}
+
+// ─── Achievements / Titles ────────────────────────────────────────────────────
+
+model PlayerAchievement {
+  id            String   @id @default(cuid())
+  playerId      String
+  achievementKey String
+  unlockedAt    DateTime @default(now())
+
+  player        Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([playerId, achievementKey])
+}
+
+model PlayerTitle {
+  id        String   @id @default(cuid())
+  playerId  String
+  titleKey  String
+  active    Boolean  @default(false)
+  grantedAt DateTime @default(now())
+
+  player    Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([playerId, titleKey])
+}
+
+// ─── V4: Opportunities (transient time-limited offers) ────────────────────────
+
+model Opportunity {
+  id            String    @id @default(cuid())
+  key           String // template key
+  playerId      String
+  player        Player    @relation("PlayerOpportunities", fields: [playerId], references: [id], onDelete: Cascade)
+  kind          String // deal | job | social | mystery | city
+  title         String
+  icon          String
+  description   String
+  sourceLabel   String
+  rewardPreview String
+  claimStyle    String // safe | risky | wild
+  payloadJson   String? // reward payload (JSON)
+  expiresAt     DateTime
+  claimedAt     DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([playerId, expiresAt])
+}
+
+// ─── V5: The Group as a Living World ──────────────────────────────────────────
+// هر گروه تلگرام = یک مکان پایدار در جهان FEMBOY WAR.
+// GroupWorld هویت/مود/اقتصاد/فرهنگ خودش را دارد؛ اعضا/رابطه‌ها/رویدادها/
+// شایعه‌ها/پروژه‌ها/بازی‌ها/معماها همگی گروه-آگاه و ایزوله‌اند.
+
+model GroupWorld {
+  id             String   @id @default(cuid())
+  chatId         String   @unique // telegram chat id (string)
+  title          String   @default("شهرِ بی‌نام")
+  district       String   @default("old_town") // کدام محله‌ی جهان
+  mood           String   @default("calm") // calm | tense | festive | weird
+  state          String   @default("normal") // normal|tense|festival|election|crisis|chaos|mystery|lockdown|celebration
+  weather        String   @default("clear")
+  chaos          Int      @default(20) // 0..100
+  socialTemp     Int      @default(50) // 0..100 دمای اجتماعی
+  crimeLevel     Int      @default(10)
+  treasury       Int      @default(0) // صندوق جمعی
+  influence      Int      @default(0)
+  reputation     Int      @default(50)
+  population     Int      @default(0) // cache تعداد اعضا
+  cultureJson    String   @default("{}") // شمارنده‌های رفتاری → هویت فرگت
+  cultureTag     String   @default("unset") // peaceful|chaotic|competitive|social|criminal|comedic|mysterious
+  achievementsJson String @default("[]")
+  settingsJson   String   @default("{}") // شدت رویداد/کول‌داون مدیریت‌ها
+  lastEventAt    DateTime @default(now())
+  lastTickAt     DateTime @default(now())
+  lastBotMsgAt   DateTime @default(now()) // بودجه‌ی مداخله
+  lastRhythmKey  String   @default("") // آخرین ریتم روزانه (morning/evening/night)
+  lastRhythmAt   DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  members        GroupMember[]
+  events         GroupEvent[]
+  memories       GroupMemory[]
+  rumors         GroupRumor[]
+  news           GroupNews[]
+  histories      GroupHistory[]
+  projects       GroupProject[]
+  votes          GroupVote[]
+  games          GameSession[]
+  mysteries      GroupMystery[]
+  factions       GroupFaction[]
+  outbox         GroupOutbox[]
+  challenges     GroupChallenge[]
+}
+
+model GroupMember {
+  id              String    @id @default(cuid())
+  groupId         String
+  playerId        String
+  role            String? // شهردار/کلانتر/... (کلید نقش سیاسی)
+  roleSince       DateTime?
+  title           String? // عنوانِ فرگت (فارسی، با ایموجی)
+  reputationJson  String    @default("{}") // trust|fame|fear|respect|chaos|humor|danger 0..100
+  messageCount    Int       @default(0)
+  gameCount       Int       @default(0)
+  eventCount      Int       @default(0)
+  winCount        Int       @default(0)
+  memeCount       Int       @default(0)
+  firstSeenAt     DateTime  @default(now())
+  lastSeenAt      DateTime  @default(now())
+  lastRecapSeenAt DateTime  @default(now())
+  returningPending Boolean  @default(false) // خلاصه‌ی «برگشتی» بدهکار است
+
+  group           GroupWorld @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  player          Player     @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, playerId])
+  @@index([groupId, lastSeenAt])
+}
+
+model GroupEvent {
+  id           String    @id @default(cuid())
+  groupId      String
+  templateId   String
+  kind         String // personal|social|group|npc|economic|political|meme|competition|cooperative|mystery|chaos|world
+  title        String
+  body         String
+  emoji        String
+  choicesJson  String    @default("[]") // [{key,label,style}]
+  payloadJson  String    @default("{}") // متغیرهای قالب + stakes + پیوندها
+  status       String    @default("open") // open | resolved | expired
+  messageId    String?
+  expiresAt    DateTime?
+  resolvedAt   DateTime?
+  outcomeJson  String? // نتیجه‌ی نهایی برای تاریخ
+  createdAt    DateTime  @default(now())
+
+  group         GroupWorld @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  participants  GroupEventParticipant[]
+
+  @@index([groupId, status])
+}
+
+model GroupEventParticipant {
+  id         String   @id @default(cuid())
+  eventId    String
+  playerId   String // بدون FK — نام‌ها جداگانه واکشی می‌شوند
+  choiceKey  String
+  createdAt  DateTime @default(now())
+
+  event      GroupEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, playerId])
+}
+
+model PlayerRelationship {
+  id             String   @id @default(cuid())
+  groupId        String
+  aId            String // همیشه playerId کوچک‌ترِ الفبایی → یکتایی جفت
+  bId            String
+  friendship     Int      @default(0) // -100..100
+  rivalry        Int      @default(0)
+  trust          Int      @default(0)
+  hostility      Int      @default(0)
+  cooperation    Int      @default(0)
+  tension        Int      @default(0)
+  sharedMemories Int      @default(0)
+  updatedAt      DateTime @default(now())
+
+  @@unique([groupId, aId, bId])
+  @@index([groupId])
+}
+
+model GroupMemory {
+  id             String   @id @default(cuid())
+  groupId        String
+  kind           String // moment|scandal|victory|meme|legend|signal
+  memeKey        String? // کلید سیگنال تکرارشونده (برای میم‌ها)
+  text           String
+  originPlayerId String?
+  confidence     Int      @default(50) // 0..100
+  usageCount     Int      @default(0)
+  importance     Int      @default(50) // 0..100 — ماندگاری
+  lastUsedAt     DateTime @default(now())
+  expiresAt      DateTime? // زوال حافظه
+  createdAt      DateTime @default(now())
+
+  group          GroupWorld @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, kind])
+  @@index([groupId, memeKey])
+}
+
+model GroupRumor {
+  id             String   @id @default(cuid())
+  groupId        String
+  text           String
+  truth          Boolean  @default(false)
+  confidence     Int      @default(50) // 0..100 — احتمال درستی از دید شهر
+  spreadCount    Int      @default(0)
+  investigatedJson String @default("[]") // [playerId] — چه کسانی تحقیق کردند (XP فقط یک‌بار)
+  originPlayerId String?
+  status         String   @default("active") // active | dead
+  expiresAt      DateTime?
+  createdAt      DateTime @default(now())
+
+  group          GroupWorld @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, status])
+}
+
+model GroupNews {
+  id        String   @id @default(cuid())
+  groupId   String
+  icon      String
+  text      String
+  createdAt DateTime @default(now())
+
+  group     GroupWorld @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, createdAt])
+}
+
+model GroupHistory {
+  id         String   @id @default(cuid())
+  groupId    String
+  icon       String
+  text       String
+  importance Int      @default(50)
+  createdAt  DateTime @default(now())
+
+  group      GroupWorld @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, createdAt])
+}
+
+model GroupProject {
+  id              String    @id @default(cuid())
+  groupId         String
+  templateId      String
+  name            String
+  emoji           String
+  goal            Int // هزینه‌ی کل (سکه)
+  contributedJson String    @default("{}") // playerId → مبلغ
+  status          String    @default("building") // building | done
+  completedAt     DateTime?
+  createdAt       DateTime  @default(now())
+
+  group           GroupWorld @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, status])
+}
+
+model GroupVote {
+  id          String    @id @default(cuid())
+  groupId     String
+  kind        String // election | court | poll | project | game | impeach
+  subject     String // عنوان رأی‌گیری
+  optionsJson String    @default("[]") // [{key,label,style,playerId?}]
+  tallyJson   String    @default("{}") // key → [playerIds]
+  status      String    @default("open") // open | closed
+  payloadJson String    @default("{}") // نقش/پروژه/بازی مرتبط
+  messageId   String?
+  closesAt    DateTime
+  resolvedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  group       GroupWorld @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, status])
+}
+
+model GameSession {
+  id         String    @id @default(cuid())
+  groupId    String
+  gameKey    String
+  phase      String    @default("lobby") // lobby | quiz | vote | bidding | brief | done
+  stateJson  String    @default("{}") // سؤال/نقش‌ها/کاندیداها/مرحله‌ی درونی
+  participantsJson String @default("[]") // [{playerId, data:{}}]
+  messageId  String?
+  status     String    @default("open") // open | done | aborted
+  closesAt   DateTime? // مهلت فاز فعلی
+  resolvedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  group      GroupWorld @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, status])
+}
+
+model GroupMystery {
+  id         String   @id @default(cuid())
+  groupId    String
+  threadId   String // کلید قالب معما
+  title      String
+  cluesJson  String   @default("[]") // [{text, revealed, byPlayerId}]
+  progress   Int      @default(0) // سرنخ‌های یافت‌شده
+  status     String   @default("dormant") // dormant | active | solved
+  payloadJson String  @default("{}")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  group      GroupWorld @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, threadId])
+}
+
+model GroupFaction {
+  id          String   @id @default(cuid())
+  groupId     String
+  name        String
+  emoji       String
+  leaderId    String? // playerId
+  membersJson String   @default("[]") // [playerId]
+  color       String   @default("violet")
+  createdAt   DateTime @default(now())
+
+  group       GroupWorld @relation(fields: [groupId], references: [id], onDelete: Cascade)
+}
+
+// ─── V13: دعوتِ دوئل — چرخه‌ی حیاتِ رضایتی (§5.2) ───────────────────────────────
+// موتور تنها مرجع است: ایجاد (create) → دعوت‌نامه از outbox → قبول/رد/لغو با
+// فلیپِ شرطی (بازپخش/دوبار-قبولی غیرممکن) → حلِ اقتدارگرا با duelCharacters →
+// کارتِ نتیجه با ویرایشِ همان پیامِ دعوت (editMessageId) یا کارتِ تازه.
+model GroupChallenge {
+  id           String    @id @default(cuid())
+  groupId      String // نوعِ GroupWorld.id (cuid رشته‌ای) — طرحِ مأموریت «Int» نوشته بود که با اسکیمای موجود نمی‌نشیند
+  challengerId String
+  targetId     String
+  status       String    @default("pending") // pending|accepted|declined|cancelled|expired|resolved
+  createdAt    DateTime  @default(now())
+  expiresAt    DateTime
+  respondedAt  DateTime?
+  resolvedAt   DateTime?
+  messageId    String? // telegram message id — همان نوعِ GroupEvent.messageId
+  outcomeJson  String?
+  group        GroupWorld @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  challenger   Player     @relation("ChallengeChallenger", fields: [challengerId], references: [id], onDelete: Cascade)
+  target       Player     @relation("ChallengeTarget", fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, status])
+  @@index([challengerId, status])
+  @@index([targetId, status])
+}
+
+// صف خروجی موتور → ربات تحویل می‌دهد (server-authoritative)
+model GroupOutbox {
+  id           String    @id @default(cuid())
+  groupId      String
+  targetChatId String // گروه یا چت خصوصیِ بازیکن (برای سرنخ‌های نامتقارن)
+  kind         String // event|game|vote|news|rumor|recap|rhythm|reaction|clue|system|spawn_event
+  text         String // HTML
+  buttonsJson  String    @default("[]") // [{label,style?,cb?|url?}]
+  refType      String? // game|vote|event|player
+  refId        String?
+  priority     Int      @default(5) // 1..9 — بالا=zودتر
+  editMessageId String? // اگر ست باشد ربات به‌جای ارسال، ویرایش می‌کند
+  messageId    String? // تلگرام message id بعد از تحویل (برای ویرایش‌های آینده)
+  deliverAfter DateTime  @default(now()) // زمان‌بندی (پیگیری‌های آینده)
+  claimedAt    DateTime?
+  deliveredAt  DateTime?
+  createdAt    DateTime  @default(now())
+
+  group        GroupWorld @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, deliveredAt, priority])
+}
+
+// ثبت تصمیم‌های ربات (بازبینی/دیباگ حضور)
+model BotDecision {
+  id         String   @id @default(cuid())
+  groupId    String
+  trigger    String
+  confidence Float
+  decision   String // speak|react|wait|ignore|create_event|create_game|follow_up|rumor
+  reason     String
+  createdAt  DateTime @default(now())
+
+  @@index([groupId, createdAt])
+}

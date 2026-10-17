@@ -1,0 +1,95 @@
+import type { NpcDef } from "../types"
+
+export const NPCS: NpcDef[] = [
+  {
+    key: "arash",
+    name: "آرش",
+    emoji: "🕶",
+    occupation: "دلال بازار",
+    district: "bazaar",
+    personality: "طمع‌کار ولی خوش‌قول",
+    description: "همیشه یه معامله تو جیبشه. نصفش قانونیه. نصف دیگه‌ش رو خودش قانونی کرده.",
+    base: { trust: 10, affection: 0, respect: 15, fear: 0 },
+    secret: "قرض بزرگی به یکی تو منطقه‌ی ممنوعه داره",
+  },
+  {
+    key: "mahoor",
+    name: "خانم ماهور",
+    emoji: "☕",
+    occupation: "صاحب کافه‌ی ماهور",
+    district: "center",
+    personality: "مهربان، ولی چیزی ازش پنهان نمی‌مونه",
+    description: "کافه‌ش همیشه بازه. حتی وقتی به نظر می‌رسه بسته‌ست. همه‌چیز رو از پشت پیشخوان می‌بینه.",
+    base: { trust: 30, affection: 20, respect: 20, fear: 0 },
+  },
+  {
+    key: "sargord_nemati",
+    name: "سرگرد نعمتی",
+    emoji: "🚔",
+    occupation: "پلیس خسته",
+    district: "center",
+    personality: "خسته از همه‌چیز، ولی نه از تو... هنوز",
+    description: "27 ساله تو این شهره. چیزی که دیده رو با هیچ‌کی تعریف نکرده. نگاهش همیشه یه ثانیه بیشتر روی تو می‌مونه.",
+    base: { trust: 15, affection: 0, respect: 10, fear: 20 },
+    secret: "پرونده‌ای درباره‌ی «اردک‌ها» داره",
+  },
+  {
+    key: "roghayeh",
+    name: "رقیه",
+    emoji: "💻",
+    occupation: "هکر ناشناس",
+    district: "industrial",
+    personality: "سرد، دقیق، غایب",
+    description: "کسی صورتش رو ندیده. فقط یه تلگرام داره که جواب میده. بعضی وقتا.",
+    base: { trust: 0, affection: 0, respect: 5, fear: 10 },
+    secret: "یه سابقه‌ی پاک‌کردنی داره",
+  },
+  {
+    key: "amoo_ghanbar",
+    name: "عمو قنبر",
+    emoji: "🛒",
+    occupation: "مغازه‌دار قدیمی",
+    district: "old_town",
+    personality: "پچ‌پچو، مهربون، فراموش‌کار",
+    description: "مغازه‌ش پر از چیزهاییه که دیگه ساخته نمی‌شن. می‌گه اینجا از 40 سال پیش هم عجیب‌تر بوده.",
+    base: { trust: 35, affection: 25, respect: 15, fear: 0 },
+  },
+  {
+    key: "kimo",
+    name: "کیمو",
+    emoji: "🧢",
+    occupation: "بچه‌ی خیابونِ زیرک",
+    district: "old_town",
+    personality: "زیرک، شیطون، دانای کل",
+    description: "13 ساله و همه‌چیز درباره‌ی همه می‌دونه. یه بسته‌ی کوچیک همیشه زیر بازویشه.",
+    base: { trust: 20, affection: 10, respect: 5, fear: 5 },
+  },
+  {
+    key: "daii_farhad",
+    name: "دایی فرهاد",
+    emoji: "💼",
+    occupation: "قرض‌دهنده",
+    district: "forbidden",
+    personality: "آرام، لبخندزن، خطرناک",
+    description: "پول قرض می‌ده با لبخند. پس گرفتنش با لبخند نیست. بوی آفتاب‌کرم می‌ده.",
+    base: { trust: 0, affection: 0, respect: 25, fear: 45 },
+    secret: "به هیچ‌کس ندونسته که چرا اسمش «دایی»ـه",
+  },
+  {
+    key: "unknown",
+    name: "؟؟؟",
+    emoji: "👤",
+    occupation: "هیچ‌کدوم از این‌ها",
+    district: "forbidden",
+    personality: "—",
+    description: "تو مطمئنی این آدم قبلاً اینجا نبود؟ الان هم نیست. ولی دیدیش. مطمئنی دیدیش.",
+    base: { trust: 0, affection: 0, respect: 0, fear: 30 },
+    secret: "چیزی که اسم نداره",
+  },
+]
+
+export const NPC_MAP: Record<string, NpcDef> = Object.fromEntries(NPCS.map((n) => [n.key, n]))
+
+export function getNpc(key: string): NpcDef | undefined {
+  return NPC_MAP[key]
+}

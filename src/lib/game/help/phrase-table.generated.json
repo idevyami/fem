@@ -1,0 +1,562 @@
+{
+  "generatedAt": "2026-10-17T04:00:00.803Z",
+  "intents": [
+    {
+      "id": "menu",
+      "faSummary": "خانه‌ی اصلی را باز می‌کند — در گروه، خانه‌ی شهر.",
+      "expectFa": "کارتِ منو با دکمه‌های ناوبریِ همان سطح (خصوصی/گروه).",
+      "where": "both",
+      "open": true,
+      "aliasesFa": [
+        "منو",
+        "پیشخوان"
+      ],
+      "aliasesEn": [
+        "menu"
+      ]
+    },
+    {
+      "id": "start",
+      "faSummary": "بازی را شروع می‌کند/معرفی می‌کند.",
+      "expectFa": "در خصوصی، کارتِ آغاز و مسیرِ پیمانِ فمبوی؛ در گروه، کارتِ خانه‌ی شهر.",
+      "where": "both",
+      "open": true,
+      "aliasesFa": [
+        "شروع بازی",
+        "شروع"
+      ],
+      "aliasesEn": [
+        "start",
+        "start game"
+      ]
+    },
+    {
+      "id": "duel",
+      "faSummary": "جنگِ فمبوی — دعوتِ دوئل با رضایتِ حریف (گروه).",
+      "expectFa": "اگر با reply روی حریف بگویی: دعوت‌نامه با دکمه‌های قبول/رد/لغو.",
+      "where": "both",
+      "open": true,
+      "aliasesFa": [
+        "جنگ فمبوی",
+        "دوئل",
+        "دعوت به دوئل"
+      ],
+      "aliasesEn": [
+        "duel",
+        "femboy battle"
+      ]
+    },
+    {
+      "id": "duels",
+      "faSummary": "دوئل‌ها — دعوت‌های دوئلِ بازِ شهرِ گروه.",
+      "expectFa": "فهرستِ دعوت‌های باز با وضعیتشان (گروه).",
+      "where": "both",
+      "open": true,
+      "aliasesFa": [
+        "دوئل‌ها",
+        "دوئلهای گروه",
+        "نبردها",
+        "نبردها و رقابت‌ها"
+      ],
+      "aliasesEn": [
+        "duels"
+      ]
+    },
+    {
+      "id": "economy",
+      "faSummary": "اقتصادِ شهر — صندوق، اعتبار و آگهی‌های شهرِ گروه.",
+      "expectFa": "کارتِ اقتصاد با شاخص‌ها و پلِ بازارِ شخصی (گروه).",
+      "where": "both",
+      "open": true,
+      "aliasesFa": [
+        "اقتصاد",
+        "اقتصاد شهر",
+        "صندوق شهر"
+      ],
+      "aliasesEn": [
+        "economy"
+      ]
+    },
+    {
+      "id": "fame",
+      "faSummary": "افتخارات — تالار و دستاوردهای همین شهرِ گروه.",
+      "expectFa": "کارتِ افتخارات با تخته‌های شهر (گروه).",
+      "where": "both",
+      "open": true,
+      "aliasesFa": [
+        "افتخارات",
+        "دستاوردها",
+        "مأموریت‌ها و دستاوردها",
+        "ماموریتها و دستاوردها"
+      ],
+      "aliasesEn": [
+        "fame",
+        "hall"
+      ]
+    },
+    {
+      "id": "help",
+      "faSummary": "کارتِ راهنما را باز می‌کند؛ راهنمای کامل (کدکس) از همان کارت.",
+      "expectFa": "کارتِ راهنمای همان سطح + دکمه‌ی «📚 راهنمای کامل».",
+      "where": "both",
+      "open": true,
+      "aliasesFa": [
+        "راهنما",
+        "کمک"
+      ],
+      "aliasesEn": [
+        "help"
+      ]
+    },
+    {
+      "id": "guide",
+      "faSummary": "«قدمِ بعدی» — قدمِ بعدیِ تو را از وضعیتِ واقعی می‌گوید (نامِ قدیمی: «راهنمای من»).",
+      "expectFa": "حداکثر 4 پیشنهادِ دلیل‌دار (خصوصی/مینی‌اپ).",
+      "where": "private",
+      "open": false,
+      "aliasesFa": [
+        "قدمِ بعدی",
+        "راهنمای من",
+        "حالا چیکار کنم",
+        "الان چیکار کنم"
+      ],
+      "aliasesEn": [
+        "guide"
+      ]
+    },
+    {
+      "id": "femboy",
+      "faSummary": "هابِ فمبوی: پیمان، پروفایل، مهارت، نبرد و فرگشت.",
+      "expectFa": "منوی فمبوی یا کارتِ پیمان (اگر هنوز نساخته‌ای).",
+      "where": "both",
+      "open": true,
+      "aliasesFa": [
+        "فمبوی",
+        "پیمان",
+        "پیمان فمبوی"
+      ],
+      "aliasesEn": [
+        "femboy",
+        "pact"
+      ]
+    },
+    {
+      "id": "myfemboy",
+      "faSummary": "کارتِ عمومیِ فمبویِ خودت.",
+      "expectFa": "نام، کلاس، سطح، رتبه، فرگشت، تسلط، عنوانِ فعال.",
+      "where": "both",
+      "open": true,
+      "aliasesFa": [
+        "فمبوی من",
+        "کارت فمبوی من"
+      ],
+      "aliasesEn": [
+        "my femboy"
+      ]
+    },
+    {
+      "id": "profile",
+      "faSummary": "پروفایلِ بازیکنِ تو — جایگاه، مسیر و وضعیت.",
+      "expectFa": "کارتِ شخصیت با مقطع و نشانه‌های زندگی (خصوصی).",
+      "where": "private",
+      "open": false,
+      "aliasesFa": [
+        "من",
+        "پروفایل",
+        "شخصیت من",
+        "پروفایل من"
+      ],
+      "aliasesEn": [
+        "me",
+        "profile",
+        "my character"
+      ]
+    },
+    {
+      "id": "city",
+      "faSummary": "شهر را نشان می‌دهد — در خصوصی وضعیتِ محیطِ جهان، در گروه وضعیتِ شهر.",
+      "expectFa": "کارتِ شهر با هوا، حال‌وهوا، آشوب و صندوق.",
+      "where": "both",
+      "open": false,
+      "aliasesFa": [
+        "شهر",
+        "شهر من"
+      ],
+      "aliasesEn": [
+        "city"
+      ]
+    },
+    {
+      "id": "status",
+      "faSummary": "وضعیتِ بازی/شهر در یک نگاه.",
+      "expectFa": "کارتِ وضعیت (همان مسیرِ شهر).",
+      "where": "both",
+      "open": true,
+      "aliasesFa": [
+        "وضعیت شهر",
+        "وضعیت بازی",
+        "وضعیت"
+      ],
+      "aliasesEn": [
+        "status",
+        "city status",
+        "game status"
+      ]
+    },
+    {
+      "id": "events",
+      "faSummary": "رویدادها — در خصوصی اتفاقِ امروزِ تو، در گروه اتفاقِ تازه‌ی شهر.",
+      "expectFa": "کارتِ رویداد با انتخاب‌های قابلِ زدن.",
+      "where": "both",
+      "open": true,
+      "aliasesFa": [
+        "رویدادها",
+        "رویداد",
+        "اتفاق",
+        "اتفاق امروز"
+      ],
+      "aliasesEn": [
+        "events",
+        "event"
+      ]
+    },
+    {
+      "id": "players",
+      "faSummary": "بازیکن‌ها/اعضای شهر با چیپِ هویتِ فمبوی.",
+      "expectFa": "کارتِ شهروندهای مهم + نقش‌ها و آخرین حضور.",
+      "where": "both",
+      "open": true,
+      "aliasesFa": [
+        "بازیکنها",
+        "بازیکنهای گروه",
+        "اعضا",
+        "اعضای گروه"
+      ],
+      "aliasesEn": [
+        "players",
+        "members"
+      ]
+    },
+    {
+      "id": "leaderboard",
+      "faSummary": "برترین‌ها — تابلوی رتبه‌بندیِ بازیکن‌ها.",
+      "expectFa": "کارتِ برترین‌ها (خصوصی/گروه).",
+      "where": "both",
+      "open": true,
+      "aliasesFa": [
+        "رتبهبندی",
+        "برترینها",
+        "برترینهای شهر"
+      ],
+      "aliasesEn": [
+        "leaderboard",
+        "top"
+      ]
+    },
+    {
+      "id": "inventory",
+      "faSummary": "کیفِ تو: آیتم‌ها، استفاده، پوشیدن و فروش (خصوصی).",
+      "expectFa": "کارتِ کیف با دکمه‌ی هر آیتم.",
+      "where": "private",
+      "open": false,
+      "aliasesFa": [
+        "کیف",
+        "کیف من",
+        "کوله"
+      ],
+      "aliasesEn": [
+        "inventory",
+        "bag",
+        "my inventory"
+      ]
+    },
+    {
+      "id": "work",
+      "faSummary": "یک شیفتِ کاری می‌روی — درآمد با کول‌داون و ریسکِ شغل (خصوصی).",
+      "expectFa": "خطِ شیفت + درآمد (یا شیفتِ خراب با 35% دستمزد).",
+      "where": "private",
+      "open": false,
+      "aliasesFa": [
+        "کار",
+        "شیفت"
+      ],
+      "aliasesEn": [
+        "work"
+      ]
+    },
+    {
+      "id": "rest",
+      "faSummary": "استراحتِ 90 دقیقه‌ای: انرژی 100، سلامتی +15، روحیه‌ی فمبوی +6 (خصوصی).",
+      "expectFa": "پیامِ خواب + خطِ فمبوی کنارت.",
+      "where": "private",
+      "open": false,
+      "aliasesFa": [
+        "استراحت"
+      ],
+      "aliasesEn": [
+        "rest",
+        "sleep"
+      ]
+    },
+    {
+      "id": "champ",
+      "faSummary": "تالارِ افتخارات — 6 تابلوی برترین‌های فمبوی.",
+      "expectFa": "کارتِ تالار با تابلوی پیش‌فرض (سطح).",
+      "where": "both",
+      "open": true,
+      "aliasesFa": [
+        "تالار",
+        "تالار افتخارات"
+      ],
+      "aliasesEn": [
+        "champ",
+        "hall of fame"
+      ]
+    },
+    {
+      "id": "news",
+      "faSummary": "خبرنامه — رویدادهای جهانی و نبضِ شهر.",
+      "expectFa": "کارتِ خبرنامه.",
+      "where": "both",
+      "open": true,
+      "aliasesFa": [
+        "اخبار",
+        "خبرنامه"
+      ],
+      "aliasesEn": [
+        "news"
+      ]
+    },
+    {
+      "id": "games",
+      "faSummary": "بازی‌های گروهی — فهرستِ 20 بازیِ شهر (گروه).",
+      "expectFa": "کارتِ بازی‌ها با دکمه‌ی شروعِ هر بازی.",
+      "where": "both",
+      "open": true,
+      "aliasesFa": [
+        "بازیهای گروه",
+        "بازی گروهی",
+        "بازیها"
+      ],
+      "aliasesEn": [
+        "group games",
+        "games"
+      ]
+    },
+    {
+      "id": "cancel",
+      "faSummary": "جریانِ متنیِ فعال را لغو می‌کند (خصوصی).",
+      "expectFa": "«لغو شد» یا «چیزی برای لغو در جریان نیست.»",
+      "where": "both",
+      "open": false,
+      "aliasesFa": [
+        "لغو",
+        "انصراف",
+        "کنسل"
+      ],
+      "aliasesEn": [
+        "cancel"
+      ]
+    },
+    {
+      "id": "back",
+      "faSummary": "برگشت به پیشخوان.",
+      "expectFa": "کارتِ منو/خانه.",
+      "where": "both",
+      "open": true,
+      "aliasesFa": [
+        "بازگشت",
+        "برگشت",
+        "عقب"
+      ],
+      "aliasesEn": [
+        "back"
+      ]
+    },
+    {
+      "id": "goals",
+      "faSummary": "هدف‌های فعالِ تو — حداکثر 4 (خصوصی).",
+      "expectFa": "کارتِ هدف‌ها با پیشرفتِ هر کدام.",
+      "where": "private",
+      "open": false,
+      "aliasesFa": [
+        "اهداف"
+      ],
+      "aliasesEn": [
+        "goals"
+      ]
+    },
+    {
+      "id": "ops",
+      "faSummary": "فرصت‌های نفس‌کوتاه (خصوصی).",
+      "expectFa": "کارتِ فرصت‌ها با مهلتِ هر کدام.",
+      "where": "private",
+      "open": false,
+      "aliasesFa": [
+        "فرصت‌ها"
+      ],
+      "aliasesEn": [
+        "ops"
+      ]
+    },
+    {
+      "id": "dreams",
+      "faSummary": "آرزوهای بلندمدت — 10 آرزو (خصوصی).",
+      "expectFa": "کارتِ آرزوها با نوارِ پیشرفت.",
+      "where": "private",
+      "open": false,
+      "aliasesFa": [
+        "آرزوها"
+      ],
+      "aliasesEn": [
+        "dreams"
+      ]
+    },
+    {
+      "id": "market",
+      "faSummary": "بازار — مغازه‌ی محله و آگهی‌های مردم (خصوصی).",
+      "expectFa": "کارتِ بازار با قیمت‌های شناور.",
+      "where": "private",
+      "open": false,
+      "aliasesFa": [
+        "بازار",
+        "مغازه"
+      ],
+      "aliasesEn": [
+        "market"
+      ]
+    },
+    {
+      "id": "jobs",
+      "faSummary": "شغل‌ها — 6 شغل با درآمد/ریسک (خصوصی).",
+      "expectFa": "کارتِ شغل‌ها + شغلِ فعلیت.",
+      "where": "private",
+      "open": false,
+      "aliasesFa": [
+        "شغل‌ها"
+      ],
+      "aliasesEn": [
+        "jobs"
+      ]
+    },
+    {
+      "id": "debt",
+      "faSummary": "بدهیِ تو و پس‌دادنش (خصوصی).",
+      "expectFa": "مبلغِ بدهی + دکمه/مسیرِ پرداخت.",
+      "where": "private",
+      "open": false,
+      "aliasesFa": [
+        "بدهی",
+        "بدهی من"
+      ],
+      "aliasesEn": [
+        "debt"
+      ]
+    },
+    {
+      "id": "titles",
+      "faSummary": "عنوان‌هایت — 10 عنوان، یکی فعال (خصوصی).",
+      "expectFa": "کارتِ عنوان‌ها با فعال‌سازی.",
+      "where": "private",
+      "open": false,
+      "aliasesFa": [
+        "عنوان‌ها"
+      ],
+      "aliasesEn": [
+        "titles"
+      ]
+    },
+    {
+      "id": "notify",
+      "faSummary": "اعلان‌ها — خبرِ جایزه/رویداد/دستاورد (خصوصی).",
+      "expectFa": "فهرستِ اعلان‌های خوانده‌شده/خوانده‌نشده.",
+      "where": "private",
+      "open": false,
+      "aliasesFa": [
+        "اعلان‌ها"
+      ],
+      "aliasesEn": [
+        "notify"
+      ]
+    },
+    {
+      "id": "bingo",
+      "faSummary": "بینگوی مخرب — قمارِ شهر با ریسکِ واقعی (خصوصی).",
+      "expectFa": "کارتِ بینگو با شرط و شانس.",
+      "where": "private",
+      "open": false,
+      "aliasesFa": [
+        "بینگو"
+      ],
+      "aliasesEn": [
+        "bingo"
+      ]
+    },
+    {
+      "id": "vote",
+      "faSummary": "رأی‌گیریِ شهر — رأیِ باز یا انتخاباتِ فوری (گروه).",
+      "expectFa": "کارتِ رأی با گزینه‌های قابلِ زدن.",
+      "where": "both",
+      "open": true,
+      "aliasesFa": [
+        "رأی‌گیری",
+        "رای‌گیری"
+      ],
+      "aliasesEn": [
+        "vote"
+      ]
+    },
+    {
+      "id": "court",
+      "faSummary": "دادگاهِ شهر — متهم و اتهامِ واقعی، رأی با شهر (گروه).",
+      "expectFa": "کارتِ دادگاه با دکمه‌های رأی.",
+      "where": "both",
+      "open": true,
+      "aliasesFa": [
+        "دادگاه"
+      ],
+      "aliasesEn": [
+        "court"
+      ]
+    },
+    {
+      "id": "projects",
+      "faSummary": "پروژه‌های عمرانیِ شهر — کمکِ داوطلبانه (گروه).",
+      "expectFa": "کارتِ پروژه‌ها با پیشرفت و دکمه‌ی کمک.",
+      "where": "both",
+      "open": true,
+      "aliasesFa": [
+        "پروژه‌ها"
+      ],
+      "aliasesEn": [
+        "projects"
+      ]
+    },
+    {
+      "id": "history",
+      "faSummary": "تاریخچه‌ی شهر — سطرهای ثبت‌شده‌ی گذشته (گروه).",
+      "expectFa": "کارتِ تاریخچه.",
+      "where": "both",
+      "open": true,
+      "aliasesFa": [
+        "تاریخچه",
+        "تاریخچه شهر"
+      ],
+      "aliasesEn": [
+        "history"
+      ]
+    },
+    {
+      "id": "gadmin",
+      "faSummary": "تنظیماتِ بازیِ شهر — فقط ادمین‌های گروه (گروه).",
+      "expectFa": "کارتِ وضعیت؛ دکمه‌های تنظیم فقط برای ادمینِ تاییدشده.",
+      "where": "both",
+      "open": true,
+      "aliasesFa": [
+        "تنظیمات شهر",
+        "تنظیمات بازی"
+      ],
+      "aliasesEn": []
+    }
+  ]
+}
