@@ -1,13 +1,23 @@
 "use client"
 
 // کارت اتفاق + انکشاف نتیجه — کامپوننت‌های نمایشی؛ منطق در HomeScreen است
+// V17-2 (ممیزیِ ⑦): نتیجه دیگر «عددِ لختی» نیست — هر خط معنا می‌گیرد («چی یعنی؟»)
+// و بعد از نتیجه، یک «قدمِ بعدی» واقعی (از snapshot تازه، نه ساختگی) نشسته است.
+// V17-W2 (F3): منطقِ معناها و تایپِ قدمِ بعدی به ماژولِ مشترکِ ui/outcomeMeta رفت؛
+// ردیفِ «چی یعنی؟» و «قدمِ بعدی» هم کامپوننتِ مشترک شدند تا کارتِ نتیجه‌ی اکشن (F1)
+// و بلوکِ نتیجه‌ی تعامل (F2) همان زبان را بگویند.
 import * as React from "react"
 import { motion } from "framer-motion"
 import { Lock } from "lucide-react"
 import type { ActiveEventDTO, DeltaLineDTO, FemboyXpDTO, OutcomeDTO, Rarity } from "@/lib/game/contract"
 import { faNum, faSigned } from "./fa"
 import { Chip, RarityChip } from "./ui"
+import { outcomeMeaningEntries, type OutcomeNextStep } from "./ui/outcomeMeta"
 import { cn } from "@/lib/utils"
+
+/** تایپِ قدمِ بعدی — از موجِ ۱ این‌جا بود؛ حالا خانه‌اش ui/outcomeMeta است (F3).
+ * صادراتِ مجدد برای مصرف‌کننده‌هایِ موجود. */
+export type { OutcomeNextStep } from "./ui/outcomeMeta"
 
 const RARITY_HEX: Record<Rarity, string> = {
   common: "#a1a1aa",
@@ -18,7 +28,8 @@ const RARITY_HEX: Record<Rarity, string> = {
   unknown: "#94a3b8",
 }
 
-const TONE_TEXT: Record<DeltaLineDTO["tone"], string> = {
+/** رنگِ متنِ دلتا بر اساسِ لحنِ موتور — مشترک بینِ نتیجه‌های اتفاق/اکشن (V17-W2) */
+export const TONE_TEXT: Record<DeltaLineDTO["tone"], string> = {
   good: "text-emerald-300",
   bad: "text-rose-300",
   neutral: "text-zinc-400",
@@ -113,7 +124,16 @@ export function EventCard({ event, choosing, onChoose }: EventCardProps) {
 }
 
 /** انکشاف نتیجه — خط‌به‌خط و با وقفت‌های کوچک */
-export function OutcomeReveal({ outcome, onContinue }: { outcome: OutcomeDTO; onContinue: () => void }) {
+export function OutcomeReveal({
+  outcome,
+  onContinue,
+  nextStep,
+}: {
+  outcome: OutcomeDTO
+  onContinue: () => void
+  /** V17-2 — قدمِ بعدی از snapshotِ تازه (null = ردیف نمی‌نشیند) */
+  nextStep?: OutcomeNextStep | null
+}) {
   // V9 — جایزه‌ی XPِ فمبوی بعد از خط‌های تغییرات، با همان وقفتِ پله‌ای
   const femboyXpDelay = 0.3 + outcome.deltas.length * 0.09
   return (
@@ -163,6 +183,9 @@ export function OutcomeReveal({ outcome, onContinue }: { outcome: OutcomeDTO; on
                 <span className={cn("font-bold tabular-nums", TONE_TEXT[d.tone])}>{faSigned(d.amount)}</span>
               </motion.div>
             ))}
+
+            {/* V17-2 — «یعنیِ این عدد»: معنای آمارهای همین نتیجه، جمع‌شونده (V17-W2: کامپوننتِ مشترکِ F3) */}
+            <OutcomeMeaningsCollapsible deltas={outcome.deltas} />
           </div>
         ) : null}
 
@@ -260,6 +283,9 @@ export function OutcomeReveal({ outcome, onContinue }: { outcome: OutcomeDTO; on
           </motion.p>
         ) : null}
 
+        {/* V17-2 — قدمِ بعدی: از snapshotِ تازه، با رفتارِ واقعی (ممیزیِ ⑦) — V17-W2: کامپوننتِ مشترکِ F3 */}
+        {nextStep ? <OutcomeNextStepRow nextStep={nextStep} /> : null}
+
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -276,6 +302,103 @@ export function OutcomeReveal({ outcome, onContinue }: { outcome: OutcomeDTO; on
         </motion.div>
       </div>
     </motion.section>
+  )
+}
+
+/** V17-W2 (F3) — «چی یعنی؟» جمع‌شونده: معنای آمارهایِ همین نتیجه — کامپوننتِ مشترکِ
+ * نتیجه‌های اتفاق/اکشن/تعامل. منطق (فیلترِ برچسب‌ها، حداکثر ۳ خط) در ui/outcomeMeta است.
+ * وقتی معنایی نیست، هیچ نمی‌کشد. */
+export function OutcomeMeaningsCollapsible({
+  deltas,
+  delay = 0.5,
+}: {
+  deltas: { icon?: string; label: string }[]
+  /** وقفتِ ظاهرشدن — در کارت‌های فشرده‌تر زودتر (ثانیه) */
+  delay?: number
+}) {
+  const meanings = React.useMemo(() => outcomeMeaningEntries(deltas), [deltas])
+  const [open, setOpen] = React.useState(false)
+  if (meanings.length === 0) return null
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ delay, duration: 0.25 }}
+      className="mt-1 border-t border-white/10 pt-1.5"
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex min-h-11 w-full items-center justify-between gap-2 rounded-xl px-1 text-[11px] font-bold text-primary/90 transition-colors hover:text-primary"
+      >
+        <span>چی یعنی؟</span>
+        <span aria-hidden className={cn("text-[10px] transition-transform", open && "rotate-180")}>
+          ▾
+        </span>
+      </button>
+      {open ? (
+        <ul className="flex flex-col gap-1 pt-0.5">
+          {meanings.map((m) => (
+            <li key={m.label} className="text-[11px] leading-5 text-foreground/70">
+              <span aria-hidden className="me-1">
+                {m.icon}
+              </span>
+              <span className="font-bold text-foreground/85">{m.label}</span> = {m.text}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </motion.div>
+  )
+}
+
+/** V17-W2 (F3) — ردیفِ «قدمِ بعدی»: با کلیک (دکمه‌ی کامل) یا بدونِ کلیک (ردیفِ ایستا).
+ * همان JSXِ موجِ ۱ — حالا مشترک بینِ نتیجه‌های اتفاق/اکشن/تعامل. */
+export function OutcomeNextStepRow({ nextStep, delay = 0.8 }: { nextStep: OutcomeNextStep; delay?: number }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay, duration: 0.25 }}
+      className="mt-4"
+    >
+      {nextStep.onClick ? (
+        <button
+          type="button"
+          onClick={nextStep.onClick}
+          className="flex min-h-14 w-full select-none items-center gap-2.5 rounded-2xl border border-primary/25 bg-primary/[0.06] px-4 py-3 text-start transition-all duration-150 hover:bg-primary/[0.1] active:scale-[0.98]"
+        >
+          <span aria-hidden className="shrink-0 text-lg leading-none">
+            {nextStep.icon}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[13px] font-bold leading-5">
+              قدمِ بعدی: <span className="text-primary">{nextStep.label}</span>
+            </span>
+            {nextStep.hint ? (
+              <span className="mt-0.5 block text-[11px] leading-4 text-muted-foreground">{nextStep.hint}</span>
+            ) : null}
+          </span>
+          <span aria-hidden className="shrink-0 text-sm text-muted-foreground">←</span>
+        </button>
+      ) : (
+        <div
+          className="flex min-h-12 w-full items-center gap-2.5 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-2.5"
+          aria-label="قدمِ بعدی"
+        >
+          <span aria-hidden className="shrink-0 text-lg leading-none">
+            {nextStep.icon}
+          </span>
+          <span className="min-w-0 flex-1 text-[12px] font-semibold leading-5">
+            قدمِ بعدی: {nextStep.label}
+            {nextStep.hint ? (
+              <span className="mt-0.5 block text-[11px] font-normal leading-4 text-muted-foreground">{nextStep.hint}</span>
+            ) : null}
+          </span>
+        </div>
+      )}
+    </motion.div>
   )
 }
 

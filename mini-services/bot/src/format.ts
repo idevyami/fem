@@ -19,7 +19,9 @@
 import type {
   ActionResponse,
   ActiveEventDTO,
+  CatalogHouseDTO,
   CatalogResponse,
+  CatalogVehicleDTO,
   CityNewsResponse,
   DeltaLine,
   GameSnapshot,
@@ -28,6 +30,7 @@ import type {
   MarketSnapshot,
   OpportunityDTO,
   OutcomeDTO,
+  PlayerDTO,
   ProfileResponse,
 } from "./api"
 
@@ -187,6 +190,16 @@ export function homeText(opts: {
   const name = p?.name ?? opts.name
 
   const lines: string[] = ["🎀 <b>FEMBOY WAR</b>", "<i>خانه‌ی زندگی</i>", SEP, ""]
+
+  // V17-W2 (§4/§6، آینه‌ی پنلِ متمرکزِ مینی‌اپ): بازیکنِ پیش از پیمان یک صدایِ اصلی
+  // می‌خواهد، نه یازده دکمه‌ی هم‌وزن. یک خطِ «قدمِ بعدی» بالای کارت — همان الگویِ
+  // بنرِ هابِ فمبوی (V17-3) — فقط دکمه‌ای را تبلیغ می‌کند که همین کارت دارد (§16).
+  const journeyStage = snapshot?.journey?.stage
+  const preBound = journeyStage ? journeyStage === "new" || journeyStage === "awakened" : !f
+  if (preBound) {
+    lines.push(`🌱 <b>قدمِ بعدیِ تو:</b> پیمانِ فمبوی را ببند — دکمه‌ی «👑 فمبویِ من» همین کارت است.`)
+    lines.push("")
+  }
 
   // فمبوی — هویتِ مرکزیِ بازیکن، اول از همه
   if (f) {
@@ -418,7 +431,14 @@ export function dreamsText(g: GuideResponse): string {
 /** پروفایل ۲.۰ — ترکیبِ ProfileResponse موتور + زمینه‌های V4 از guide */
 export function profileText(p: ProfileResponse, g: GuideResponse | null): string {
   const pl = p.player
-  const lines: string[] = [`👤 <b>${esc(pl.name)}</b> — سطح ${chip(pl.level)}`, SEP, ""]
+  const lines: string[] = [`👤 <b>${esc(pl.name)}</b> — سطح ${chip(pl.level)}`]
+  // V17-W2 (§12): سیمِ XP که V17-1 وصل کرد حالا دیده هم می‌شود — «چقدر تا سطحِ بعد».
+  // همین نوار در مینی‌اپ (MeScreen) هست؛ §11: یک حقیقت، یک زبان، همه‌ی سطح‌ها.
+  if (pl.xp !== undefined && pl.xpToNext !== undefined && pl.xpToNext > 0) {
+    const xpPct = Math.min(100, Math.round((pl.xp / pl.xpToNext) * 100))
+    lines.push(`✨ ${chip(faNum(pl.xp))}/${chip(faNum(pl.xpToNext))} تا سطحِ ${chip(faNum(pl.level + 1))} — ${bar(xpPct, 8)}`)
+  }
+  lines.push(SEP, "")
 
   if (g) {
     const st = g.stage
@@ -452,6 +472,16 @@ export function profileText(p: ProfileResponse, g: GuideResponse | null): string
   ]
   lines.push(assets.join(" · "))
   lines.push(`📍 ${pl.districtEmoji} ${esc(pl.districtName)} · 💰 ${chip(pl.money)} سکه · ⚡ ${chip(pl.energy)}`)
+  // V17-W3 (W3-F4) — پیوستگیِ کار (پاداشِ تا +۳۰٪ دستمزد) — همان چیزی که نتیجه‌ی
+  // شیفت می‌گوید حالا در پروفایل هم دیده می‌شود؛ §11: یک حقیقت، یک زبان، همه‌ی سطح‌ها.
+  if (pl.workStreak !== undefined && pl.workStreak > 0 && pl.job) {
+    const pct = Math.min(30, pl.workStreak * 3)
+    lines.push(
+      pct >= 30
+        ? `🔥 پیوستگیِ کار: ${chip(faNum(pl.workStreak))} شیفت — پاداشِ کاملِ دستمزد (+${chip(30)}٪)`
+        : `🔥 پیوستگیِ کار: ${chip(faNum(pl.workStreak))} شیفت — شیفتِ بعد ${chip(faNum(pct))}٪ دستمزدِ بیشتر`,
+    )
+  }
   if (pl.debt > 0) {
     lines.push(`💳 <b>بدهی:</b> ${chip(pl.debt)} سکه — به دایی فرهاد. <i>سودش جمع می‌شود.</i>`)
   }
@@ -702,7 +732,9 @@ export function bagText(p: ProfileResponse, prices: Map<string, number>, page = 
   const lines: string[] = [`🎒 <b>کیف</b>`, "", `${chip(live.length)} آیتم · 💰 ${chip(pl.money)} سکه`, SEP, ""]
   if (live.length === 0) {
     lines.push("<i>کیفت خالیه. هنوز.</i>")
-    lines.push("", "<i>چیزی که نداری، گم نمی‌شود.</i>")
+    // V17-W3 (W3-F9) — بن‌بستِ شاعرانه حذف نشد، اما یک خطِ صادق هم آمد: چیزها از
+    // کجا می‌آیند + دکمه‌ی «🎲 اتفاق امروز» زیر کارت — همان الگوی CTAی مینی‌اپ (§14/§15)
+    lines.push("", "چیزها از <b>اتفاق‌ها</b>، <b>فرصت‌ها</b> و <b>بازار</b> می‌آیند — «🎲 اتفاق امروز» اولین‌شان است.")
   } else {
     for (const i of top) {
       const marks = [i.equipped ? "✅ تنِ توست" : null, i.favorite ? "⭐ علاقه‌مندی" : null].filter(Boolean).join(" · ")
@@ -806,6 +838,95 @@ export function jobsText(cat: CatalogResponse, p: { level: number; job: { key: s
   }
   lines.push("<i>🔒 یعنی سطحش را نداری؛ شهر هنوز به تو اعتماد نکرده.</i>")
   return lines.join("\n")
+}
+
+// ─── 🏠 خانه و وسیله (V17-3 — ممیزی ⑨: هدفِ آموزش‌داده‌ی پروفایل سرانجام از
+// خودِ ربات هم قابلِ خرید است؛ همان اکشن‌های buyHouse/buyVehicle موتور) ────────
+
+/** آینه‌ی صداقتِ نمایشِ قیمتِ وسیله — همان قاعده‌ی موتور (actions.ts buyVehicle):
+ *  round(basePrice × economyIndex / 100). خانه‌ها قیمتِ ثابت دارند. */
+export function vehiclePriceOf(basePrice: number, economyIndex: number): number {
+  return Math.max(0, Math.round(basePrice * (economyIndex / 100)))
+}
+
+/** کدام بخشِ لیست — خانه یا وسیله */
+export type LivingWhich = "house" | "vehicle"
+
+/** کارتِ «🏠 خانه و وسیله» — مالِ فعلی + فهرستِ قابلِ‌خرید با قیمتِ واقعی و
+ *  یک‌خطِ شخصیت. قیمتِ وسیله با شاخصِ اقتصادِ همین لحظه زده می‌شود (آینه‌ی
+ *  موتور)؛ کارتِ تأیید عددِ نهایی را دوباره صادقانه می‌گوید. */
+export function livingText(opts: {
+  which: LivingWhich
+  player: PlayerDTO
+  houses: CatalogHouseDTO[]
+  vehicles: CatalogVehicleDTO[]
+  economyIndex: number
+}): string {
+  const { which, player } = opts
+  const lines: string[] = ["🏠 <b>خانه و وسیله</b>", SEP, ""]
+
+  // مالِ فعلی — همان دو خطی که کارتِ «من» جمع‌وجور نشان می‌دهد
+  const house = opts.houses.find((h) => h.key === (player.house?.key ?? "attic")) ?? null
+  lines.push(
+    `🛏 خانه: ${player.house ? `${player.house.emoji} <b>${esc(player.house.name)}</b>` : "بی‌خانمان"}` +
+      (house ? ` · اجاره‌ی روزانه ${chip(house.rent)} سکه` : ""),
+  )
+  lines.push(
+    `🚗 وسیله: ${player.vehicle ? `${player.vehicle.emoji} <b>${esc(player.vehicle.name)}</b>` : "🚶 پیاده"}`,
+  )
+  lines.push(`💰 جیبِ تو: ${chip(player.money)} سکه`)
+
+  if (which === "house") {
+    lines.push("", SUB, "", "🏠 <b>خانه‌های شهر</b> — قیمت‌ها واقعی‌اند:", "")
+    const rest = opts.houses.filter((h) => h.key !== (player.house?.key ?? "attic"))
+    if (rest.length === 0) {
+      lines.push("<i>همه‌ی خانه‌های شهر را داری. شهر به تو تعظیم می‌کند.</i>")
+    }
+    for (const h of rest) {
+      lines.push(`${h.emoji} <b>${esc(h.name)}</b> — ${chip(h.price)} سکه`)
+      lines.push(`<i>${esc(clampText(h.description, 70))}</i>`)
+      lines.push(`· اجاره‌ی روزانه ${chip(h.rent)} · آسایش ${chip(h.comfort)} · امنیت ${chip(h.security)}`)
+      lines.push("")
+    }
+  } else {
+    lines.push("", SUB, "", `🚗 <b>وسایل نقلیه‌ی شهر</b> — با شاخصِ اقتصادِ امروز (${chip(opts.economyIndex)}):`, "")
+    const rest = opts.vehicles.filter((v) => v.key !== player.vehicle?.key)
+    if (rest.length === 0) {
+      lines.push("<i>وسیله‌ی بهتری از این در شهر نیست.</i>")
+    }
+    for (const v of rest) {
+      lines.push(`${v.emoji} <b>${esc(v.name)}</b> — ${chip(vehiclePriceOf(v.basePrice, opts.economyIndex))} سکه`)
+      lines.push(`<i>${esc(clampText(v.quirk || v.description, 70))}</i>`)
+      lines.push("")
+    }
+  }
+  lines.push("<i>خریدِ بزرگ است — قبل از ثبت، کارتِ تأیید قیمتِ نهایی را نشان می‌دهد.</i>")
+  return lines.join("\n")
+}
+
+/** کارتِ تأییدِ خرید (الگوی واخواهیِ بینگو): قیمتِ واقعی + جیب + هزینه‌ی پیوسته.
+ *  جیبِ تازه‌خوانده‌شده — اگر در این فاصله کم آمد، دکمه‌ی خرید نمی‌آید (صادقانه). */
+export function livingConfirmText(opts: {
+  which: LivingWhich
+  item: { name: string; emoji: string }
+  price: number
+  money: number
+  /** هزینه/شخصیتِ پیوسته: اجاره‌ی روزانه‌ی خانه یا عادتِ وسیله */
+  tail: string
+}): string {
+  const title = opts.which === "house" ? "خریدِ خانه" : "خریدِ وسیله"
+  const lines = [
+    `🏠 <b>${title}</b>`,
+    SEP,
+    "",
+    `${opts.item.emoji} <b>${esc(opts.item.name)}</b>`,
+    `💵 قیمتِ واقعی: <b>${chip(opts.price)} سکه</b>`,
+    `💰 جیبِ تو: ${chip(opts.money)} سکه`,
+    opts.tail ? `<i>${esc(opts.tail)}</i>` : "",
+    "",
+    SUB,
+  ]
+  return lines.filter((l) => l !== "").join("\n")
 }
 
 /** 🏪 بازار — مغازه‌ی محله + آگهی‌های مردم + آگهی‌های خودِ تو (V16-4) + جیب */

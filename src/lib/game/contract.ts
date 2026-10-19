@@ -32,6 +32,9 @@ export interface PlayerDTO {
   house: HouseDTO | null
   canWork: boolean
   workCooldownMinutes: number
+  /** V17-W3 (W3-F4) — پیوستگیِ شیفت‌های موفقِ پیاپی (پاداشِ تا +۳۰٪ دستمزد —
+   *  actions.ts) — حالا دیده می‌شود تا بازیکن بتواند به‌سمتش برود (§13-C/H) */
+  workStreak: number
   resting: boolean
   restMinutesLeft: number
   activeTitle: string | null
@@ -336,6 +339,8 @@ export interface GameSnapshot {
   serverTime: string
   /** V9 — هویتِ مرکزی: خلاصه‌ی فمبویِ روح‌بسته‌ی بازیکن (null = هنوز پیمان نبسته) */
   femboy: FemboySummaryDTO | null
+  /** V17 — مرحله‌ی سفر: افشایشِ تدریجیِ یک‌صدا در مینی‌اپ/ربات/گروه (server-authoritative) */
+  journey: { stage: "new" | "awakened" | "bound" | "rooted" }
 }
 
 export interface MarketSnapshot {
@@ -767,6 +772,23 @@ export interface CharacterActionData {
   message?: string
   card?: SoulCardDTO | null
   logs?: CharacterLogDTO[]
+  // ── V17-W2: فیلدهایِ عمقِ تعامل که مسیرِ interact از V14 برمی‌گرداند — اختیاری؛
+  // مصرف‌کننده‌هایِ قدیمی فقط message/card می‌خوانند و بی‌تغییر می‌مانند ──
+  /** واریانتِ امروزِ تعامل (نوارِ روحیه × پله‌ی فرگشت) */
+  variant?: {
+    variantId: string
+    spiritBand: string
+    spiritBandIndex: number
+    evolutionTier: number
+    moodLine: string
+    evoTail: string | null
+  }
+  /** واکنشِ پیوندِ تازه (V14) */
+  reaction?: { tier: number; threshold: number; text: string; justUnlocked: boolean }
+  /** پله‌ی واکنشِ همین‌جا باز شد */
+  unlock?: { threshold: number; text: string }
+  /** شمارِ خاطره‌هایِ ذخیره‌شده */
+  memory?: { count: number }
 }
 
 // ─── V8: کارتِ عمومیِ فمبوی (نمایِ ربات؛ فقط با X-Service-Key) ────────────────

@@ -13,6 +13,8 @@ import { cn } from "@/lib/utils"
 interface MembersProps {
   members: GroupMemberDTO[]
   population: number
+  /** V17-W2 (F6) — شناسه‌ی بازیکنِ بیننده؛ ردیفِ خودش با قاب/چیپِ «تو» دیده می‌شود */
+  myPlayerId: string | null
 }
 
 /** امضای محتوای اعضا — چیزی که واقعاً دیده می‌شود */
@@ -25,58 +27,71 @@ function membersSignature(members: GroupMemberDTO[]): string {
 function membersEqual(prev: MembersProps, next: MembersProps): boolean {
   return (
     prev.population === next.population &&
+    prev.myPlayerId === next.myPlayerId &&
     (prev.members === next.members || membersSignature(prev.members) === membersSignature(next.members))
   )
 }
 
-export const MembersSection = React.memo(function MembersSection({ members, population }: MembersProps) {
+export const MembersSection = React.memo(function MembersSection({ members, population, myPlayerId }: MembersProps) {
   if (members.length === 0) return null
   return (
     <section aria-label="شهروندانِ گروه">
       <SectionTitle icon="👥" title="شهروندان" action={<Chip>👥 {faNum(population)}</Chip>} />
       <GlassCard pad="sm">
         <ul className="scrollbar-thin flex max-h-[26rem] flex-col gap-2 overflow-y-auto pe-1">
-          {members.map((m, i) => (
-            <motion.li
-              key={m.playerId}
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.25, delay: Math.min(i, 8) * 0.05, ease: "easeOut" }}
-              className="flex items-start gap-2.5 rounded-xl border border-white/10 bg-white/[0.03] p-2.5"
-            >
-              <span
-                aria-hidden
-                className="flex size-11 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] text-2xl leading-none"
+          {members.map((m, i) => {
+            // V17-W2 (F6) — ردیفِ خودِ بیننده: قابِ ملایم + چیپِ «تو»؛ بقیه‌ی استایل دست‌نخورده
+            const isMe = myPlayerId !== null && m.playerId === myPlayerId
+            return (
+              <motion.li
+                key={m.playerId}
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.25, delay: Math.min(i, 8) * 0.05, ease: "easeOut" }}
+                className={cn(
+                  "flex items-start gap-2.5 rounded-xl border p-2.5",
+                  isMe ? "border-primary/40 bg-primary/[0.06] ring-1 ring-primary/30" : "border-white/10 bg-white/[0.03]",
+                )}
               >
-                {m.avatar}
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="truncate text-xs font-bold leading-5">{m.name}</span>
-                  {m.roleLabel ? (
-                    <Chip tone="amber">
-                      {m.roleEmoji} {m.roleLabel}
-                    </Chip>
+                <span
+                  aria-hidden
+                  className="flex size-11 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] text-2xl leading-none"
+                >
+                  {m.avatar}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="truncate text-xs font-bold leading-5">{m.name}</span>
+                    {isMe ? (
+                      <Chip tone="pink" className="font-bold">
+                        تو
+                      </Chip>
+                    ) : null}
+                    {m.roleLabel ? (
+                      <Chip tone="amber">
+                        {m.roleEmoji} {m.roleLabel}
+                      </Chip>
+                    ) : null}
+                  </div>
+                  {m.title ? (
+                    <p className="mt-0.5 truncate text-[11px] italic leading-4 text-muted-foreground">«{m.title}»</p>
                   ) : null}
+                  <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] leading-4 text-muted-foreground">
+                    <span className="font-semibold text-foreground/60">{m.onlineLabel}</span>
+                    <span className="tabular-nums" title="پیام‌ها">
+                      💬 {faNum(m.messageCount)}
+                    </span>
+                    <span className="tabular-nums" title="بازی‌ها">
+                      🎮 {faNum(m.gameCount)}
+                    </span>
+                    <span className="tabular-nums" title="بردها">
+                      🏆 {faNum(m.winCount)}
+                    </span>
+                  </div>
                 </div>
-                {m.title ? (
-                  <p className="mt-0.5 truncate text-[11px] italic leading-4 text-muted-foreground">«{m.title}»</p>
-                ) : null}
-                <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] leading-4 text-muted-foreground">
-                  <span className="font-semibold text-foreground/60">{m.onlineLabel}</span>
-                  <span className="tabular-nums" title="پیام‌ها">
-                    💬 {faNum(m.messageCount)}
-                  </span>
-                  <span className="tabular-nums" title="بازی‌ها">
-                    🎮 {faNum(m.gameCount)}
-                  </span>
-                  <span className="tabular-nums" title="بردها">
-                    🏆 {faNum(m.winCount)}
-                  </span>
-                </div>
-              </div>
-            </motion.li>
-          ))}
+              </motion.li>
+            )
+          })}
         </ul>
       </GlassCard>
     </section>

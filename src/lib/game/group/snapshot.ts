@@ -64,6 +64,8 @@ export async function buildGroupSnapshot(chatId: string, viewerPlayerId?: string
       choices: choices.map((c) => ({ key: c.key, label: c.label, style: (c.style as "primary" | "success" | "danger" | null) ?? null, voters: parts.filter((p) => p.choiceLabel === c.label).length })),
       expiresAt: openEvent.expiresAt?.toISOString() ?? null,
       createdAt: openEvent.createdAt.toISOString(),
+      // V17-W3 (W3-F2) — انتخابِ بیننده از همان فهرستِ شرکت‌کننده‌ها (بدونِ کوئریِ اضافه)
+      myChoice: viewerPlayerId ? parts.find((p) => p.playerId === viewerPlayerId)?.choiceKey ?? null : null,
     }
   }
 
@@ -273,6 +275,11 @@ export interface HomeViewer {
   joinedGame: boolean
   /** رأیِ باز — رأی داده؟ */
   voted: boolean
+  // ── V17-W2 (§12): «تو کجایی؟» — جایگاهِ شخصیِ بیننده در همین شهر، بدونِ
+  // سفر به پی‌وی؛ null = عضو نیست (سطرِ عضویت خالی است) ──
+  wins: number | null
+  games: number | null
+  fame: number | null
 }
 
 /** جمع‌کردنِ وضعیتِ بیننده برای کارتِ خانه — از همان snapshot (بازی/رأی) + دو
@@ -313,6 +320,10 @@ export async function buildHomeViewer(
     joinedEvent,
     joinedGame: snap.activeGame ? snap.activeGame.participants.some((p) => p.playerId === player.id) : false,
     voted: snap.openVotes.some((v) => v.myVote !== null),
+    // V17-W2 — از همان ردیفِ عضویت که بالا خوانده شد؛ پرس‌وجویِ تازه‌ای نیست
+    wins: member?.winCount ?? null,
+    games: member?.gameCount ?? null,
+    fame: member ? memberRep(member).fame : null,
   }
 }
 

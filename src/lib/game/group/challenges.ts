@@ -196,7 +196,7 @@ export function duelUsageCardText(): string {
     SEP,
     "",
     `روی پیامِ رقیب reply بزن و ${chip("جنگ فمبوی")} بگو — یا از کارتِ عمومیِ فمبوی‌اش دکمه‌ی دوئل را بزن.`,
-    `هزینه: ${chip(SOUL.DUEL_COST)} استقامت از هر دو فمبوی · مهلتِ جواب ${chip(EXPIRY_MIN)} دقیقه · هر دو باید فمبویِ روح‌بسته داشته باشند.`,
+    `هزینه: ${chip(SOUL.DUEL_COST)} استقامت از هر دو فمبوی · مهلتِ جواب ${chip(EXPIRY_MIN)} دقیقه · هر دو باید فمبوی داشته باشند.`,
     `امضای کلاسِ هر دو فمبوی در میدان زنده است — نشانِ سایه، سپرِ عهد، کارتِ سلطنتی، گرگِ روح و…`,
     "",
     "<i>بدونِ رضایتِ هدف، دوئلی در کار نیست — شهر دعوت‌نامه‌های بی‌جواب را دفن می‌کند.</i>",
@@ -245,7 +245,7 @@ export async function createChallenge(ctx: GroupCallCtx, targetTelegramId: strin
 
   // هدف — ربات شناسه‌ی تلگرامیِ هدف را به‌عنوانِ آرگومان می‌فرستد
   const digits = targetTelegramId.replace(/\D/g, "")
-  if (!digits) return { text: duelUsageCardText(), buttons: [{ label: "🏠 خانه‌ی شهر", style: "primary", cb: "gm:game" }] }
+  if (!digits) return { text: duelUsageCardText(), buttons: [{ label: "↩ خانه", style: "primary", cb: "gm:game" }] }
   const target = await ctx.db.player.findUnique({ where: { telegramId: digits } })
   if (!target) {
     return {
@@ -264,25 +264,25 @@ export async function createChallenge(ctx: GroupCallCtx, targetTelegramId: strin
     // کارتِ onboarding-گونه با دکمه‌ی url پی‌وی — گروه فقط راهنمای درست را نشان می‌دهد
     return {
       text: [
-        "🎀 <b>فمبویِ روح‌بسته نداری</b>",
+        "🎀 <b>فمبوی نداری</b>",
         SEP,
         "",
-        "دوئلِ شهر بینِ فمبوی‌هاست. بدونِ فمبویِ روح‌بسته فقط تماشاگری — و تماشاچی‌ها شانسِ قهرمانی ندارند.",
+        "دوئلِ شهر بینِ فمبوی‌هاست. بدونِ فمبوی فقط تماشاگری — و تماشاچی‌ها شانسِ قهرمانی ندارند.",
         "ساختنِ فمبوی در پی‌ویِ ربات است؛ گروه فقط صدایش را می‌شنود.",
         "",
         `<i>پیمانِ فمبوی ${chip(2)} دقیقه طول می‌کشد. شهر صبر می‌کند.</i>`,
       ].join("\n"),
       buttons: [
         { label: "🎀 ساختنِ فمبوی", style: "success", url: FEMBOY_START_URL },
-        { label: "🏠 خانه‌ی شهر", style: "primary", cb: "gm:game" },
+        { label: "↩ خانه", style: "primary", cb: "gm:game" },
       ],
     }
   }
   const targetSide = await sideInfo(target.id)
   if (!targetSide) {
     return {
-      text: `⚔️ «${esc(target.name)}» هنوز فمبویِ روح‌بسته ندارد. بدونِ دو فمبوی، شهر دوئل ثبت نمی‌کند.`,
-      buttons: [{ label: "🏠 خانه‌ی شهر", style: "primary", cb: "gm:game" }],
+      text: `⚔️ «${esc(target.name)}» هنوز فمبوی ندارد. بدونِ دو فمبوی، شهر دوئل ثبت نمی‌کند.`,
+      buttons: [{ label: "↩ خانه", style: "primary", cb: "gm:game" }],
     }
   }
 
@@ -319,7 +319,7 @@ export async function createChallenge(ctx: GroupCallCtx, targetTelegramId: strin
   if (groupPending >= GROUP_PENDING_CAP) {
     return {
       text: `شهر همین حالا ${chip(groupPending)} دعوتِ بی‌جواب دارد. اول همان‌ها جمع شوند.`,
-      buttons: [{ label: "🏠 خانه‌ی شهر", style: "primary", cb: "gm:game" }],
+      buttons: [{ label: "↩ خانه", style: "primary", cb: "gm:game" }],
     }
   }
   if (byChallenger >= PER_PLAYER_PENDING_CAP) {
@@ -357,7 +357,7 @@ export async function createChallenge(ctx: GroupCallCtx, targetTelegramId: strin
   return {
     text: challengeSentCardText(b, EXPIRY_MIN),
     buttons: [
-      { label: "🏠 خانه‌ی شهر", style: "primary", cb: "gm:game" },
+      { label: "↩ خانه", style: "primary", cb: "gm:game" },
       { label: "🎲 بازی گروهی", style: "primary", cb: "gm:play" },
     ],
   }

@@ -6,7 +6,7 @@ import { AnimatePresence, motion } from "framer-motion"
 import type { CombatStateDTO, EnemyDTO, SoulCardDTO } from "@/lib/game/contract"
 import { haptic } from "../../telegram"
 import { faNum, faSigned } from "../../fa"
-import { ActionButton, Chip, GlassCard, ProgressBar, SectionTitle } from "../../ui"
+import { ActionButton, Chip, EmptyState, GlassCard, ProgressBar, SectionTitle } from "../../ui"
 import { cn } from "@/lib/utils"
 import { GLASS_BLUE, activeSkillOf } from "./classMeta"
 
@@ -22,6 +22,8 @@ interface CombatSectionProps {
   onAct: (act: CombatAct) => Promise<boolean>
   /** پایانِ نتیجه — برگشت به لیستِ شکار */
   onNextHunt: () => void
+  /** V17-W2 (F4) — حالتِ خالی: برو سراغِ تعامل (سکشنِ اقداماتِ همین صفحه) */
+  onGoActions?: () => void
 }
 
 /** رنگِ رده‌ی دشمن */
@@ -32,7 +34,7 @@ function tierTone(tier: number): "emerald" | "amber" | "rose" | "violet" | "defa
   return "violet"
 }
 
-export function CombatSection({ card, enemies, encounter, onStart, onAct, onNextHunt }: CombatSectionProps) {
+export function CombatSection({ card, enemies, encounter, onStart, onAct, onNextHunt, onGoActions }: CombatSectionProps) {
   const [busy, setBusy] = React.useState<string | null>(null)
   const logRef = React.useRef<HTMLDivElement>(null)
 
@@ -182,6 +184,19 @@ export function CombatSection({ card, enemies, encounter, onStart, onAct, onNext
             فرار
           </ActionButton>
         </div>
+        {/* V17-W3 (F10) — کپشنِ مهارتِ امضا: تصمیمِ هسته‌ایِ بازیکنِ پیشرفته کور نیست؛
+            توضیحِ همین مهارت (تا ~۶۴ نویسه) زیرِ شبکه‌ی کنش‌ها */}
+        {activeSkill ? (
+          <p
+            className="text-center text-[11px] leading-5 text-muted-foreground"
+            aria-label={`توضیحِ مهارتِ امضا: ${activeSkill.name} — ${activeSkill.desc}`}
+          >
+            <span className="font-bold text-foreground/75">
+              {activeSkill.icon} {activeSkill.name}:
+            </span>{" "}
+            {activeSkill.desc.length > 64 ? `${activeSkill.desc.slice(0, 63)}…` : activeSkill.desc}
+          </p>
+        ) : null}
         <p className="text-center text-[11px] leading-4 text-muted-foreground">
           {skillCd ? "امضای کلاست هنوز خنک نشده — با ضربه و گارد راند را بگذران." : "امضای کلاس آماده است."}
         </p>
@@ -272,7 +287,7 @@ export function CombatSection({ card, enemies, encounter, onStart, onAct, onNext
         </div>
         {!canFight ? (
           <p className="mt-2.5 rounded-xl border border-rose-400/20 bg-rose-500/10 px-3 py-2 text-[11px] leading-5 text-rose-300">
-            تا روحیه‌ش دوباره جان بگیرد نمی‌تواند بجنگد — شربتِ روحیه یا وقت‌گذرانی از تبِ اقدامات.
+            تا روحیه‌ش دوباره جان بگیرد نمی‌تواند بجنگد — شربتِ روحیه یا تعامل از تبِ اقدامات.
           </p>
         ) : !staminaEnough ? (
           <p className="mt-2.5 rounded-xl border border-amber-400/20 bg-amber-500/10 px-3 py-2 text-[11px] leading-5 text-amber-200">
@@ -284,11 +299,24 @@ export function CombatSection({ card, enemies, encounter, onStart, onAct, onNext
       <GlassCard>
         <SectionTitle icon="🎯" title="شکارِ امشب" action={<Chip>{faNum(enemies.length)} دشمن</Chip>} />
         {enemies.length === 0 ? (
-          <p className="py-6 text-center text-xs italic leading-6 text-muted-foreground">
-            هنوز دشمنی در تیررسِ تو نیست.
-            <br />
-            کمی رشد کن؛ شهر چشم‌انتظار است.
-          </p>
+          onGoActions ? (
+            <EmptyState
+              emoji="🎯"
+              text="هنوز دشمنی در تیررسِ تو نیست."
+              hint="کمی رشد کن؛ شهر چشم‌انتظار است."
+              action={
+                <ActionButton variant="soft" size="sm" onClick={onGoActions}>
+                  فمبوی‌ات را خوشحال کن
+                </ActionButton>
+              }
+            />
+          ) : (
+            <p className="py-6 text-center text-xs italic leading-6 text-muted-foreground">
+              هنوز دشمنی در تیررسِ تو نیست.
+              <br />
+              کمی رشد کن؛ شهر چشم‌انتظار است.
+            </p>
+          )
         ) : (
           <ul className="flex flex-col gap-2.5">
             {enemies.map((e) => (

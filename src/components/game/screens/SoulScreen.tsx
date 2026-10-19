@@ -1,15 +1,20 @@
 "use client"
 
-// V8 فمبوی — تبِ «🎀 فمبوی»: پیمانِ فمبوی (ساخت) یا ویترینِ فمبویِ روح‌بسته
+// V8 فمبوی — تبِ «🎀 فمبوی»: پیمانِ فمبوی (ساخت) یا ویترینِ فمبوی
+// V17-W2 (F2): نتیجه‌ی تعامل دیگر در توست نمی‌میرد — بلوکِ درون‌صفحه‌ای با همان
+// زبانِ بصریِ کارتِ نتیجه (پیام + ردیفِ آمار + واکنشِ پیوند + قدمِ بعدی) بالا می‌نشیند.
 import * as React from "react"
 import { AnimatePresence, motion } from "framer-motion"
+import { X } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
-import type { CharacterData } from "@/lib/game/contract"
+import type { CharacterActionData, CharacterData } from "@/lib/game/contract"
 import { api } from "@/lib/game/client"
 import { useGame } from "../store"
-import { haptic } from "../telegram"
+import { haptic, hapticNotify } from "../telegram"
 import { faNum } from "../fa"
 import { ActionButton, Chip, EmptyState, GlassCard } from "../ui"
+import { OutcomeMeaningsCollapsible, OutcomeNextStepRow } from "../EventCard"
+import type { OutcomeNextStep } from "../ui/outcomeMeta"
 import { cn } from "@/lib/utils"
 import { CreateFlow } from "./soul/CreateFlow"
 import { OverviewSection } from "./soul/OverviewSection"
@@ -50,11 +55,31 @@ export function SoulScreen() {
   const snapshot = useGame((s) => s.snapshot)
   const toast = useGame((s) => s.toast)
   const refresh = useGame((s) => s.refresh)
+  // V17-W3 (F5) — deep-linkِ سکشنِ مقصد: CTAی بیرونی (مسیرِ زندگی/کارتِ فمبوی/
+  // کارت‌های نتیجه) سکشن را گفته؛ هنگامِ ورودِ تب مصرف می‌شود (فقط سکشن‌های موجود)
+  const pendingSoulSection = useGame((s) => s.pendingSoulSection)
+  const setPendingSoulSection = useGame((s) => s.setPendingSoulSection)
 
   const [data, setData] = React.useState<CharacterData | null>(null)
   const [booting, setBooting] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [section, setSection] = React.useState<Section>("profile")
+  // V17-W2 (F2): پاسخِ کاملِ آخرین تعامل — بلوکِ نتیجه‌ی درون‌صفحه‌ای؛ null = بلوکی نیست
+  const [interactOutcome, setInteractOutcome] = React.useState<CharacterActionData | null>(null)
+
+  // بلوکِ نتیجه‌ی تعامل مثلِ توست رفتار می‌کند — با ترکِ تبِ فمبوی جمع می‌شود
+  React.useEffect(() => {
+    if (!active) setInteractOutcome(null)
+  }, [active])
+
+  // V17-W3 (F5) — مصرفِ deep-link: با ورودِ تب، سکشنِ گفته‌شده فعال می‌شود؛ مقدارِ
+  // ناشناخته بی‌صدا رد می‌شود. فقط جابه‌جایی بینِ سکشن‌های موجود — هیچ UI تازه‌ای نیست
+  React.useEffect(() => {
+    if (!active || pendingSoulSection === null) return
+    const target = SECTIONS.find((s) => s.key === pendingSoulSection)
+    if (target) setSection(target.key)
+    setPendingSoulSection(null)
+  }, [active, pendingSoulSection, setPendingSoulSection])
 
   // واکشی فقط وقتی تبِ فمبوی فعال است — با هر فعال‌شدن تازه می‌شود (استقامت/کول‌داون زنده)
   // reloadSeq: بعد از بازیابیِ نشست (V16-2) همین صفحه بی‌درنگ تازه می‌شود
@@ -92,7 +117,15 @@ export function SoulScreen() {
         toast("error", res.error)
         return false
       }
-      if (res.data.message) toast("success", res.data.message)
+      if (action === "interact") {
+        // V17-W2 (F2): کارتِ نتیجه‌ی تعامل خودش پیام را کامل می‌گوید (واریانتِ حالِ
+        // امروز + صدای پیوند) — توستِ موفقیتِ همان متن تکرار نمی‌شود؛ فقط همان
+        // هپتیکِ موفقیتِ همیشگی می‌ماند (بازخوردِ لمسی حفظ شد)
+        hapticNotify("success")
+        setInteractOutcome(res.data)
+      } else if (res.data.message) {
+        toast("success", res.data.message)
+      }
       // کارتِ تازه از خودِ پاسخ — بدونِ رفت‌وبرگشتِ دوباره؛ اکشنِ بدونِ کارت → واکشیِ کامل
       if (res.data.card) {
         setData((d) => (d && d.exists ? { ...d, card: res.data.card ?? d.card } : d))
@@ -225,7 +258,7 @@ export function SoulScreen() {
       <div className="flex flex-col gap-4">
         <CreateFlow classes={data.classes} onCreate={handleCreate} />
         <p className="px-2 text-center text-[11px] leading-4 text-muted-foreground">
-          🎀 فمبویِ روح‌بسته — یک بار انتخاب، همیشه همراه. نبرد او را نمی‌کشد.
+          🎀 فمبوی — یک بار انتخاب، همیشه همراه. نبرد او را نمی‌کشد.
         </p>
       </div>
     )
@@ -258,6 +291,18 @@ export function SoulScreen() {
           </Chip>
         </div>
       </header>
+
+      {/* V17-W2 (F2) — نتیجه‌ی تعامل: بلوکِ درون‌صفحه‌ای، بالایِ سکشن‌ها */}
+      {interactOutcome ? (
+        <InteractOutcomeBlock
+          data={interactOutcome}
+          onDismiss={() => setInteractOutcome(null)}
+          onInteractAgain={() => {
+            setInteractOutcome(null)
+            setSection("actions")
+          }}
+        />
+      ) : null}
 
       {/* قرص‌های سکشن — شکستنِ ردیف به‌جای اسکرولِ پنهان؛ همه با یک نگاه پیدا می‌شوند */}
       <div className="-mx-1 flex flex-wrap gap-1.5 px-1 py-0.5" role="tablist" aria-label="بخش‌های فمبوی">
@@ -312,7 +357,7 @@ export function SoulScreen() {
           ) : null}
           {section === "appearance" ? <AppearanceSection card={card} act={runCharAction} /> : null}
           {section === "mastery" ? <MasterySection card={card} /> : null}
-          {section === "history" ? <HistorySection logs={data.logs} /> : null}
+          {section === "history" ? <HistorySection logs={data.logs} onGoActions={() => setSection("actions")} /> : null}
           {section === "combat" ? (
             <CombatSection
               card={card}
@@ -321,11 +366,125 @@ export function SoulScreen() {
               onStart={startHunt}
               onAct={combatAct}
               onNextHunt={nextHunt}
+              onGoActions={() => setSection("actions")}
             />
           ) : null}
           {section === "hall" ? <HallSection active={active && section === "hall"} /> : null}
         </motion.div>
       </AnimatePresence>
     </div>
+  )
+}
+
+// ─── V17-W2 (F2): بلوکِ نتیجه‌ی تعامل ───────────────────────────────────────
+
+/** دو آماری که ردیفِ آمارِ تعامل نشان می‌دهد — برای «چی یعنی؟» مشترک (F19: معناهایِ فمبوی) */
+const INTERACT_MEANING_DELTAS: { icon: string; label: string }[] = [
+  { icon: "❤️", label: "روحیه" },
+  { icon: "🤝", label: "پیوند" },
+]
+
+/** نتیجه‌ی تعامل — همان زبانِ بصریِ کارتِ نتیجه، جمع‌وجور: پیامِ چندخطی (خودش
+ *  واریانتِ حالِ امروز و صدای پیوند را دارد — تکرار نمی‌کنیم)، ردیفِ آمار به
+ *  سبکِ الگویِ اثبات‌شده‌ی ربات، خطِ جشنِ واکنشِ تازه‌ی پیوند (اگر همین‌جا باز
+ *  شد) و قدمِ بعدی از کارتِ تازه‌ی همین پاسخ — هرگز ساختگی. */
+function InteractOutcomeBlock({
+  data,
+  onDismiss,
+  onInteractAgain,
+}: {
+  data: CharacterActionData
+  onDismiss: () => void
+  /** «💛 دوباره تعامل» — بلوک را می‌بندد و به سکشنِ اقدامات (انتخابگرِ نوعِ تعامل) می‌رود */
+  onInteractAgain: () => void
+}) {
+  const card = data.card ?? null
+  // قدمِ بعدی — فقط از فیلدهای واقعیِ کارتِ تازه‌ی همین پاسخ
+  let nextStep: OutcomeNextStep | null = null
+  if (card) {
+    if (card.interactCooldownMin > 0) {
+      nextStep = {
+        icon: "⏳",
+        label: `${faNum(card.interactCooldownMin)} دقیقه تا تعاملِ بعدی`,
+        hint: "یا ⚔️ شکار",
+      }
+    } else {
+      nextStep = {
+        icon: "💛",
+        label: "دوباره تعامل",
+        onClick: onInteractAgain,
+      }
+    }
+  }
+  return (
+    <motion.section
+      aria-label="نتیجه‌ی تعامل"
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, ease: "easeOut" }}
+      className="glass-strong relative overflow-hidden"
+    >
+      <div
+        aria-hidden
+        className="h-[3px] w-full"
+        style={{ background: "linear-gradient(to left, transparent, #f472b6cc, transparent)" }}
+      />
+      <div className="p-4">
+        <div className="flex items-center gap-2">
+          <span aria-hidden className="text-lg">
+            💗
+          </span>
+          <h3 className="text-sm font-bold text-primary">نتیجه‌ی تعامل</h3>
+          <button
+            type="button"
+            onClick={onDismiss}
+            aria-label="بستنِ نتیجه‌ی تعامل"
+            className="-mt-1 -me-1 ms-auto flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
+          >
+            <X className="size-4" aria-hidden />
+          </button>
+        </div>
+
+        <motion.p
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.1, duration: 0.4 }}
+          className="mt-2 whitespace-pre-line text-[14px] font-medium leading-7 text-foreground"
+        >
+          {data.message}
+        </motion.p>
+
+        {card ? (
+          <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-3">
+            <p
+              className="text-xs font-semibold leading-6 text-foreground/85"
+              aria-label={`روحیه‌ی ${faNum(card.spiritPct)} درصد با حالت ${card.condition.label} و پیوند ${faNum(card.bond)}`}
+            >
+              <span className="tabular-nums">❤️ روحیه {faNum(card.spiritPct)}%</span>
+              <span className="text-muted-foreground">
+                {" "}
+                ({card.condition.emoji} {card.condition.label})
+              </span>
+              <span className="tabular-nums"> · 🤝 پیوند {faNum(card.bond)}</span>
+            </p>
+            {/* «یعنیِ این عدد» — همان کامپوننتِ مشترکِ کارت‌های نتیجه (F3 · معناهایِ فمبویِ F19) */}
+            <OutcomeMeaningsCollapsible deltas={INTERACT_MEANING_DELTAS} delay={0.4} />
+          </div>
+        ) : null}
+
+        {data.unlock ? (
+          <motion.p
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.5, duration: 0.25 }}
+            className="mt-2 rounded-xl border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-xs font-bold leading-5 text-amber-200"
+          >
+            🔓 واکنشِ تازه‌ی پیوند باز شد: {data.unlock.text}
+          </motion.p>
+        ) : null}
+
+        {nextStep ? <OutcomeNextStepRow nextStep={nextStep} delay={0.6} /> : null}
+      </div>
+    </motion.section>
   )
 }

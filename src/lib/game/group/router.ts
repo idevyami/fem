@@ -82,6 +82,7 @@ import type { GroupWorld, Player } from "@prisma/client"
 import type { OutboxButton, GroupActionResponseDTO } from "./types"
 import { requireGroupMember, NOT_CITIZEN_MSG } from "./safety"
 import { spawnGroupEvent, chooseEventOption, eventCardText, eventCardButtons, participantsOf } from "./events"
+import { pacingAckText, pacingCardText, pacingOf } from "./pacing"
 import { startGame, joinGame, beginGame, gameAction, playableGames } from "./games"
 import { openElection, openCourtAuto, castVote, contribute, startProject, projectMenu, contributePickerCard } from "./politics"
 import { parseJson } from "./domain"
@@ -187,8 +188,28 @@ export const COMMANDS: Record<string, GroupCommandHandler> = {
     return { text: playCardText(games, p), buttons }
   },
   event: async (ctx) => {
+    // V17-W3 (W3-F3): اگر اتفاقِ بازی باز است، همان کارت با دکمه‌هایِ انتخابش
+    // رندر می‌شود (آینه‌یِ gm:event) — فرمانِ آموزشداده‌شده در help («رویدادها —
+    // انتخابِ خودت را روی کارتش بزن») دیگر بن‌بست نیست: بازیکن همان‌جا انتخاب می‌کند.
+    const open = await ctx.db.groupEvent.findFirst({ where: { groupId: ctx.group.id, status: "open" } })
+    if (open) {
+      return { text: eventCardText(open, await participantsOf(open)), buttons: eventCardButtons(open) }
+    }
     const ev = await spawnGroupEvent(ctx.group, { instigator: ctx.player ?? undefined, priority: 8 })
     if (!ev) {
+      // V18 — جوابِ درخواستِ زودهنگام: کارتِ «شهر نفس تازه می‌کشد» (اگر دروازه
+      // واقعاً بسته است)؛ دروازه‌ی باز + spawn ناموفق = مسابقتی برای nothing — همان
+      // متنِ امنِ دیروز (دو بحرانِ هم‌زمان/قالبِ نیامده).
+      const pacing = pacingOf(ctx.group)
+      if (!pacing.gateOpen) {
+        return {
+          text: pacingCardText(pacing),
+          buttons: [
+            { label: "🎲 بازی گروهی", style: "primary", cb: "gm:play" },
+            { label: "↩ خانه", style: "primary", cb: "gm:game" },
+          ],
+        }
+      }
       return {
         text: "یه اتفاقِ باز در شهر هست. اول همان تمام شود — شهر دو تا بحرانِ هم‌زمان نمی‌خواهد.",
         buttons: [{ label: "🎲 بازی گروهی", style: "primary", cb: "gm:play" }],
@@ -485,6 +506,11 @@ async function groupMenuCallback(ctx: GroupCallCtx, arg: string): Promise<Callba
         }
       }
       const ev = await spawnGroupEvent(group, { instigator: player, priority: 8 })
+      // V18 — دروازه‌ی ریتم بسته است: ack یک‌خطیِ صادقانه (PLAIN؛ کارتِ خانه دست‌نخورده می‌ماند)
+      if (!ev) {
+        const pacing = pacingOf(group)
+        if (!pacing.gateOpen) return { ok: false, ackText: pacingAckText(pacing) }
+      }
       return { ok: Boolean(ev), ackText: ev ? "اتفاق ساخته شد." : "یه اتفاقِ باز هست — اول همان." }
     }
     case "projects": {
@@ -609,8 +635,25 @@ export const ACTIONS: Record<string, GroupActionHandler> = {
     return { ok: r.ok, message: r.message }
   },
   triggerEvent: async (ctx) => {
+    const open = await ctx.db.groupEvent.findFirst({ where: { groupId: ctx.group.id, status: "open" } })
+    if (open) return { ok: false, message: "یه اتفاقِ باز هست — اول همان." }
     const ev = await spawnGroupEvent(ctx.group, { instigator: ctx.player!, priority: 8 })
+    // V18 — ریتمِ هوشمند: ack صادقانه وقتی شهر هنوز حقِ ماجرای بعدی را نگرفته
+    if (!ev) {
+      const pacing = pacingOf(ctx.group)
+      if (!pacing.gateOpen) return { ok: false, message: pacingAckText(pacing) }
+    }
     return { ok: Boolean(ev), message: ev ? "اتفاق در گروه اعلام شد." : "یه اتفاقِ باز هست." }
+  },
+  chooseEvent: async (ctx, payload) => {
+    // V17-W3 (W3-F2) — انتخابِ اتفاقِ اشتراکی از خودِ مینی‌اپ: همان chooseEventOptionِ
+    // رباتِ گروه (پلِ ge:) رویِ سیمِ session — دروازه‌ی شهروندی داخلِ خودش است (events.ts)
+    // و دروازه‌ی facade همیشه روشن است؛ صفر منطقِ تازه.
+    const eventId = String(payload.eventId ?? "")
+    const choiceKey = String(payload.choiceKey ?? "")
+    if (!eventId || !choiceKey) return { ok: false, message: "انتخاب ناقص است." }
+    const r = await chooseEventOption(ctx.group, ctx.player!, eventId, choiceKey)
+    return { ok: r.ok, message: r.ackText }
   },
   rumor: async (ctx, payload) => {
     const rumorId = String(payload.rumorId ?? "")

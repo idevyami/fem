@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-17T04:00:00.803Z",
+  "generatedAt": "2026-10-19T20:27:58.183Z",
   "intents": [
     {
       "id": "menu",
@@ -85,13 +85,28 @@
       "open": true,
       "aliasesFa": [
         "افتخارات",
-        "دستاوردها",
         "مأموریت‌ها و دستاوردها",
         "ماموریتها و دستاوردها"
       ],
       "aliasesEn": [
         "fame",
         "hall"
+      ]
+    },
+    {
+      "id": "achievements",
+      "faSummary": "دستاوردهای شخصیِ تو — باز شده‌ها و قفل‌ها، با شمارش.",
+      "expectFa": "کارتِ دستاوردها: N از M باز، آخرین‌ها اول، قفل‌ها با شرطِ باز شدن.",
+      "where": "private",
+      "open": true,
+      "aliasesFa": [
+        "دستاوردها",
+        "دستاوردهای من",
+        "افتخارات من"
+      ],
+      "aliasesEn": [
+        "achievements",
+        "my achievements"
       ]
     },
     {

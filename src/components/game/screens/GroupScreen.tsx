@@ -64,6 +64,12 @@ export function GroupScreen() {
     (key: string, voteId: string, optionKey: string) => void act(key, "vote", { voteId, optionKey }),
     [act],
   )
+  /** V17-W3 (F2) — انتخابِ اتفاقِ اشتراکی از خودِ مینی‌اپ: همان chooseEventِ موتور
+   *  (پلِ ge: ربات) — ackِ همان را توست می‌گیرد و دنیای گروه تازه می‌شود (همانِ رأی) */
+  const handleChooseEvent = React.useCallback(
+    (key: string, eventId: string, choiceKey: string) => void act(key, "chooseEvent", { eventId, choiceKey }),
+    [act],
+  )
   const handleStart = React.useCallback(
     (key: string, gameKey: string) => void act(key, "startGame", { gameKey }),
     [act],
@@ -99,6 +105,10 @@ export function GroupScreen() {
   const games = groupData?.games ?? []
   const myPlayerId = snapshot?.player.id ?? null
   const firstLoad = !groupData && groupLoading
+  // V17-2 — مرحله‌ی سفر از خودِ snapshot (server-authoritative): بدونِ فمبوی، شهرِ گروه
+  // همان زبانِ کارت‌های ربات را می‌گوید: «فمبوی بساز در پیویِ ربات»
+  const journeyStage = snapshot?.journey?.stage
+  const preFemboy = !snapshot?.femboy || journeyStage === "new" || journeyStage === "awakened"
 
   return (
     <div className="flex flex-col gap-4">
@@ -189,8 +199,13 @@ export function GroupScreen() {
           transition={{ duration: 0.3, ease: "easeOut" }}
         >
           <WorldHeader snap={snap} triggering={acting === "event"} onTriggerEvent={handleTriggerEvent} />
+          {/* V17-2 — راهنمایِ سبکِ آگاه از سفر: بدونِ فمبوی فقط تماشاگری (canonical،
+              همان زبانِ کارت‌های گروه) + دکمه‌ی پیویِ ربات و مسیرِ همین‌جا */}
+          {preFemboy ? <PactHintCard /> : null}
           <ChallengesSection challenges={snap.challenges ?? []} acting={acting} onAct={handleChallenge} />
-          {snap.currentEvent ? <CurrentEventCard ev={snap.currentEvent} /> : null}
+          {snap.currentEvent ? (
+            <CurrentEventCard ev={snap.currentEvent} acting={acting} onChoose={handleChooseEvent} />
+          ) : null}
           {snap.activeGame ? (
             <ActiveGameCard game={snap.activeGame} myPlayerId={myPlayerId} joining={acting === "joingame"} onJoin={handleJoin} />
           ) : null}
@@ -205,7 +220,7 @@ export function GroupScreen() {
           <RumorsSection rumors={snap.rumors} acting={acting} onRumor={handleRumor} />
           <MemesStrip memes={snap.memes} />
           <MysteriesSection mysteries={snap.mysteries} />
-          <MembersSection members={snap.members} population={snap.population} />
+          <MembersSection members={snap.members} population={snap.population} myPlayerId={myPlayerId} />
           <HistoryTimeline history={snap.history} />
           <AchievementsStrip achievements={snap.achievements} unlocked={snap.achievementsUnlocked} />
         </motion.div>
@@ -222,6 +237,54 @@ export function GroupScreen() {
         </GlassCard>
       ) : null}
     </div>
+  )
+}
+
+// ─── راهنمایِ پیمان برای تماشاگر (V17-2 — سبک و آگاه از سفر) ─────────────────────
+
+function PactHintCard() {
+  const setActiveTab = useGame((s) => s.setActiveTab)
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25, ease: "easeOut" }}
+    >
+      <GlassCard pad="sm" className="border-primary/25 bg-primary/[0.05]">
+        <div className="flex items-center gap-3">
+          <span aria-hidden className="shrink-0 text-2xl leading-none">
+            🎀
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-bold leading-5">بدونِ فمبوی فقط تماشاگری</p>
+            <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
+              فمبوی بساز در پیویِ ربات — یا همین‌جا، از تبِ فمبوی.
+            </p>
+          </div>
+          <ActionButton
+            size="sm"
+            variant="soft"
+            className="h-11 shrink-0"
+            onClick={() => {
+              haptic("light")
+              openTgLink(BOT_URL)
+            }}
+          >
+            💬 پیویِ ربات
+          </ActionButton>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            haptic("light")
+            setActiveTab("soul")
+          }}
+          className="mt-1 min-h-11 w-full rounded-xl px-1 text-[11px] font-bold text-primary transition-colors hover:text-primary/80"
+        >
+          🎀 همین‌جا ببندش — تبِ فمبوی
+        </button>
+      </GlassCard>
+    </motion.div>
   )
 }
 

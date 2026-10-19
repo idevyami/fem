@@ -165,7 +165,9 @@ export async function observe(input: ObserveInput): Promise<ObserveResponseDTO> 
     where: { id: member.id },
     data: { lastSeenAt: now, messageCount: { increment: 1 } },
   })
-  await bumpCulture(db, group.id, { socialMsgs: 1 })
+  // V18 — msgsSinceEvent: نبضِ شهر برای ریتمِ هوشمندِ ماجراها (۲ ساعت + ۱۰۰ پیام)؛
+  // با تولدِ هر ماجرا صفر می‌شود (spawnGroupEvent) — همان نوشتنِ قبلی، فقط یک کلیدِ بیشتر
+  await bumpCulture(db, group.id, { socialMsgs: 1, msgsSinceEvent: 1 })
 
   // ۲) بازگشته؟ — خلاصه‌ی «در نبودت» در outbox
   const gapHours = (now.getTime() - member.lastSeenAt.getTime()) / 3600000

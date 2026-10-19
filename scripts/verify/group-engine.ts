@@ -33,7 +33,8 @@
 import { db } from "../../src/lib/db"
 import { getServiceKey } from "../../src/lib/game/secrets"
 import { mulberry32, seedFrom, randInt, weightedPick, clamp } from "../../src/lib/game/rng"
-import { getEventTemplate } from "../../src/lib/game/group/events"
+import { getEventTemplate, eventCardText } from "../../src/lib/game/group/events"
+import { eventPacingInfo, eventWindowMinutes, EVENT_GAP_MINUTES, EVENT_MSG_QUOTA } from "../../src/lib/game/group/pacing"
 import { playableGames } from "../../src/lib/game/group/games"
 import type { GroupEventTemplate } from "../../src/lib/game/group/types"
 import { CLASSES, validateClasses } from "../../src/lib/game/content/classes"
@@ -113,6 +114,21 @@ async function pidOf(t: string): Promise<string> {
   if (!p) throw new Error(`player ${t} not found`)
   return p.id
 }
+
+/** V18 — مسلح‌کردنِ ریتمِ هوشمندِ شهرِ آزمونی: ۳ ساعت از آخرین ماجرا + ۱۵۰ پیام
+ *  (دروازه‌ی ۲ ساعت + ۱۰۰ پیام را باز می‌کند؛ fixture روی ردیفِ آزمونی — الگویِ موج‌ها). */
+async function armEventPacing(chatId: string): Promise<void> {
+  const gid = await gidOf(chatId)
+  const g = await db.groupWorld.findUniqueOrThrow({ where: { id: gid } })
+  const culture = JSON.parse(g.cultureJson ?? "{}") as Record<string, unknown>
+  culture.msgsSinceEvent = 150
+  await fixture(async () => {
+    await db.groupWorld.update({
+      where: { id: gid },
+      data: { cultureJson: JSON.stringify(culture), lastEventAt: new Date(Date.now() - 3 * 3600 * 1000) },
+    })
+  })
+}
 /** SQLite can be briefly busy while the dev engine writes — retry small fixtures. */
 async function fixture<T>(fn: () => Promise<T>): Promise<T> {
   for (let i = 0; ; i++) {
@@ -187,13 +203,13 @@ async function main(): Promise<void> {
     const welcome = await db.groupOutbox.findFirst({ where: { groupId: gA, text: { contains: "شهروندِ جدیدِ شناسایی شد" } }, orderBy: { createdAt: "desc" } })
     ok(Boolean(welcome), "A: welcome card queued in outbox")
     ok((welcome?.text ?? "").includes("این گروه خودش یک شهر است"), "A: welcome explains the group game")
-    ok((welcome?.text ?? "").includes("بدونِ فمبویِ روح‌بسته فقط تماشاگری"), "A: welcome flags missing character")
+    ok((welcome?.text ?? "").includes("بدونِ فمبوی فقط تماشاگری"), "A: welcome flags missing character")
     const wbtns = outboxButtons(welcome?.buttonsJson ?? "[]")
     ok(wbtns.some((b) => b.url === "https://t.me/femwarbot?start=femboy" && b.cb === undefined), "A: welcome carries the private deep-link (t.me/femwarbot?start=femboy)")
 
     // 3: home card shows the no-character «تو» line + creation bridge
     const home0 = await command(cA, uA, "game")
-    ok((home0.body.data?.text ?? "").includes("بدونِ فمبویِ روح‌بسته فقط تماشاگری — ساختنش در پی‌ویِ ربات است."), "A: home «تو» section recognizes missing character")
+    ok((home0.body.data?.text ?? "").includes("بدونِ فمبوی فقط تماشاگری — ساختنش در پی‌ویِ ربات است."), "A: home «تو» section recognizes missing character")
     ok((home0.body.data?.buttons ?? []).some((b) => b.url === "https://t.me/femwarbot?start=femboy"), "A: home offers the established creation route (url button)")
 
     // 4: player creates a SoulCharacter through the REAL private-bot path
@@ -229,6 +245,8 @@ async function main(): Promise<void> {
     ok((welcomeB?.text ?? "").includes(bFemboy) && (welcomeB?.text ?? "").includes("خوش اومدی به شهر. فمبویت این‌جا خانه دارد."), "A: welcome variant shows the arriving femboy identity")
 
     // 6: the new player joins a real eligible group activity (event + ge: choice)
+    // V18 — ریتمِ هوشمند: شهرِ تازه دروازه‌ی ماجرا را بسته نگه می‌دارد؛ مسلح می‌کنیم
+    await armEventPacing(cA)
     const evCmd = await command(cA, uA, "event")
     ok(evCmd.body.data?.text === "", "A: /event defers the card to outbox (empty command text)")
     const ev = await db.groupEvent.findFirst({ where: { groupId: gA, status: "open" } })
@@ -277,6 +295,7 @@ async function main(): Promise<void> {
     let ev = await db.groupEvent.findFirst({ where: { groupId: gB, status: "open" } })
     if (!ev || ev.templateId === "style_show") {
       if (ev) await callback(cB, uC, "gs:recover", true)
+      await armEventPacing(cB)
       await command(cB, uC, "event")
       ev = await db.groupEvent.findFirst({ where: { groupId: gB, status: "open" } })
     }
@@ -511,6 +530,7 @@ async function main(): Promise<void> {
     ok((JSON.parse(settingsAfterNonAdmin.settingsJson ?? "{}") as { enabled?: boolean }).enabled !== false, "E: rejected gs: wrote no pause")
 
     // E5: open an event + a second challenge (both BEFORE pausing)
+    await armEventPacing(cE)
     const evCmd = await command(cE, uG, "event")
     ok(evCmd.body.data?.text === "", "E: event spawned for the pause test")
     const ev1 = await db.groupEvent.findFirst({ where: { groupId: gE, status: "open" } })
@@ -636,10 +656,12 @@ async function main(): Promise<void> {
 
     // non-member ge: choice rejected (citizenship gate — foreign player exists but
     // is not a citizen of this city)
+    await armEventPacing(cB)
     await command(cB, uC, "event")
     let ev = await db.groupEvent.findFirst({ where: { groupId: gB, status: "open" }, orderBy: { createdAt: "desc" } })
     if (!ev || ev.templateId === "style_show") {
       if (ev) await callback(cB, uC, "gs:recover", true)
+      await armEventPacing(cB)
       await command(cB, uC, "event")
       ev = await db.groupEvent.findFirst({ where: { groupId: gB, status: "open" }, orderBy: { createdAt: "desc" } })
     }
@@ -1109,10 +1131,12 @@ async function main(): Promise<void> {
       }
 
       // ── Test H: بستنِ رویداد — ارسالِ تازه رد؛ نتیجه‌ی نهایی حفظ ──
+      await armEventPacing(cP1)
       await command(cP1, u1, "event") // اتفاقِ تازه (کارت از outbox می‌رسد)
       let ev = await db.groupEvent.findFirst({ where: { groupId: gP1, status: "open" }, orderBy: { createdAt: "desc" } })
       if (!ev || ev.templateId === "style_show") {
         if (ev) await callback(cP1, u1, "gs:recover", true) // ادمین: بستنِ زودهنگامِ رویدادِ بی‌گزینه
+        await armEventPacing(cP1)
         await command(cP1, u1, "event")
         ev = await db.groupEvent.findFirst({ where: { groupId: gP1, status: "open" }, orderBy: { createdAt: "desc" } })
       }
@@ -1297,6 +1321,140 @@ async function main(): Promise<void> {
       ok(openBtns.some((b) => (b.cb ?? "") === `gm:contribute:night_market`), "Q2: project open card carries the «مبلغِ دلخواه» picker bridge")
       ok(openBtns.filter((b) => (b.cb ?? "").startsWith(`gp:${proj.id}:`)).length === 3, "Q2: project open card keeps its 3 fixed-amount buttons (legacy grammar)")
     }
+  }
+
+  // §X — V17 (مأموریتِ قابلیتِ بازی): ① سیمِ XP→سطح برای مسیرهای غیرِرویداد
+  //   (work/gamble/house/vehicle قبلاً XP می‌دادند ولی سطح را بازمحاسبه نمی‌کردند —
+  //   باگِ مستندِ ممیزی: کلِ بازیکنانِ واقعی سطح ۱ ماندند) + اعلانِ level-up با
+  //   اسمِ واقعیِ بازشدنی‌ها. ② قراردادِ journey.stage در snapshot (پایه‌ی
+  //   افشایشِ تدریجیِ یک‌صدا در هر سه سطحِ بازی).
+  section("§X V17 XP→level wire + journey stage contract")
+  {
+    const uX = tid(60)
+    const login1 = await post<{ snapshot: { journey?: { stage?: string } } }>("/api/auth", { telegramId: uX, name: "سیم‌کشِ ایکس" })
+    ok(login1.body.ok === true, "X: throwaway player authed")
+    ok(login1.body.data?.snapshot?.journey?.stage === "new", "X: fresh player → journey.stage 'new' (not onboarded, no femboy)")
+
+    const pX = await pidOf(uX)
+    await fixture(async () => {
+      await db.player.update({ where: { id: pX }, data: { onboarded: true } })
+    })
+    const login2 = await post<{ snapshot: { journey?: { stage?: string } } }>("/api/auth", { telegramId: uX })
+    ok(login2.body.data?.snapshot?.journey?.stage === "awakened", "X: onboarded + no femboy → journey.stage 'awakened'")
+
+    const createX = await post<{ card: { name: string } }>("/api/game/character", {
+      telegramId: uX, action: "create", payload: { name: "سیم‌ایکس", classKey: "ranger" },
+    })
+    ok(createX.body.ok === true, "X: femboy created via real pact API")
+    const login3 = await post<{ snapshot: { journey?: { stage?: string } } }>("/api/auth", { telegramId: uX })
+    ok(login3.body.data?.snapshot?.journey?.stage === "bound", "X: femboy exists + level<5 → journey.stage 'bound'")
+    await fixture(async () => {
+      await db.player.update({ where: { id: pX }, data: { level: 5 } })
+    })
+    const login4 = await post<{ snapshot: { journey?: { stage?: string } } }>("/api/auth", { telegramId: uX })
+    ok(login4.body.data?.snapshot?.journey?.stage === "rooted", "X: femboy + level≥5 → journey.stage 'rooted'")
+
+    // ① سیمِ XP→سطح — کارِ واقعی از طریقِ همان API که ربات/مینی‌اپ صدا می‌زنند
+    await fixture(async () => {
+      await db.player.update({
+        where: { id: pX },
+        data: { xp: 95, level: 1, jobKey: "barista", lastWorkedAt: new Date(Date.now() - 60 * 60000), energy: 100, restUntil: null },
+      })
+      await db.notification.deleteMany({ where: { playerId: pX } })
+    })
+    const workRes = await post<{ snapshot: { player: { level: number } } }>("/api/game/action", { telegramId: uX, action: "work", payload: {} })
+    ok(workRes.body.ok === true, "X: work action succeeds over the real API")
+    const afterWork = await db.player.findUniqueOrThrow({ where: { id: pX } })
+    ok(afterWork.level === 2, `X: XP wire — work at 95 XP + ~8-11 XP → level 2 (got ${afterWork.level})`)
+    const lvlNote = await db.notification.findFirst({ where: { playerId: pX, title: "سطح 2" }, orderBy: { createdAt: "desc" } })
+    ok(Boolean(lvlNote) && (lvlNote?.body ?? "").includes("باز شد") && (lvlNote?.body ?? "").includes("جعبه‌ی بدون برچسب"), "X: level-up notification names the real L2 unlock («فرصتِ جعبه‌ی بدون برچسب»)")
+  }
+
+  // §V18 — V18: ریتمِ هوشمندِ رویدادها (دروازه + پنجره + شمارنده + پیگیری) ────────
+  section("§V18 smart event pacing + windows (V18)")
+  {
+    // ① خالص — لاین‌های دروازه
+    const t0 = new Date("2026-01-01T12:00:00Z")
+    ok(eventPacingInfo(new Date(t0.getTime() - 119 * 60000), 100, t0).gateOpen === false, "V18: 119min + 100msgs → closed (2h floor)")
+    ok(eventPacingInfo(new Date(t0.getTime() - 120 * 60000), 99, t0).gateOpen === false, "V18: 120min + 99msgs → closed (100-msg quota)")
+    const fast = eventPacingInfo(new Date(t0.getTime() - 120 * 60000), 100, t0)
+    ok(fast.gateOpen === true && fast.lane === "fast", "V18: 120min + 100msgs → fast lane open")
+    const slow = eventPacingInfo(new Date(t0.getTime() - 360 * 60000), 30, t0)
+    ok(slow.gateOpen === true && slow.lane === "slow", "V18: 6h + 30msgs → slow lane open (quiet-city mercy)")
+    ok(eventPacingInfo(new Date(t0.getTime() - 359 * 60000), 30, t0).gateOpen === false, "V18: 359min + 30msgs → still closed")
+    ok(eventPacingInfo(new Date(t0.getTime() - 400 * 60000), 5, t0).gateOpen === false, "V18: dead city (6h40m + 5msgs) → closed")
+    ok(EVENT_GAP_MINUTES === 120 && EVENT_MSG_QUOTA === 100, "V18: constants as briefed (2h + 100 msgs)")
+
+    // ② خالص — پنجره‌ی جنس‌به‌جنس
+    ok(eventWindowMinutes("chaos") === 45 && eventWindowMinutes("meme") === 45, "V18: chaos/meme window 45min (quick fun)")
+    ok(eventWindowMinutes("mystery") === 120 && eventWindowMinutes("world") === 120, "V18: mystery/world window 120min (deep thought)")
+    ok(eventWindowMinutes("social") === 75 && eventWindowMinutes("economic") === 75 && eventWindowMinutes("npc") === 75, "V18: default window 75min")
+
+    // ③ خالص — خطِ مهلت روی کارت
+    const fakeEv = {
+      emoji: "💥", title: "آزمونِ پنجره", body: "بدنه", choicesJson: "[]",
+      expiresAt: new Date(Date.now() + 60 * 60000),
+    } as unknown as import("@prisma/client").GroupEvent
+    ok(eventCardText(fakeEv, []).includes("دقیقه وقت داری"), "V18: event card carries the window line (⏳ N دقیقه وقت داری)")
+    const deadEv = { ...fakeEv, expiresAt: new Date(Date.now() - 60_000) } as unknown as import("@prisma/client").GroupEvent
+    ok(!eventCardText(deadEv, []).includes("دقیقه وقت داری"), "V18: expired card renders no window line")
+
+    // ④ یکپارچه — شهرِ تازه: فرمانِ «رویدادها» کارتِ «شهر نفس تازه می‌کشد» می‌گیرد
+    const cV = chat(90), uV = tid(90)
+    await member(cV, "شهرِ وی۱۸", uV, "پیسِ الف")
+    const gV = await gidOf(cV)
+    const refused = await command(cV, uV, "event")
+    ok((refused.body.data?.text ?? "").includes("شهر نفس تازه می‌کشد"), "V18: fresh city /event → pacing refusal card")
+    ok((refused.body.data?.text ?? "").includes("120") && (refused.body.data?.text ?? "").includes("100"), "V18: refusal card teaches the rule (2h + 100 msgs)")
+    ok((await db.groupEvent.count({ where: { groupId: gV } })) === 0, "V18: refusal created no event row")
+
+    // ⑤ یکپارچه — مسلح: ماجرا متولد می‌شود؛ پنجره رعایت؛ شمارنده صفر
+    await armEventPacing(cV)
+    const evCmd = await command(cV, uV, "event")
+    ok(evCmd.body.data?.text === "", "V18: armed city /event defers card to outbox")
+    const evV = await db.groupEvent.findFirst({ where: { groupId: gV, status: "open" } })
+    ok(Boolean(evV), "V18: armed city spawned the event")
+    if (evV) {
+      const winMin = Math.round(((evV.expiresAt?.getTime() ?? 0) - evV.createdAt.getTime()) / 60000)
+      ok(winMin === eventWindowMinutes(evV.kind), "V18: window honored by kind", `kind=${evV.kind} win=${winMin}`)
+      ok(winMin >= 45, "V18: window at least 45 minutes (user floor: 30)")
+      const cardRow = await db.groupOutbox.findFirst({ where: { groupId: gV, refType: "event", refId: evV.id } })
+      ok((cardRow?.text ?? "").includes("دقیقه وقت داری"), "V18: spawn card shows the window line")
+    }
+    const gAfter = await db.groupWorld.findUniqueOrThrow({ where: { id: gV } })
+    ok((JSON.parse(gAfter.cultureJson ?? "{}") as { msgsSinceEvent?: number }).msgsSinceEvent === 0, "V18: msgsSinceEvent reset to 0 after spawn")
+
+    // ⑥ یکپارچه — observe شمارنده را بالا می‌برد (همان مسیرِ ربات)
+    const obs = await post("/api/group/observe", { chatId: cV, chatTitle: "شهرِ وی۱۸", chatType: "group", telegramId: uV, text: "سلام شهر، چطورید؟", addressedToBot: false })
+    ok(obs.body.ok === true, "V18: observe accepted over the bot transport")
+    const gObs = await db.groupWorld.findUniqueOrThrow({ where: { id: gV } })
+    ok((JSON.parse(gObs.cultureJson ?? "{}") as { msgsSinceEvent?: number }).msgsSinceEvent === 1, "V18: observe bumps msgsSinceEvent to 1")
+
+    // ⑦ یکپارچه — پیگیریِ زمان‌بندی‌شده: دروازه‌ی بسته → defer نه مصرف
+    // (اولویتِ ۹: درینِ هر گروه سقفِ ۲ ردیف با ترتیبِ اولویت می‌برد — ردیفِ آزمون
+    // باید بالایِ کارت‌هایِ اعلام‌نشده‌ی همین شهرِ آزمونی بنشیند تا در همان تیک دیده شود)
+    const fuRow = await fixture(() => db.groupOutbox.create({
+      data: { groupId: gV, targetChatId: cV, kind: "spawn_event", text: "frog_remembers", priority: 9, deliverAfter: new Date(Date.now() - 60_000) },
+    }))
+    await tick()
+    const fuAfter = await db.groupOutbox.findUnique({ where: { id: fuRow.id } })
+    ok(fuAfter?.deliveredAt === null && (fuAfter?.deliverAfter?.getTime() ?? 0) > Date.now(), "V18: gated follow-up deferred (+30min), not consumed")
+    ok((await db.groupEvent.count({ where: { groupId: gV, status: "open" } })) === 1, "V18: follow-up did NOT spawn behind the open event")
+
+    // ⑧ یکپارچه — مسلح + بسته‌شدنِ رویدادِ باز: پیگیری آزاد می‌شود (مصرف؛ رول ۷۵٪)
+    await callback(cV, uV, "gs:recover", true)
+    await armEventPacing(cV)
+    // fixture: ردیفِ پیگیری دوباره «آماده» + رویدادِ خودجوشِ فازِ ۶ خاموش (ایزوله‌کردنِ
+    // درینِ پیگیری از رولِ ambientِ همان تیک — eventFreq فقط فازِ ۶ را می‌بندد)
+    await fixture(async () => {
+      await db.groupOutbox.update({ where: { id: fuRow.id }, data: { deliverAfter: new Date(Date.now() - 60_000) } })
+      await db.groupWorld.update({ where: { id: gV }, data: { settingsJson: JSON.stringify({ eventFreq: "off" }) } })
+    })
+    await tick()
+    const fuFinal = await db.groupOutbox.findUnique({ where: { id: fuRow.id } })
+    ok(fuFinal?.deliveredAt !== null, "V18: armed follow-up consumed by the drain (roll decides spawn)")
+    const fuEv = await db.groupEvent.findFirst({ where: { groupId: gV, status: "open" } })
+    if (fuEv) ok(fuEv.templateId === "frog_remembers", "V18: follow-up (when rolled) spawned the chained template", `templateId=${fuEv.templateId}`)
   }
 }
 

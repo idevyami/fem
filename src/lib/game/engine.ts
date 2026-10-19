@@ -34,6 +34,8 @@ import { getJob, getVehicle, getHouse } from "./content"
 import { awardXpTx, awardMasteryTx, femboySummaryDTO, getSyncedCharacter } from "./character"
 import { getClass } from "./content/classes"
 import { XP_TRACK_META, type XpTrack } from "./content/classes"
+import { levelUpBody } from "./xp"
+import { journeyInfoOf } from "./journey"
 
 // ─── V9: تربیتِ فمبوی از راهِ زندگی — XPِ تجربه‌های شهر ─────────────────────────
 // قانونِ مستند: «تجربه‌ی شهر، فمبوی را تربیت می‌کند.» هر اتفاقِ حل‌شده به فمبویِ
@@ -457,7 +459,7 @@ export async function resolveChoice(playerId: string, eventId: string, optionInd
             playerId: p.id,
             icon: "🎉",
             title: `سطح ${leveled}`,
-            body: "شهر کمی جدی‌تر گرفتیت. دقیقاً به اندازه‌ای که خودش تصمیم گرفت.",
+            body: levelUpBody(leveled), // V17 — اسمِ واقعیِ بازشدنی‌ها، نه شعرِ بی‌نام
             kind: "reward",
           },
         })
@@ -803,6 +805,8 @@ export async function buildSnapshot(player: Player, opts?: { recap?: OfflineReca
       : null,
     canWork,
     workCooldownMinutes: job ? Math.max(0, Math.ceil(job.cooldownMinutes - lastWorkedMin)) : 0,
+    // V17-W3 (W3-F4) — پیوستگیِ کار برای نمایشِ شفافِ پاداش در مینی‌اپ/ربات
+    workStreak: player.workStreak,
     resting: !!player.restUntil && player.restUntil.getTime() > Date.now(),
     restMinutesLeft: player.restUntil ? Math.max(0, Math.ceil((player.restUntil.getTime() - Date.now()) / 60000)) : 0,
     activeTitle: activeTitleDef ? `${activeTitleDef.emoji} ${activeTitleDef.name}` : null,
@@ -980,6 +984,8 @@ export async function buildSnapshot(player: Player, opts?: { recap?: OfflineReca
 
   // ── V9: هویتِ مرکزی — فمبویِ روح‌بسته در هر snapshot (برای ربات، مینی‌اپ و راهنما)
   const femboyDto = soulChar ? femboySummaryDTO(soulChar) : null
+  // ── V17: مرحله‌ی سفر — افشایشِ تدریجیِ یک‌صدا برای هر سه سطحِ بازی
+  const journeyDto = journeyInfoOf(player, !!soulChar)
 
   return {
     player: playerDto,
@@ -993,6 +999,7 @@ export async function buildSnapshot(player: Player, opts?: { recap?: OfflineReca
     offlineRecap: opts?.recap ?? null,
     serverTime: new Date().toISOString(),
     femboy: femboyDto,
+    journey: journeyDto,
   }
 }
 

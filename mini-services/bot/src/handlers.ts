@@ -25,12 +25,13 @@ import {
   goalsKeyboard,
   homeKeyboard,
   jobsKeyboard,
+  livingConfirmKeyboard,
+  livingKeyboard,
   marketKeyboard,
   marketPriceKeyboard,
   marketSellKeyboard,
   MINIAPP_URL,
   miniAppCardKeyboard,
-  nextKeyboard,
   notifyKeyboard,
   nudgeKeyboard,
   opsKeyboard,
@@ -104,6 +105,8 @@ import {
   historyText,
   homeText,
   jobsText,
+  livingConfirmText,
+  livingText,
   marketPriceText,
   marketSellText,
   marketText,
@@ -116,6 +119,8 @@ import {
   SUB,
   titlesText,
   topText,
+  vehiclePriceOf,
+  type LivingWhich,
   esc,
   faNum,
   toLatinDigits,
@@ -558,8 +563,10 @@ async function runAction(ctx: Context, action: string, payload: Record<string, u
 
 /** نمای نتیجه + «🧭 بعدی: …» (طراحیِ جلسه‌ی V4) — فقط در خصوصی.
  *  V16-3: از showOutcome می‌رود — نتیجه‌ی متنیِ پیاپی، همان پیامِ نتیجه‌ی قبلی
- *  را جایگزین می‌کند (ضدِ چین‌شدنِ کارت — ممیزی §4-⑷). */
-async function outcomeShow(ctx: Context, text: string): Promise<void> {
+ *  را جایگزین می‌کند (ضدِ چین‌شدنِ کارت — ممیزی §4-⑷).
+ *  V17-W3 (W3-F8): پارامترِ extras — دکمه‌های بافتی (مثلِ «🛍 بازار» بعد از خرید)
+ *  کنارِ «🧭 بعدی» و «↩ خانه»؛ بدونِ extras رفتار بایت‌به‌بایت همانِ قبل است. */
+async function outcomeShow(ctx: Context, text: string, extras?: { label: string; data: string }[]): Promise<void> {
   if (!isPrivate(ctx)) {
     await show(ctx, text, backKeyboard())
     return
@@ -567,11 +574,18 @@ async function outcomeShow(ctx: Context, text: string): Promise<void> {
   const g = await fetchGuide(tgId(ctx))
   const na = g?.nextActions[0]
   if (!na) {
-    await showOutcome(ctx, text, backKeyboard())
+    const kb0 = new InlineKeyboard()
+    for (const b of extras ?? []) kb0.text(clampText(b.label, 30), b.data).primary().row()
+    kb0.text("↩ خانه", CB.menu).primary()
+    await showOutcome(ctx, text, kb0)
     return
   }
   const full = `${text}\n${SEP}\n🧭 <b>بعدی:</b> ${na.icon} ${esc(clampText(na.title, 48))}`
-  await showOutcome(ctx, full, nextKeyboard(na.actionLabel || na.title))
+  const kb = new InlineKeyboard()
+  kb.text(`🧭 ${clampText(na.actionLabel || na.title, 30)}`, CB.nextGo).primary().row()
+  for (const b of extras ?? []) kb.text(clampText(b.label, 30), b.data).primary().row()
+  kb.text("↩ خانه", CB.menu).primary()
+  await showOutcome(ctx, full, kb)
 }
 
 // ─── 👤 من ۲.۰ / 📜 تاریخچه ──────────────────────────────────────────────────
@@ -743,12 +757,13 @@ export async function showMarket(ctx: Context): Promise<void> {
   }
 }
 
-/** خریدِ یک آگهی — توست + تازه‌سازیِ بازار */
+/** خریدِ یک آگهی — V17-W3 (W3-F8): خرید هم مثلِ کار/قمار/استراحت کارتِ نتیجه
+ *  (پیام + طعم + دلتاها) + «🧭 بعدی» می‌گیرد؛ دکمه‌ی بافتیِ «🛍 بازار» برای
+ *  ادامه‌ی خرید؛ کارتِ بازار با فشردنش تازه می‌شود (همان m:market). */
 export async function doBuy(ctx: Context, listingId: string): Promise<void> {
   try {
     const res = await api.action(tgId(ctx), "buyItem", { listingId })
-    await answer(ctx, `✅ ${res.message}`) // توست
-    await showMarket(ctx)
+    await outcomeShow(ctx, actionText(res), [{ label: "🛍 بازار", data: CB.market }])
   } catch (e) {
     await fail(ctx, e)
   }
@@ -794,23 +809,130 @@ export async function showMarketPrice(ctx: Context, itemKey: string): Promise<vo
   }
 }
 
-/** گامِ ۳ — تأیید: آگهی با همین قیمت (1 عدد) — همان createListing مینی‌اپ */
+/** گامِ ۳ — تأیید: آگهی با همین قیمت (1 عدد) — همان createListing مینی‌اپ.
+ *  V17-W3 (W3-F8): نتیجه با همان گرامرِ یکسان — کارتِ نتیجه + «🧭 بعدی» + «🛍 بازار». */
 export async function doMarketListAt(ctx: Context, itemKey: string, price: number): Promise<void> {
   try {
     const res = await api.action(tgId(ctx), "createListing", { itemKey, quantity: 1, price })
-    await answer(ctx, `✅ ${res.message}`) // توست
-    await showMarket(ctx) // آگهیِ تازه در «آگهی‌های تو» دیده می‌شود
+    await outcomeShow(ctx, actionText(res), [{ label: "🛍 بازار", data: CB.market }])
   } catch (e) {
     await fail(ctx, e)
   }
 }
 
-/** پس‌گرفتنِ آگهیِ خودم — همان cancelListing مینی‌اپ؛ جنس برمی‌گردد تو کیف */
+/** پس‌گرفتنِ آگهیِ خودم — همان cancelListing مینی‌اپ؛ جنس برمی‌گردد تو کیف.
+ *  V17-W3 (W3-F8): همان گرامرِ نتیجه — کارتِ نتیجه + «🧭 بعدی» + «🛍 بازار». */
 export async function doMarketCancel(ctx: Context, listingId: string): Promise<void> {
   try {
     const res = await api.action(tgId(ctx), "cancelListing", { listingId })
-    await answer(ctx, `✅ ${res.message}`) // توست
-    await showMarket(ctx)
+    await outcomeShow(ctx, actionText(res), [{ label: "🛍 بازار", data: CB.market }])
+  } catch (e) {
+    await fail(ctx, e)
+  }
+}
+
+// ─── 🏠 خانه و وسیله (V17-3 — ممیزی ⑨: خرید خانه/وسیله فقطِ مینی‌اپ بود) ──────
+// همان اکشن‌های معتبرِ موتور (buyHouse/buyVehicle) از همان مسیرِ همیشه —
+// POST /api/game/action با کلیدِ سرویس؛ صفر منطقِ تازه‌ی بازی. سه گام:
+// لیست (قیمتِ واقعی روی دکمه) ← تأیید (قیمتِ نهایی + جیبِ نوخوانده) ← اجرا.
+// قیمتِ وسیله آینه‌ی موتور است: round(basePrice × economyIndex/100).
+
+/** گامِ ۱ — کارتِ «🏠 خانه و وسیله» (دو لیستِ همان کارت، سوییچ با دکمه) */
+export async function showLiving(ctx: Context, which: LivingWhich = "house"): Promise<void> {
+  typing(ctx)
+  try {
+    const [cat, snap] = await Promise.all([api.catalog(tgId(ctx)), api.state(tgId(ctx))])
+    const player = snap.snapshot.player
+    const houses = cat.houses ?? []
+    const vehicles = cat.vehicles ?? []
+    const listHouses = houses
+      .filter((h) => h.key !== (player.house?.key ?? "attic"))
+      .map((h) => ({ key: h.key, name: h.name, emoji: h.emoji, price: h.price }))
+    const listVehicles = vehicles
+      .filter((v) => v.key !== player.vehicle?.key)
+      .map((v) => ({ key: v.key, name: v.name, emoji: v.emoji, price: vehiclePriceOf(v.basePrice, cat.economyIndex) }))
+    await show(
+      ctx,
+      withHint(livingText({ which, player, houses, vehicles, economyIndex: cat.economyIndex }), "living"),
+      livingKeyboard({ which, houses: listHouses, vehicles: listVehicles }),
+    )
+  } catch (e) {
+    await fail(ctx, e)
+  }
+}
+
+/** گامِ ۲ — کارتِ تأیید: قیمتِ واقعی + جیبِ تازه‌خوانده + هزینه‌ی پیوسته.
+ *  جیب که نکشد → دکمه‌ی «می‌خرم» نمی‌آید و خطِ صادقانه می‌ماند (الگوی بینگو) */
+export async function showLivingBuy(ctx: Context, which: LivingWhich, key: string): Promise<void> {
+  typing(ctx)
+  try {
+    const [cat, snap] = await Promise.all([api.catalog(tgId(ctx)), api.state(tgId(ctx))])
+    const player = snap.snapshot.player
+    if (which === "house") {
+      const h = (cat.houses ?? []).find((x) => x.key === key)
+      if (!h || h.key === (player.house?.key ?? "attic")) {
+        await answer(ctx, "این خانه دیگر مالِ توست یا در فهرست نیست.")
+        await showLiving(ctx, which)
+        return
+      }
+      const affordable = player.money >= h.price
+      const lines = [
+        livingConfirmText({
+          which,
+          item: { name: h.name, emoji: h.emoji },
+          price: h.price,
+          money: player.money,
+          tail: `اجاره‌ی روزانه‌اش ${chip(h.rent)} سکه · آسایش ${chip(h.comfort)} · امنیت ${chip(h.security)}`,
+        }),
+      ]
+      lines.push(
+        "",
+        affordable
+          ? "<i>«می‌خرم» پول را می‌برد و خانه‌ی فعلی‌ات را جابه‌جا می‌کند.</i>"
+          : `🚫 جیب این را نمی‌کشد — ${chip("کار")} کن، بعد بیا.`,
+      )
+      await show(ctx, lines.join("\n"), livingConfirmKeyboard(which, key, affordable))
+      return
+    }
+    const v = (cat.vehicles ?? []).find((x) => x.key === key)
+    if (!v || v.key === player.vehicle?.key) {
+      await answer(ctx, "این وسیله دیگر مالِ توست یا در فهرست نیست.")
+      await showLiving(ctx, which)
+      return
+    }
+    const price = vehiclePriceOf(v.basePrice, cat.economyIndex)
+    const affordable = player.money >= price
+    const lines = [
+      livingConfirmText({
+        which,
+        item: { name: v.name, emoji: v.emoji },
+        price,
+        money: player.money,
+        tail: v.quirk || v.description,
+      }),
+    ]
+    lines.push(
+      "",
+      affordable
+        ? "<i>«می‌خرم» پول را می‌برد و وسیله‌ی فعلی‌ات را جابه‌جا می‌کند.</i>"
+        : `🚫 جیب این را نمی‌کشد — ${chip("کار")} کن، بعد بیا.`,
+    )
+    await show(ctx, lines.join("\n"), livingConfirmKeyboard(which, key, affordable))
+  } catch (e) {
+    await fail(ctx, e)
+  }
+}
+
+/** گامِ ۳ — تأییدشده (فقط lv:go از کارتِ تأیید): همان buyHouse/buyVehicle موتور.
+ *  نتیجه = پیام + دلتاها + جیبِ تازه + «بعدی» راهنما (outcomeShow)؛ خطای موتور
+ *  (پول کم / همین را داری) عیناً و بی‌واسطه می‌رسد. */
+export async function doLivingBuy(ctx: Context, which: LivingWhich, key: string): Promise<void> {
+  const engineAction = which === "house" ? "buyHouse" : "buyVehicle"
+  const payload = which === "house" ? { houseKey: key } : { vehicleKey: key }
+  try {
+    const res = await api.action(tgId(ctx), engineAction, payload)
+    const text = `${actionText(res)}\n💰 جیبِ الان: ${chip(res.snapshot.player.money)} سکه`
+    await outcomeShow(ctx, text)
   } catch (e) {
     await fail(ctx, e)
   }
@@ -1156,6 +1278,13 @@ async function dispatch(ctx: Context, cb: Callback): Promise<void> {
       return doMarketCancel(ctx, cb.listingId)
     case "bagPage":
       return showItems(ctx, cb.page)
+    // V17-3 — خانه و وسیله: لیست · تأیید · اجرا (فقط از کارتِ تأیید)
+    case "living":
+      return showLiving(ctx, cb.which)
+    case "livingBuy":
+      return showLivingBuy(ctx, cb.which, cb.key)
+    case "livingGo":
+      return doLivingBuy(ctx, cb.which, cb.key)
   }
 }
 

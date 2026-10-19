@@ -60,7 +60,7 @@ export function welcomeNoCharCardText(playerName: string, groupTitle: string, ac
     `<b>${esc(playerName)}</b> واردِ «${esc(groupTitle)}» شد.`,
     "",
     "این گروه خودش یک شهر است: اتفاق می‌افتد، رأی گرفته می‌شود، پروژه ساخته می‌شود، دوئل می‌شود — و همه‌اش عاقبتِ واقعی دارد.",
-    "بدونِ فمبویِ روح‌بسته فقط تماشاگری؛ تماشاچی هم عزیز است، ولی شمشیر نمی‌گیرد.",
+    "بدونِ فمبوی فقط تماشاگری؛ تماشاچی هم عزیز است، ولی شمشیر نمی‌گیرد.",
     "",
     `الان: ${activityHtml}`,
     "",
@@ -104,13 +104,13 @@ export async function welcome(group: GroupWorld, player: Player): Promise<void> 
     text = welcomeHasCharCardText(player.name, group.title, id, activity)
     buttons = [
       { label: "💥 اتفاق‌ها", style: "danger", cb: "gm:event" },
-      { label: "🏠 خانه‌ی شهر", style: "primary", cb: "gm:game" },
+      { label: "↩ خانه", style: "primary", cb: "gm:game" },
     ]
   } else {
     text = welcomeNoCharCardText(player.name, group.title, activity)
     buttons = [
       { label: "🎀 ساختنِ فمبوی", style: "success", url: FEMBOY_START_URL },
-      { label: "🏠 خانه‌ی شهر", style: "primary", cb: "gm:game" },
+      { label: "↩ خانه", style: "primary", cb: "gm:game" },
     ]
   }
 

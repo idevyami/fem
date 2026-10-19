@@ -2,6 +2,10 @@
 
 // «مسیرِ زندگی» — مقطع، جهت، هدف‌ها و قدمِ بعدی از راهنمای V4
 // + نوارِ «فرصت‌ها» با شیتِ جزئیات و گرفتنِ واقعی
+// V17-2 (ممیزیِ ②): حالتِ focusMode برای جلسه‌ی اول — چیپِ پیمان حذف می‌شود تا
+// پیشخوانِ متمرکز (پنلِ پیمان) تنها صدای پیمان باشد؛ حداکثر دو پیشنهادِ دیگر.
+// نوارِ فرصت‌ها جدا شد (OpportunitiesStrip) تا پیشخوان بتواند آن را در حالتِ
+// متمرکز پشتِ «بقیه‌ی شهر» جمع کند و در حالتِ عادی همان‌جای همیشگی بگذارد.
 import * as React from "react"
 import { AnimatePresence, motion } from "framer-motion"
 import type { NextActionDTO, OpportunityDTO } from "@/lib/game/contract"
@@ -36,12 +40,26 @@ const NEXT_TONE_VARIANT: Record<NextActionDTO["tone"], "soft" | "glass" | "dange
   warn: "danger",
 }
 
-export function DirectionCard({ onDrawEvent }: { onDrawEvent: () => void }) {
+// ─── V17-W3 (F7): TTLِ سمتِ کلاینتِ راهنما ─────────────────────────────────
+// آینه‌ی GUIDE_TTL_MS ربات (api.ts — ۶۰ ثانیه): ورودِ دوباره‌ی تبِ خانه در کمتر از
+// ۶۰ ثانیه و بدونِ تغییرِ دنیا (worldVersion/dayCount) دیگر ≈۱۵ کوئریِ سنگینِ راهنما
+// را نمی‌سوزاند. هر اکشن/رویدادِ موفق worldVersion را بالا می‌برد → همیشه تازه
+// می‌گیرد (درستی مقدم بر صرفه‌جویی، §17).
+const GUIDE_TTL_MS = 60_000
+let guideCache: { at: number; worldVersion: number; dayCount: number | undefined } | null = null
+
+export function DirectionCard({ onDrawEvent, focusMode = false }: { onDrawEvent: () => void; focusMode?: boolean }) {
   const snapshot = useGame((s) => s.snapshot)
   const guide = useGame((s) => s.guide)
   const setGuide = useGame((s) => s.setGuide)
-  const runAction = useGame((s) => s.runAction)
+  // V17-W2 (F1): اکشن‌های موتورِ این کارت روی پیشخوان اجرا می‌شوند — نتیجه‌شان
+  // کارتِ نتیجه می‌گیرد (runActionReveal)، نه توستِ گذرا
+  const runActionReveal = useGame((s) => s.runActionReveal)
   const setActiveTab = useGame((s) => s.setActiveTab)
+  // V17-W3 (F5) — deep-linkِ سکشنِ فمبوی: پیشنهادهای توصیه‌گر مستقیم به سکشنِ خودش می‌روند
+  const setPendingSoulSection = useGame((s) => s.setPendingSoulSection)
+  // V17-W3 (hotfixِ runNext) — مسیرِ «پس بده» به شیتِ بدهیِ تبِ «من» deep-link می‌شود
+  const setPendingMeSheet = useGame((s) => s.setPendingMeSheet)
   const activeTab = useGame((s) => s.activeTab)
   // V16-2 (ممیزیِ ⑧): راهنما فقط با اکشن/رویدادِ موفق (worldVersion) یا عوض‌شدنِ روز
   // دوباره خوانده می‌شود — نه با هر تیکِ serverTime که با هر snapshot عوض می‌شود
@@ -49,19 +67,30 @@ export function DirectionCard({ onDrawEvent }: { onDrawEvent: () => void }) {
   const dayCount = snapshot?.world.dayCount
 
   const [goalsOpen, setGoalsOpen] = React.useState(false)
-  const [oppSheet, setOppSheet] = React.useState<OpportunityDTO | null>(null)
-  const [claiming, setClaiming] = React.useState(false)
   const [acting, setActing] = React.useState<string | null>(null)
 
   // واکشی راهنما (≈15 کوئری سنگین) — فقط وقتی خودِ پیشخوان فعال است:
-  // اولِ کار، بعد از هر اکشن/رویدادِ موفق (نسخه‌ی دنیا)، با عوض‌شدنِ روز، و دوباره با
-  // برگشتن به تبِ خانه. در بقیه‌ی تب‌ها هیچ درخواستی نمی‌رود.
-  // خطا → همان اسکلتون می‌ماند؛ با برگشتن به تب یا نسخه‌ی تازه‌ی دنیا دوباره تلاش می‌شود
+  // اولِ کار، بعد از هر اکشن/رویدادِ موفق (نسخه‌ی دنیا)، با عوض‌شدنِ روز — و با
+  // برگشتن به تبِ خانه فقط اگر از آخرین واکشی بیش از ۶۰ ثانیه گذشته یا دنیا عوض
+  // شده باشد (V17-W3 · F7 — TTLِ سمتِ کلاینت، آینه‌ی ربات). در بقیه‌ی تب‌ها هیچ
+  // درخواستی نمی‌رود. خطا → همان اسکلتون می‌ماند؛ تلاشِ بعدی با برگشتن/دنیای تازه.
   React.useEffect(() => {
     if (activeTab !== "home") return
+    // تازه است؟ نسخه‌ی دنیا/روز همان است و کمتر از ۶۰ ثانیه از آخرین واکشی گذشته → رد
+    if (
+      guideCache &&
+      guideCache.worldVersion === worldVersion &&
+      guideCache.dayCount === dayCount &&
+      Date.now() - guideCache.at <= GUIDE_TTL_MS
+    ) {
+      return
+    }
     let alive = true
     void api.guide().then((res) => {
-      if (res.ok && alive) setGuide(res.data)
+      if (res.ok && alive) {
+        setGuide(res.data)
+        guideCache = { at: Date.now(), worldVersion, dayCount }
+      }
     })
     return () => {
       alive = false
@@ -85,28 +114,30 @@ export function DirectionCard({ onDrawEvent }: { onDrawEvent: () => void }) {
   const visibleGoals = goalsOpen ? guide.goals : guide.goals.slice(0, 3)
   const hiddenGoalCount = guide.goals.length - 3
 
-  /** گرفتنِ فرصت — از شیت یا از قدمِ بعدی */
-  async function claimOpp(opportunityId: string) {
-    if (claiming || acting) return
-    setClaiming(true)
-    const ok = await runAction("claimOpportunity", { opportunityId })
-    setClaiming(false)
-    if (ok) {
-      setOppSheet(null)
-      // راهنما با اکشنِ موفق (نسخه‌ی دنیا) از همان افکتِ بالا تازه می‌شود — واکشیِ دوباره‌یِ دستی ممنوع
-    }
-  }
+  // V17-2: جلسه‌ی اول — پیشنهادِ پیمان دوبار تکرار نمی‌شود (پنلِ پیمان بالای صفحه
+  // خودش صداکردنِ اصلی است)؛ فقط دو پیشنهادِ دیگر می‌ماند
+  const nextRow = focusMode
+    ? guide.nextActions.filter((a) => a.id !== "femboy").slice(0, 2)
+    : guide.nextActions.slice(0, 3)
 
   /** اجرای قدمِ بعدی — همه‌ی شناسه‌هایی که موتور پیشنهاد می‌دهد */
   async function runNext(a: NextActionDTO) {
     if (acting) return
     const finish = () => setActing(null)
 
-    // کار و استراحت — مستقیم
-    if (a.id === "work" || a.id === "rest" || a.id === "payDebt") {
+    // کار و استراحت — مستقیم (بی‌پارامتر و بی‌مبلغ)
+    if (a.id === "work" || a.id === "rest") {
       setActing(a.id)
-      await runAction(a.id)
+      await runActionReveal(a.id)
       finish()
+      return
+    }
+    // V17-W3 (hotfixِ runNext): «بدهی‌ات را پس بده» دیگر شلیکِ بی‌مبلغ نمی‌شود
+    // (موتور ۱ سکه می‌پرداخت!) — انتخابِ مبلغ جزئی از خودِ کنش است؛ به شیتِ بدهی
+    // در تبِ «من» deep-link می‌شود (الگویِ pendingSoulSection، F5).
+    if (a.id === "payDebt") {
+      setPendingMeSheet("debt")
+      setActiveTab("me")
       return
     }
 
@@ -122,13 +153,24 @@ export function DirectionCard({ onDrawEvent }: { onDrawEvent: () => void }) {
       return
     }
 
-    // فمبوی (V9) — پیمان/نقطه‌مهارت/وقت‌گذرانی/شکار → تبِ فمبوی
-    if (
-      a.id === "femboy" ||
-      a.id === "femboySkills" ||
-      a.id === "femboyInteract" ||
-      a.id === "femboyHunt"
-    ) {
+    // فمبوی (V9) — پیمان/نقطه‌مهارت/تعامل/شکار → تبِ فمبوی؛ V17-W3 (F5): هر
+    // پیشنهاد مستقیم به سکشنِ خودش می‌رود (مهارت‌ها/اقدامات/نبرد)، نه پروفایل
+    if (a.id === "femboy") {
+      setActiveTab("soul")
+      return
+    }
+    if (a.id === "femboySkills") {
+      setPendingSoulSection("skills")
+      setActiveTab("soul")
+      return
+    }
+    if (a.id === "femboyInteract") {
+      setPendingSoulSection("actions")
+      setActiveTab("soul")
+      return
+    }
+    if (a.id === "femboyHunt") {
+      setPendingSoulSection("combat")
       setActiveTab("soul")
       return
     }
@@ -139,9 +181,11 @@ export function DirectionCard({ onDrawEvent }: { onDrawEvent: () => void }) {
       return
     }
 
-    // فرصتِ فوری — مستقیم بگیر (توصیه‌گر «claim-{id}» می‌فرستد)
+    // فرصتِ فوری — مستقیم بگیر (توصیه‌گر «claim-{id}» می‌فرستد؛ شیتِ جزئیات در OpportunitiesStrip است)
     if (a.id.startsWith("claim-")) {
-      void claimOpp(a.id.slice("claim-".length))
+      setActing(a.id)
+      await runActionReveal("claimOpportunity", { opportunityId: a.id.slice("claim-".length) })
+      finish()
       return
     }
 
@@ -152,7 +196,7 @@ export function DirectionCard({ onDrawEvent }: { onDrawEvent: () => void }) {
       const district = inline ?? fromEmoji
       if (district) {
         setActing(a.id)
-        await runAction("travel", { district })
+        await runActionReveal("travel", { district })
         finish()
       } else {
         setActiveTab("city")
@@ -240,9 +284,9 @@ export function DirectionCard({ onDrawEvent }: { onDrawEvent: () => void }) {
           </button>
         ) : null}
 
-        {guide.nextActions.length > 0 ? (
+        {nextRow.length > 0 ? (
           <div className="no-scrollbar -mx-1 mt-3 flex gap-2 overflow-x-auto px-1 pb-0.5">
-            {guide.nextActions.slice(0, 3).map((a) => (
+            {nextRow.map((a) => (
               <ActionButton
                 key={a.id}
                 emoji={a.icon}
@@ -259,55 +303,81 @@ export function DirectionCard({ onDrawEvent }: { onDrawEvent: () => void }) {
           </div>
         ) : null}
       </GlassCard>
+    </>
+  )
+}
 
-      {/* ─── نوارِ فرصت‌ها ─── */}
-      {guide.opportunities.length > 0 ? (
-        <GlassCard pad="sm">
-          <SectionTitle icon="⚡" title="فرصت‌ها" />
-          <div className="no-scrollbar -mx-1 flex gap-2 overflow-x-auto px-1 pb-0.5">
-            {guide.opportunities.map((o) => {
-              const risk = OPP_RISK[o.claimStyle]
-              return (
-                <motion.button
-                  key={o.id}
-                  type="button"
-                  whileTap={{ scale: 0.96 }}
-                  onClick={() => {
-                    haptic("light")
-                    setOppSheet(o)
-                  }}
-                  className={cn(
-                    "glass flex w-40 shrink-0 select-none flex-col gap-1 p-3 text-start transition-colors hover:bg-white/[0.06]",
-                    o.claimStyle === "wild"
-                      ? "border-rose-400/25"
-                      : o.claimStyle === "risky"
-                        ? "border-amber-400/25"
-                        : "border-emerald-400/20",
-                  )}
-                  aria-label={`فرصت ${o.title}`}
-                >
-                  <p className="flex w-full items-center gap-1.5 text-xs font-bold">
-                    <span aria-hidden className="text-base leading-none">
-                      {o.icon}
+// ─── نوارِ فرصت‌ها (V17-2: جدا از کارتِ مسیر تا پیشخوان بتواند جایش را عوض کند) ───
+
+export function OpportunitiesStrip() {
+  const guide = useGame((s) => s.guide)
+  // V17-W2 (F1): گرفتنِ فرصت روی پیشخوان اجرا می‌شود — نتیجه‌اش کارتِ نتیجه می‌گیرد
+  const runActionReveal = useGame((s) => s.runActionReveal)
+
+  const [oppSheet, setOppSheet] = React.useState<OpportunityDTO | null>(null)
+  const [claiming, setClaiming] = React.useState(false)
+
+  if (!guide || guide.opportunities.length === 0) return null
+
+  /** گرفتنِ فرصت — از شیت */
+  async function claimOpp(opportunityId: string) {
+    if (claiming) return
+    setClaiming(true)
+    const res = await runActionReveal("claimOpportunity", { opportunityId })
+    setClaiming(false)
+    if (res) {
+      setOppSheet(null)
+      // راهنما با اکشنِ موفق (نسخه‌ی دنیا) از افکتِ DirectionCard تازه می‌شود
+    }
+  }
+
+  return (
+    <>
+      <GlassCard pad="sm">
+        <SectionTitle icon="⚡" title="فرصت‌ها" />
+        <div className="no-scrollbar -mx-1 flex gap-2 overflow-x-auto px-1 pb-0.5">
+          {guide.opportunities.map((o) => {
+            const risk = OPP_RISK[o.claimStyle]
+            return (
+              <motion.button
+                key={o.id}
+                type="button"
+                whileTap={{ scale: 0.96 }}
+                onClick={() => {
+                  haptic("light")
+                  setOppSheet(o)
+                }}
+                className={cn(
+                  "glass flex w-40 shrink-0 select-none flex-col gap-1 p-3 text-start transition-colors hover:bg-white/[0.06]",
+                  o.claimStyle === "wild"
+                    ? "border-rose-400/25"
+                    : o.claimStyle === "risky"
+                      ? "border-amber-400/25"
+                      : "border-emerald-400/20",
+                )}
+                aria-label={`فرصت ${o.title}`}
+              >
+                <p className="flex w-full items-center gap-1.5 text-xs font-bold">
+                  <span aria-hidden className="text-base leading-none">
+                    {o.icon}
+                  </span>
+                  <span className="min-w-0 truncate">{o.title}</span>
+                </p>
+                <p className="flex w-full items-center gap-2 text-[11px] leading-4 text-muted-foreground">
+                  <span className="tabular-nums">⏳ {faNum(o.minutesLeft)} دقیقه</span>
+                  {risk.marks ? (
+                    <span className="shrink-0 font-bold text-amber-300" aria-label={`سطحِ خطر: ${risk.label}`}>
+                      {risk.marks}
                     </span>
-                    <span className="min-w-0 truncate">{o.title}</span>
-                  </p>
-                  <p className="flex w-full items-center gap-2 text-[11px] leading-4 text-muted-foreground">
-                    <span className="tabular-nums">⏳ {faNum(o.minutesLeft)} دقیقه</span>
-                    {risk.marks ? (
-                      <span className="shrink-0 font-bold text-amber-300" aria-label={`سطحِ خطر: ${risk.label}`}>
-                        {risk.marks}
-                      </span>
-                    ) : null}
-                  </p>
-                </motion.button>
-              )
-            })}
-          </div>
-        </GlassCard>
-      ) : null}
+                  ) : null}
+                </p>
+              </motion.button>
+            )
+          })}
+        </div>
+      </GlassCard>
 
-      {/* ─── شیتِ جزئیاتِ فرصت ─── */}
+      {/* شیتِ جزئیاتِ فرصت */}
       <GlassSheet
         open={oppSheet !== null}
         onOpenChange={(v) => {

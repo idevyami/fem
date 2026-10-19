@@ -1,6 +1,8 @@
 "use client"
 
-// V8 فمبوی — جریانِ ساختِ فمبویِ روح‌بسته: مقدمه → کلاس → اسم → قفلِ پیمان
+// V8 فمبوی — جریانِ ساختِ فمبوی: مقدمه → کلاس → اسم → قفلِ پیمان
+// V17-2 (ممیزیِ ⑤): قدمِ کلاس راهنما دارد — انتخابِ همیشگیِ هشت‌گانه دیگر
+// بی‌راهنما نیست؛ نامِ واقعیِ کلاسِ آسانِ شروع از خودِ محتوا می‌آید (ranger/آسان).
 import * as React from "react"
 import { AnimatePresence, motion } from "framer-motion"
 import { Input } from "@/components/ui/input"
@@ -144,6 +146,12 @@ export function CreateFlow({ classes, onCreate }: CreateFlowProps) {
               <h1 className="text-lg font-extrabold leading-7">هشت راهِ ایستادن</h1>
               <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
                 کلاس، امضای همیشگیِ فمبویِ توست — سبکِ نبردش، پاسیوش و مهارتِ امضایش از همین‌جا می‌آید.
+              </p>
+              {/* V17-2 — راهنمای انتخاب: نامِ کلاسِ واقعیِ «آسان» از محتوای موتور (ranger) */}
+              <p className="mt-2 rounded-xl border border-primary/20 bg-primary/[0.06] px-3 py-2 text-[11px] leading-5 text-foreground/80">
+                <span aria-hidden>💡</span>{" "}
+                <span className="font-bold text-primary">راهنمای انتخاب: </span>
+                اولین‌بار است؟ «کمانگیرِ تاکتیکی» (آسان) برایِ شروعِ آزاد خوب است — هر کلاس راهِ خودش را دارد؛ بعداً با کدکس مقایسه کن.
               </p>
             </header>
 

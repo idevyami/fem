@@ -1,13 +1,14 @@
 "use client"
 
 // V8 فمبوی — سکشنِ سابقه: سرگذشتِ فمبوی
+// V17-W2 (F4): حالتِ خالی بن‌بست نیست — «اولین تعامل را انجام بده» به سکشنِ اقدامات می‌رود.
 import * as React from "react"
 import { motion } from "framer-motion"
 import type { CharacterLogDTO } from "@/lib/game/contract"
 import { faTimeAgo, faNum } from "../../fa"
-import { EmptyState, GlassCard, SectionTitle } from "../../ui"
+import { ActionButton, EmptyState, GlassCard, SectionTitle } from "../../ui"
 
-export function HistorySection({ logs }: { logs: CharacterLogDTO[] }) {
+export function HistorySection({ logs, onGoActions }: { logs: CharacterLogDTO[]; onGoActions?: () => void }) {
   return (
     <GlassCard>
       <SectionTitle icon="🕰" title={`سابقه‌ی فمبوی${logs.length ? ` · ${faNum(logs.length)} خط` : ""}`} />
@@ -16,6 +17,13 @@ export function HistorySection({ logs }: { logs: CharacterLogDTO[] }) {
           emoji="🌙"
           text="هنوز چیزی ننوشته شده."
           hint="فمبوی که متولد شود، شهر شروع می‌کند به نوشتن."
+          action={
+            onGoActions ? (
+              <ActionButton variant="soft" size="sm" onClick={onGoActions}>
+                اولین تعامل را انجام بده
+              </ActionButton>
+            ) : undefined
+          }
         />
       ) : (
         <ul className="flex max-h-96 flex-col gap-2 overflow-y-auto scrollbar-thin pe-1">

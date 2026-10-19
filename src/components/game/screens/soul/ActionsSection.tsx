@@ -77,7 +77,7 @@ export function ActionsSection({ card, interactions, money, cakes, act }: Action
       <GlassCard>
         <SectionTitle
           icon="💗"
-          title="وقت‌گذرانی"
+          title="تعامل"
           action={
             interactCd ? (
               <Chip tone="rose">⏳ {faNum(card.interactCooldownMin)} دقیقه مانده</Chip>
@@ -87,7 +87,7 @@ export function ActionsSection({ card, interactions, money, cakes, act }: Action
           }
         />
         <p className="mb-3 text-[11px] leading-5 text-muted-foreground">
-          هر ده دقیقه یک‌بار می‌توانی با فمبویِ اختصاصی‌ات وقت بگذرانی — روحیه‌ش را آب می‌دهد و پیوندتان را محکم‌تر می‌کند.
+          هر ده دقیقه یک‌بار می‌توانی با فمبویِ اختصاصی‌ات تعامل کنی — روحیه‌ش را آب می‌دهد و پیوندتان را محکم‌تر می‌کند.
         </p>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {solid.map((it) => {

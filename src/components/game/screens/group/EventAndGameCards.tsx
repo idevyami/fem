@@ -1,6 +1,9 @@
 "use client"
 
 // کارت‌های «همین حالا» — رویدادِ جاری و بازیِ در جریان
+// V17-W3 (F2): گزینه‌های رویدادِ جاری دیگر چیپِ نمایشی نیستند — دکمه‌های زنده‌ی
+// انتخاب با همان زبانِ بصریِ رأی‌گیری‌های باز (VotesSection)؛ همان chooseEventِ
+// موتور که پلِ ge: ربات هم می‌زند (دروازه‌ی شهروندی داخلِ خودش است).
 import { motion } from "framer-motion"
 import type { GameSessionDTO, GroupEventDTO } from "@/lib/game/group/types"
 import { faNum } from "../../fa"
@@ -8,17 +11,32 @@ import { ActionButton, Chip, GlassCard } from "../../ui"
 import { cn } from "@/lib/utils"
 import { faCountdown, useNow } from "./time"
 
-/** رنگِ خنثیِ گزینه‌ها بر اساسِ استایلِ موتور */
-const CHOICE_TONE: Record<string, string> = {
-  success: "border-emerald-400/25 bg-emerald-500/[0.07] text-emerald-200",
-  danger: "border-rose-400/25 bg-rose-500/[0.07] text-rose-200",
-  primary: "border-primary/30 bg-primary/[0.08] text-primary",
+/** کلاسِ دکمه‌ی گزینه — همان الگویِ دکمه‌های زنده‌ی رأی (VotesSection.voteOptionClass) */
+function choiceOptionClass(style: string | null, mine: boolean): string {
+  switch (style) {
+    case "success":
+      return cn("border-emerald-400/30 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/15", mine && "ring-1 ring-emerald-300/60")
+    case "danger":
+      return cn("border-rose-400/30 bg-rose-500/10 text-rose-200 hover:bg-rose-500/15", mine && "ring-1 ring-rose-300/60")
+    default:
+      return cn("border-primary/30 bg-primary/10 text-primary hover:bg-primary/15", mine && "ring-1 ring-primary/70")
+  }
 }
 
-/** رویدادِ جاری — انتخاب‌ها فقط نمایشی‌اند؛ انتخاب از دکمه‌های ربات در گروه */
-export function CurrentEventCard({ ev }: { ev: GroupEventDTO }) {
+interface CurrentEventCardProps {
+  ev: GroupEventDTO
+  /** کلیدِ کنشِ در جریان (null = بی‌کار) — الگویِ VotesSection */
+  acting: string | null
+  /** V17-W3 (F2) — انتخابِ همین‌جا: همان chooseEventِ موتور (پلِ ge: ربات) */
+  onChoose: (key: string, eventId: string, choiceKey: string) => void
+}
+
+/** رویدادِ جاری — انتخاب‌ها دکمه‌های زنده‌اند (V17-W3 · F2)؛ انتخاب‌شده «انتخابِ تو»
+ *  می‌گیرد و قفل می‌شود (انتخابِ دوباره موتور رد می‌کند — ackِ همان را توست می‌گیرد). */
+export function CurrentEventCard({ ev, acting, onChoose }: CurrentEventCardProps) {
   const now = useNow()
   const left = faCountdown(ev.expiresAt, now)
+  const expired = ev.expiresAt !== null && left === null
   return (
     <motion.section
       initial={{ opacity: 0, y: 8 }}
@@ -45,27 +63,49 @@ export function CurrentEventCard({ ev }: { ev: GroupEventDTO }) {
                 <span>⌛ وقتش تمام شد — منتظرِ محاسبه</span>
               )}
             </div>
-            {/* گزینه‌ها — فقط نمایش */}
-            <div className="mt-2.5 flex flex-wrap gap-1.5">
-              {ev.choices.map((c) => (
-                <span
-                  key={c.key}
-                  className={cn(
-                    "inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-semibold",
-                    CHOICE_TONE[c.style ?? ""] ?? "border-white/10 bg-white/[0.04] text-foreground/75",
-                  )}
-                >
-                  {c.label}
-                  {c.voters > 0 ? (
-                    <span className="rounded-full bg-black/25 px-1.5 py-0.5 text-[11px] font-bold tabular-nums text-foreground/70">
-                      {faNum(c.voters)}
+            {/* گزینه‌ها — دکمه‌های زنده‌ی انتخاب (V17-W3 · F2): همان زبانِ رأی‌گیری‌های باز */}
+            <div className="mt-2.5 flex flex-col gap-2">
+              {ev.choices.map((c) => {
+                const mine = ev.myChoice === c.key
+                const key = `choose:${ev.id}:${c.key}`
+                const busy = acting === key
+                return (
+                  <button
+                    key={c.key}
+                    type="button"
+                    disabled={acting !== null || mine || expired}
+                    onClick={() => onChoose(key, ev.id, c.key)}
+                    aria-pressed={mine}
+                    className={cn(
+                      "flex min-h-11 items-center justify-between gap-2 rounded-2xl border px-3.5 py-2 text-start text-[13px] font-semibold transition-all duration-150 active:scale-[0.98] disabled:pointer-events-none",
+                      choiceOptionClass(c.style, mine),
+                      // انتخابِ تو پررنگ می‌ماند (فقط قفل است)؛ بقیه در حالتِ کار/پایان کم‌رنگ
+                      mine ? "cursor-default" : "disabled:opacity-50",
+                    )}
+                  >
+                    <span className="min-w-0 flex-1 leading-5">{c.label}</span>
+                    <span className="flex shrink-0 items-center gap-1.5">
+                      {mine ? (
+                        <span className="rounded-full bg-black/25 px-1.5 py-0.5 text-[11px] font-bold leading-4">انتخابِ تو</span>
+                      ) : null}
+                      {busy ? (
+                        <span aria-hidden className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                      ) : c.voters > 0 ? (
+                        <span className="rounded-full bg-black/25 px-2 py-0.5 text-[11px] font-bold leading-4 tabular-nums">
+                          {faNum(c.voters)}
+                        </span>
+                      ) : null}
                     </span>
-                  ) : null}
-                </span>
-              ))}
+                  </button>
+                )}
+              )}
             </div>
             <p className="mt-2 text-[11px] leading-4 text-muted-foreground/80">
-              برای انتخاب، دکمه‌های ربات را در گروه بزن.
+              {ev.myChoice
+                ? "انتخابت ثبت شد. عاقبتش را در پایانِ کارت ببین."
+                : expired
+                  ? "وقتش تمام شد — انتخابِ تازه ثبت نمی‌شود."
+                  : "انتخابت همین‌جا ثبت می‌شود — یا با دکمه‌های ربات در گروه."}
             </p>
           </div>
         </div>

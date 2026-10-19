@@ -204,7 +204,7 @@ export async function navSection(ctx: GroupCallCtx, key: string): Promise<Callba
         const c = viewer.character
         lines.push(`${c.classEmoji} <b>${esc(c.femboyName)}</b> · ${esc(c.className)} · سطح ${chip(c.level)}`)
       } else if (viewer?.isMember) {
-        lines.push("بدونِ فمبویِ روح‌بسته فقط تماشاگری — ساختنش در پی‌ویِ ربات است.")
+        lines.push("بدونِ فمبوی فقط تماشاگری — ساختنش در پی‌ویِ ربات است.")
       } else {
         lines.push("هنوز شهروندِ این شهر نیستی — تو گروه حرف بزن تا شهرت ثبت کند.")
       }
@@ -468,14 +468,21 @@ export async function fameCommandCard(ctx: GroupCallCtx, board = "level"): Promi
 
 // ─── gm:top — برترین‌های همین شهر (V15-1) ─────────────────────────────────────
 
-/** کارتِ برترین‌های شهر — از آمارِ واقعیِ اعضایِ همین گروه (برد/بازی/آبرو). */
+/** کارتِ برترین‌های شهر — از آمارِ واقعیِ اعضایِ همین گروه (برد/بازی/آبرو).
+ *  V17-W2 (§12): بیننده رتبه‌ی خودش را هم همان‌جا می‌بیند — «تو کجایی؟» دیگر
+ *  به سفرِ پی‌وی نیاز ندارد؛ سطرِ ردیفِ خودش در فهرست هم «← تو» می‌گیرد. */
 export async function topCommandCard(ctx: GroupCallCtx): Promise<GroupCommandResult> {
-  const rows = await ctx.db.groupMember.findMany({
+  // کلِ اعضا (شهرها کوچک‌اند؛ سقفِ دفاعی ۵۰۰) — تا رتبه‌ی بیننده فراتر از ۱۰ هم درست بماند
+  const all = await ctx.db.groupMember.findMany({
     where: { groupId: ctx.group.id },
     include: { player: { select: { name: true, avatar: true } } },
     orderBy: [{ winCount: "desc" }, { gameCount: "desc" }, { messageCount: "desc" }],
-    take: 10,
+    take: 500,
   })
+  const rows = all.slice(0, 10)
+  const viewerId = ctx.player?.id
+  const viewerIdx = viewerId ? all.findIndex((m) => m.playerId === viewerId) : -1
+  const viewerRow = viewerIdx >= 0 ? all[viewerIdx] : undefined
 
   const lines: string[] = ["", "🏆 <b>برترین‌های شهر</b>", SEP, "", "رتبه از آمارِ واقعیِ همین شهر می‌آید — برد، بازی و آبرو.", ""]
   if (rows.length === 0) {
@@ -484,8 +491,14 @@ export async function topCommandCard(ctx: GroupCallCtx): Promise<GroupCommandRes
     for (const [i, m] of rows.entries()) {
       const rep = memberRep(m)
       const rank = i < 3 ? (MEDALS[i] ?? `${chip(i + 1)}.`) : `${chip(i + 1)}.`
-      lines.push(`${rank} ${m.player.avatar} <b>${esc(m.player.name)}</b> — 🏅 ${chip(m.winCount)} برد از ${chip(m.gameCount)} بازی · ✨ ${chip(rep.fame)} آبرو`)
+      const mine = viewerIdx === i ? " <b>← تو</b>" : ""
+      lines.push(`${rank} ${m.player.avatar} <b>${esc(m.player.name)}</b>${mine} — 🏅 ${chip(m.winCount)} برد از ${chip(m.gameCount)} بازی · ✨ ${chip(rep.fame)} آبرو`)
     }
+  }
+  // «تو» — جایگاهِ شخصیِ بیننده (حتی بیرونِ ۱۰ نفرِ اول)
+  if (viewerRow && viewerIdx >= 0) {
+    const rep = memberRep(viewerRow)
+    lines.push("", `👤 <b>تو:</b> رتبه‌ی ${chip(viewerIdx + 1)} از ${chip(all.length)} · 🏅 ${chip(viewerRow.winCount)} برد از ${chip(viewerRow.gameCount)} بازی · ✨ ${chip(rep.fame)} آبرو`)
   }
 
   return {

@@ -143,6 +143,12 @@ export interface PlayerDTO {
   avatar?: string
   level: number
   day: number
+  /** V17-W2 — پیشرفتِ سطح (آینه‌ی PlayerDTO موتور؛ برای نوارِ «تا سطحِ بعد» در پروفایل) */
+  xp?: number
+  xpToNext?: number
+  /** V17-W3 (W3-F4) — پیوستگیِ شیفت‌های موفق (پاداشِ تا +۳۰٪ دستمزد) — آینه‌یِ
+   *  PlayerDTO موتور؛ موتورهای قدیمی نمی‌فرستند (اختیاری) */
+  workStreak?: number
   money: number
   debt: number
   energy: number
@@ -307,6 +313,8 @@ export interface GameSnapshot {
   offlineRecap: OfflineRecapDTO | null
   /** V9 — هویتِ مرکزی: خلاصه‌ی فمبویِ بازیکن (null = پیمان نبسته) */
   femboy: FemboySummaryDTO | null
+  /** V17 — مرحله‌ی سفرِ بازیکن (آینه‌ی قراردادِ موتور) */
+  journey?: { stage: "new" | "awakened" | "bound" | "rooted" }
 }
 
 export interface AuthResponse {
@@ -396,8 +404,35 @@ export interface CatalogJobDTO {
   quirks: string
 }
 
+/** V17-3 — خانه‌های کاتالوگ (همان DTO موتور: route /api/game/catalog) */
+export interface CatalogHouseDTO {
+  key: string
+  name: string
+  emoji: string
+  price: number
+  rent: number
+  comfort: number
+  security: number
+  description: string
+}
+
+/** V17-3 — وسایل نقلیه‌ی کاتالوگ (basePrice × شاخصِ اقتصاد = قیمتِ واقعی) */
+export interface CatalogVehicleDTO {
+  key: string
+  name: string
+  emoji: string
+  rarity: string
+  basePrice: number
+  speed: number
+  description: string
+  quirk: string
+}
+
 export interface CatalogResponse {
   jobs: CatalogJobDTO[]
+  /** V17-3 — خانه‌ها/وسایل (اختیاری/افزایشی: موتورهای قدیمی نمی‌فرستند) */
+  houses?: CatalogHouseDTO[]
+  vehicles?: CatalogVehicleDTO[]
   economyIndex: number
 }
 
@@ -828,10 +863,26 @@ export interface SoulGetData {
 }
 
 /** POST /api/game/character — پاسخِ اکشن‌های فمبوی (create/rename/interact/recharge/
- *  potion/skillup/evolve{choice}/appearance/logs) */
+ *  potion/skillup/evolve{choice}/appearance/logs) · V17-W2: فیلدهایِ عمقِ تعاملِ V14
+ *  (اختیاری — فقط interact برمی‌گرداند؛ مصرف‌کننده‌های قدیمی بی‌تغییر می‌مانند) */
 export interface SoulActionData {
   message: string
   card: SoulCardDTO | null
+  /** واریانتِ امروزِ تعامل (نوارِ روحیه × پله‌ی فرگشت) */
+  variant?: {
+    variantId: string
+    spiritBand: string
+    spiritBandIndex: number
+    evolutionTier: number
+    moodLine: string
+    evoTail: string | null
+  }
+  /** واکنشِ پیوندِ تازه (V14) */
+  reaction?: { tier: number; threshold: number; text: string; justUnlocked: boolean }
+  /** پله‌ی واکنشِ همین‌جا باز شد */
+  unlock?: { threshold: number; text: string }
+  /** شمارِ خاطره‌های ذخیره‌شده */
+  memory?: { count: number }
 }
 
 /** POST /api/game/character action=evolutionChoice — پیش‌نمایشِ بی‌حالتِ هر دو شاخه */
@@ -1031,7 +1082,28 @@ async function get<T>(path: string): Promise<T> {
   )
 }
 
+// ─── V17-W2 (§17): کشِ راهنما با TTL ─────────────────────────────────────────
+// فراخوانیِ guide بعد از هر اکشنِ روتین (~۱۵ پرس‌وجویِ موتور) فقط برای چیدنِ یک خطِ
+// «🧭 بعدی» می‌سوزد. ۶۰ ثانیه کشِ هر-بازیکن + ابطالِ خودکار: هر POSTِ تغییردهنده‌ی
+// حالت (اکشن/انتخاب/تعامل/بازار/گروه) کشِ همان بازیکن را بی‌درنگ می‌اندازد تا
+// پیشنهادِ بعدی هرگز از حالتِ کهنه نیاید (صحتِ > صرفه‌جویی).
+const GUIDE_TTL_MS = 60_000
+const GUIDE_CACHE_MAX = 500
+const guideCache = new Map<string, { g: GuideResponse; at: number }>()
+
+function guideCacheTrim(): void {
+  while (guideCache.size >= GUIDE_CACHE_MAX) {
+    const oldest = guideCache.keys().next().value
+    if (oldest === undefined) break
+    guideCache.delete(oldest)
+  }
+}
+
 async function post<T>(path: string, body: Record<string, unknown>): Promise<T> {
+  // V17-W2 — POSTِ بازیکن‌محور = حالت عوض شده؛ کشِ راهنمایِ همان بازیکن باطل
+  if (path !== "/api/game/guide" && typeof body.telegramId === "string" && body.telegramId) {
+    guideCache.delete(body.telegramId)
+  }
   let res: Response
   try {
     res = await engineFetch(path, {
@@ -1108,11 +1180,19 @@ export const api = {
   /** V6 — بازار: آگهی‌ها + قیمت‌ها + مغازه‌ی محله‌ی فعلی (فروشِ فوری = ۶۰٪ قیمتِ current) */
   market: (telegramId: string) => post<MarketSnapshot>("/api/game/market", { telegramId }),
 
-  /** V6 — کاتالوگ: شغل‌ها (برای /jobs) + شاخصِ اقتصاد */
+  /** V6 — کاتالوگ: شغل‌ها (برای /jobs) + شاخصِ اقتصاد · V17-3: خانه‌ها و وسایل نقلیه */
   catalog: (telegramId: string) => post<CatalogResponse>("/api/game/catalog", { telegramId }),
 
-  /** V4 — راهنمای زنده‌ی زندگی بازیکن (اگر موتورِ V4 آماده نباشد خطا می‌دهد؛ هندلرها fallback دارند) */
-  guide: (telegramId: string) => post<GuideResponse>("/api/game/guide", { telegramId }),
+  /** V4 — راهنمای زنده‌ی زندگی بازیکن (اگر موتورِ V4 آماده نباشد خطا می‌دهد؛ هندلرها fallback دارند)
+   *  V17-W2 — ۶۰ ثانیه کشِ هر-بازیکن؛ هر POSTِ تغییردهنده‌ی حالت بی‌درنگ باطلش می‌کند */
+  guide: async (telegramId: string): Promise<GuideResponse> => {
+    const hit = guideCache.get(telegramId)
+    if (hit && Date.now() - hit.at <= GUIDE_TTL_MS) return hit.g
+    const g = await post<GuideResponse>("/api/game/guide", { telegramId })
+    guideCache.set(telegramId, { g, at: Date.now() })
+    guideCacheTrim()
+    return g
+  },
 
   /** V4 — خبرنامه‌ی شهر؛ بدون بازیکن هم کار می‌کند (برای گروه‌ها) */
   citynews: (telegramId?: string) =>

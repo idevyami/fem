@@ -17,6 +17,7 @@ import { awardPlayerStat, awardSoulProgress } from "./awards"
 import { adjustRelationship, adjustMemberRep } from "./social"
 import { revealMysteryClueTx } from "./world"
 import { resolveStyleShowEvent, STYLE_SHOW_ID } from "./style"
+import { eventWindowMinutes, eventWindowLine, pacingOf } from "./pacing"
 import { SEP, SUB, DOTS, chip, spoiler, expand, toLatinDigits } from "./text"
 
 export type Tx = import("@prisma/client").Prisma.TransactionClient
@@ -155,11 +156,15 @@ export interface EventCardParticipants {
   playerId: string
   name: string
   choiceLabel: string
+  /** V17-W3 (W3-F2) — کلیدِ خامِ انتخاب؛ snapshot بدونِ کوئریِ اضافه myChoice را
+   *  از همین فهرست برمی‌دارد (همان داده‌ای که کارتِ گروه می‌سازد) */
+  choiceKey: string
 }
 
 export function eventCardText(
   event: GroupEvent,
   participants: EventCardParticipants[],
+  now = new Date(),
 ): string {
   // title/body/label ذخیره‌شده از render() می‌آیند (HTML-safe در نوشتن) — بدون esc دوباره؛
   // نامِ بازیکن خام است → esc در همین‌جا (لایه‌ی امنیت: domain.ts)
@@ -168,7 +173,11 @@ export function eventCardText(
   const who = lines.length
     ? `\n\n${DOTS}\n\n👥 انتخاب‌ها:\n${lines.join("\n")}`
     : `\n\n${DOTS}`
-  return `<b>${event.emoji} ${event.title}</b>\n${SEP}\n\n${event.body}${who}\n\n<i>هر کس دکمه‌ی خودش را بزند؛ نتیجه برای خودش است. شهر نتیجه‌ی جمعی را هم خواهد دید.</i>`
+  // V18 — خطِ مهلتِ هوشمند: پنجره‌ی ۴۵ تا ۱۲۰ دقیقه‌ای روی خود کارت اعلام می‌شود
+  // (هر رندرِ تازه — تولد یا انتخابِ شهروند — زمانِ مانده را تازه می‌کند)
+  const windowLine = eventWindowLine(event.expiresAt, now)
+  const windowBlock = windowLine ? `\n\n${windowLine}` : ""
+  return `<b>${event.emoji} ${event.title}</b>\n${SEP}\n\n${event.body}${who}${windowBlock}\n\n<i>هر کس دکمه‌ی خودش را بزند؛ نتیجه برای خودش است. شهر نتیجه‌ی جمعی را هم خواهد دید.</i>`
 }
 
 export function eventCardButtons(event: GroupEvent): OutboxButton[] {
@@ -198,6 +207,14 @@ export async function spawnGroupEvent(group: GroupWorld, opts: SpawnEventOpts = 
   const open = await db.groupEvent.findFirst({ where: { groupId: group.id, status: "open" } })
   if (open) return null
 
+  // V18 — دروازه‌ی ریتمِ هوشمند: تک‌نگهبانِ تولدِ هر ماجراست (خودجوشِ تیک،
+  // پیگیریِ زمان‌بندی‌شده و فرمانِ شهروند). شهر عجله ندارد: حداقلِ ۲ ساعت و
+  // ۱۰۰ پیامِ گفت‌وگو از آخرین ماجراست (یا در شهرِ آرام: ۶ ساعت و ۳۰ پیام).
+  // ردیفِ تازه خوانده می‌شود چون groupِ دست‌کهد ممکن است از لحظه‌ی تیک کهنه باشد.
+  const fresh = await db.groupWorld.findUnique({ where: { id: group.id } })
+  const pacing = pacingOf(fresh ?? group)
+  if (!pacing.gateOpen) return null
+
   const members = await activeMembers(group.id, 96)
   const template =
     (opts.templateId ? getEventTemplate(opts.templateId) : undefined) ??
@@ -217,7 +234,8 @@ export async function spawnGroupEvent(group: GroupWorld, opts: SpawnEventOpts = 
       emoji: template.emoji,
       choicesJson: JSON.stringify(template.choices.map((c) => ({ key: c.key, label: render(c.label, v), style: c.style }))),
       payloadJson: JSON.stringify({ ...v, tags: template.tags }),
-      expiresAt: new Date(Date.now() + (opts.expiresMinutes ?? 10) * 60000),
+      // V18 — پنجره‌ی جنس‌به‌جنس (۴۵ تا ۱۲۰ دقیقه؛ پیش‌فرض ۷۵) — جایگزینِ ۱۰ دقیقه‌ی دیروز
+      expiresAt: new Date(Date.now() + (opts.expiresMinutes ?? eventWindowMinutes(template.kind)) * 60000),
     },
   })
 
@@ -229,6 +247,11 @@ export async function spawnGroupEvent(group: GroupWorld, opts: SpawnEventOpts = 
     refId: event.id,
     priority: opts.priority ?? 7,
   })
+  // V18 — ریتم: تولدِ ماجرا شمارنده‌ی پیام‌های بعد از ماجرایِ قبل را صفر می‌کند
+  // (bumpCulture جمعی است؛ صفر کردن = منفیِ مقدارِ فعلی)
+  if (pacing.msgsSince > 0) {
+    await bumpCulture(db, group.id, { msgsSinceEvent: -pacing.msgsSince })
+  }
   await db.groupWorld.update({ where: { id: group.id }, data: { lastEventAt: new Date() } })
   return event
 }
@@ -306,7 +329,7 @@ export async function participantsOf(event: GroupEvent): Promise<EventCardPartic
   const choices = parseJson<{ key: string; label: string }[]>(event.choicesJson, [])
   const labelOf = new Map(choices.map((c) => [c.key, c.label]))
 
-  return rows.map((r) => ({ playerId: r.playerId, name: nameOf.get(r.playerId) ?? "؟", choiceLabel: labelOf.get(r.choiceKey) ?? r.choiceKey }))
+  return rows.map((r) => ({ playerId: r.playerId, name: nameOf.get(r.playerId) ?? "؟", choiceLabel: labelOf.get(r.choiceKey) ?? r.choiceKey, choiceKey: r.choiceKey }))
 }
 
 // ─── عاقبت‌ها ──────────────────────────────────────────────────────────────────

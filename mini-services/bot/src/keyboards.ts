@@ -17,7 +17,7 @@ import type {
   PetDTO,
   PlayerDTO,
 } from "./api"
-import { affordableStakes, clampText, faNum } from "./format"
+import { affordableStakes, clampText, faNum, type LivingWhich } from "./format"
 
 // فقط وقتی URL عمومیِ https واقعی باشد دکمه‌ی Mini App نمایش داده می‌شود
 export const MINIAPP_URL = /^https:\/\//.test(process.env.MINIAPP_URL || "") ? (process.env.MINIAPP_URL as string) : ""
@@ -74,6 +74,9 @@ export const CB = {
   // V16-4 — دستاوردها (کارتِ عمیقِ پروفایل) · فهرست‌کردن در بازار
   ach: "m:ach",
   marketSell: "m:mk",
+  // V17-3 — خانه و وسیله (ممیزی ⑨: خرید خانه/وسیله فقط مینی‌اپ نباشد)
+  livingHome: "lv:home",
+  livingVeh: "lv:veh",
 } as const
 
 export const cbChoice = (eventId: string, idx: number) => `c:${eventId}:${idx}`
@@ -105,6 +108,13 @@ export const cbGamble = (stake: number) => `b:${stake}`
 // V16-3 — واخواهیِ بینگو (مأموریت §6C): شرطِ گران دو‌مرحله‌ای است؛ «بفرست»
 // فقط از کارتِ تأیید می‌آید (b:go:{stake}) — هر b:{stake}ِ گران اول واخواهی می‌گیرد.
 export const cbGambleGo = (stake: number) => `b:go:${stake}`
+// V17-3 — خانه و وسیله (ممیزی ⑨): لیست ← تأیید ← اجرا (الگوی b:go بینگو).
+// lv:home/lv:veh لیست‌ها · lv:buyh:{key}/lv:buyv:{key} کارتِ تأیید ·
+// lv:go:{h|v}:{key} فقط از کارتِ تأیید (خریدِ پول‌سوز با تأییدِ دومرحله‌ای).
+export const cbLivingBuy = (which: LivingWhich, key: string): string =>
+  `lv:buy${which === "house" ? "h" : "v"}:${key}`
+export const cbLivingGo = (which: LivingWhich, key: string): string =>
+  `lv:go:${which === "house" ? "h" : "v"}:${key}`
 
 export type Callback =
   | { kind: "menu" }
@@ -158,6 +168,10 @@ export type Callback =
   | { kind: "marketListAt"; itemKey: string; price: number }
   | { kind: "marketCancel"; listingId: string }
   | { kind: "bagPage"; page: number }
+  // V17-3 — خانه و وسیله: لیست · تأیید · اجرا (فقط از کارتِ تأیید)
+  | { kind: "living"; which: LivingWhich }
+  | { kind: "livingBuy"; which: LivingWhich; key: string }
+  | { kind: "livingGo"; which: LivingWhich; key: string }
 
 /** تجزیه‌ی callback data → دستور قابل route شدن */
 export function parseCallback(data: string | undefined): Callback | null {
@@ -216,6 +230,11 @@ export function parseCallback(data: string | undefined): Callback | null {
       return { kind: "achievements" }
     case CB.marketSell:
       return { kind: "marketSell" }
+    // V17-3 — خانه و وسیله: دو لیستِ همان کارت
+    case CB.livingHome:
+      return { kind: "living", which: "house" }
+    case CB.livingVeh:
+      return { kind: "living", which: "vehicle" }
     case CB.rand:
       return { kind: "rand" }
     case CB.nextGo:
@@ -281,6 +300,13 @@ export function parseCallback(data: string | undefined): Callback | null {
   }
   // V6 — خبرها: خواندم
   if (data === "nt:read") return { kind: "readNotifications" }
+  // V17-3 — خانه و وسیله: buyh:/buyv: (تأیید) · go:h:/go:v: (اجرا)
+  if (tag === "lv") {
+    if (arg.startsWith("buyh:") && arg.length > 5) return { kind: "livingBuy", which: "house", key: arg.slice(5) }
+    if (arg.startsWith("buyv:") && arg.length > 5) return { kind: "livingBuy", which: "vehicle", key: arg.slice(5) }
+    if (arg.startsWith("go:h:") && arg.length > 5) return { kind: "livingGo", which: "house", key: arg.slice(5) }
+    if (arg.startsWith("go:v:") && arg.length > 5) return { kind: "livingGo", which: "vehicle", key: arg.slice(5) }
+  }
   return null
 }
 
@@ -438,7 +464,10 @@ export function miniAppCardKeyboard(): InlineKeyboard {
 
 /** پروفایل — با ردیفِ قرمزِ بدهی (وقتی بدهی دارد) · V16-3: «😴 استراحت» این‌جاست
  *  (انرژی همین کارت دیده می‌شود — کنشِ بافتاری، مأموریت §4) · V16-4: «🏆 دستاوردها»
- *  همین‌جاست (کارتِ عمیق؛ ممیزی ⑪ — دستاورد دیگر فقطِ مینی‌اپ نیست) · عنوان‌ها و حساب */
+ *  همین‌جاست (کارتِ عمیق؛ ممیزی ⑪) · V17-3: «🏠 خانه و وسیله» همین‌جاست —
+ *  کارتِ «من» همان‌جایی است که خانه/وسیله‌ات را نشان می‌دهد؛ خریدش هم از همان‌جا
+ *  باز می‌شود (ممیزی ⑨). «✨ آرزوها» به کارتِ «قدمِ بعدی» تمرکز کرد (دکمه +
+ *  عبارتِ «آرزوها» همچنان زنده‌اند) تا بودجه‌ی دکمه ≤ ۸ بماند. */
 export function profileKeyboard(player: PlayerDTO): InlineKeyboard {
   const kb = new InlineKeyboard()
   if (player.debt > 0) {
@@ -447,7 +476,7 @@ export function profileKeyboard(player: PlayerDTO): InlineKeyboard {
   kb.text("📜 تاریخچه", CB.history).primary()
   kb.text("🏆 دستاوردها", CB.ach).primary().row()
   kb.text("🏷 عنوان‌ها", CB.titles).primary()
-  kb.text("✨ آرزوها", CB.dreams).primary().row()
+  kb.text("🏠 خانه و وسیله", CB.livingHome).primary().row()
   kb.text("⚙ حساب", CB.settings).primary()
   kb.text("😴 استراحت", CB.rest).success().row()
   kb.text("↩ خانه", CB.menu).primary()
@@ -541,7 +570,11 @@ export function bagKeyboard(p: {
     budget -= row.length
   }
 
-  if (kb.inline_keyboard.length === 0 && pageCount <= 1) return backKeyboard()
+  // V17-W3 (W3-F9) — کیفِ خالی دیگر بن‌بست نیست: «🎲 اتفاق امروز» (همان CB.eventی
+  // که کارت‌های خانه/فرصت‌ها می‌دهند) + خانه — آینه‌ی CTAی حالتِ خالیِ مینی‌اپ
+  if (kb.inline_keyboard.length === 0 && pageCount <= 1) {
+    return new InlineKeyboard().text("🎲 اتفاق امروز", CB.event).primary().row().text("↩ خانه", CB.menu).primary()
+  }
   // V16-4 — ناوبریِ صفحه‌ها: جفتِ قبلی/بعدی + شمار‌صفحه (رقمِ انگلیسی)
   if (pageCount > 1) {
     if (page > 0) {
@@ -655,6 +688,45 @@ export function notifyKeyboard(): InlineKeyboard {
   const kb = new InlineKeyboard()
   kb.text("✅ همه را خواندم", "nt:read").success().row()
   kb.text("↩ خانه", CB.menu).primary()
+  return kb
+}
+
+// ─── 🏠 خانه و وسیله (V17-3 — ممیزی ⑨) ──────────────────────────────────────
+
+/** لیستِ خرید — دکمه‌ی هر آیتم قیمتِ واقعی را روی خودش دارد (سبز = خرید؛
+ *  زبانِ رنگ‌ها). سقفِ ≤ ۸ دکمه: آیتم‌ها + سوییچِ خانه/وسیله + بازگشت‌ها.
+ *  موتورِ قدیمی که خانه/وسیله نمی‌فرستد → فقط سوییچ/بازگشت (کارتِ صادقِ خالی). */
+export function livingKeyboard(opts: {
+  which: LivingWhich
+  houses: { key: string; name: string; emoji: string; price: number }[]
+  vehicles: { key: string; name: string; emoji: string; price: number }[]
+}): InlineKeyboard {
+  const { which } = opts
+  const items = which === "house" ? opts.houses : opts.vehicles
+  const kb = new InlineKeyboard()
+  let budget = 8
+  for (const it of items.slice(0, 5)) {
+    if (budget <= 0) break
+    kb.text(`${it.emoji} ${clampText(it.name, 16)} · ${faNum(it.price)}`, cbLivingBuy(which, it.key)).success().row()
+    budget--
+  }
+  // سوییچِ دو لیستِ همین کارت + بازگشت به «من» (مالکِ این بخش) و خانه
+  kb.text(which === "house" ? "🚗 وسایل نقلیه ▶" : "◀ 🏠 خانه‌ها", which === "house" ? CB.livingVeh : CB.livingHome).primary()
+  kb.text("↩ خانه", CB.menu).primary().row()
+  kb.text("👤 من", CB.me).primary()
+  return kb
+}
+
+/** کارتِ تأیید — «🤝 می‌خرم» فقط این‌جا (lv:go)، مثلِ «💥 بفرست» بینگو؛
+ *  جیبِ نوخوانده که نکشد → دکمه نمی‌آید (هندلر تصمیم می‌گیرد، کیبورد صادق می‌ماند) */
+export function livingConfirmKeyboard(which: LivingWhich, key: string, affordable: boolean): InlineKeyboard {
+  const kb = new InlineKeyboard()
+  if (affordable) {
+    kb.text("🤝 می‌خرم", cbLivingGo(which, key)).success().row()
+  }
+  kb.text(which === "house" ? "◀ 🏠 خانه‌ها" : "◀ 🚗 وسایل", which === "house" ? CB.livingHome : CB.livingVeh).primary()
+  kb.text("↩ خانه", CB.menu).primary().row()
+  kb.text("👤 من", CB.me).primary()
   return kb
 }
 

@@ -11,6 +11,8 @@ import { useGame } from "../store"
 import { haptic } from "../telegram"
 import { faNum } from "../fa"
 import { RARITY_ORDER, RARITY_UI } from "../ui/RarityChip"
+import { ActionOutcomeCard } from "../ActionOutcomeCard"
+import { buildSnapshotNextStep } from "../ui/outcomeMeta"
 import { ActionButton, Chip, EmptyState, GlassCard, GlassSheet, ProgressBar, RarityChip, SectionTitle } from "../ui"
 import { cn } from "@/lib/utils"
 
@@ -26,7 +28,17 @@ const CAT_KEYS = ["consumable", "gear", "collectible", "mystery", "junk"]
 export function BagScreen() {
   const snapshot = useGame((s) => s.snapshot)
   const active = useGame((s) => s.activeTab === "bag")
+  // V17-W3 (F1/F6): کنش‌های آیتم از مسیرِ انکشاف می‌روند (استفاده/فروش کارتِ نتیجه؛
+  // پوشیدن/علاقه‌مندی بی‌دلتا همان توست) و تا پایانِ هر کنش قفل‌اند (دو-ضربه = ضررِ واقعی)
+  const runActionReveal = useGame((s) => s.runActionReveal)
+  const actionOutcome = useGame((s) => s.actionOutcome)
+  const setActionOutcome = useGame((s) => s.setActionOutcome)
+  // آگهی/اسمِ حیوان/غذا و بازیِ حیوان (بی‌دلتا) همان توستِ همیشگی را دارند
   const runAction = useGame((s) => s.runAction)
+  // V17-W2 (F4): دکمه‌ی «قدمِ بعدی» حالت‌های خالی — مقصدِ موجود، نه صفحه‌ی تازه
+  const setActiveTab = useGame((s) => s.setActiveTab)
+  // V17-W3 (F5) — قدمِ «نقطه‌مهارت» مستقیم به سکشنِ مهارت‌ها deep-link می‌شود
+  const setPendingSoulSection = useGame((s) => s.setPendingSoulSection)
 
   const [prices, setPrices] = React.useState<PriceInfoDTO[] | null>(null)
   /** قیمت‌ها نیامد — خطا را خاموش قورت نمی‌دهیم؛ چیپِ «دوباره» همان واکشی را دوباره می‌زند */
@@ -46,6 +58,9 @@ export function BagScreen() {
   const [renameValue, setRenameValue] = React.useState("")
   const [renaming, setRenaming] = React.useState(false)
   const [busyPet, setBusyPet] = React.useState<string | null>(null)
+  /** V17-W3 (F6) — قفلِ واحدِ کنش‌های شیتِ آیتم (استفاده/پوشیدن/علاقه‌مندی/فروش):
+   *  دو-ضربه‌ی هم‌زمان مصرف/فروشِ دوباره نمی‌سازد (§17 — جلوگیریِ ارسالِ تکراری) */
+  const [busyKey, setBusyKey] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     if (!active) return
@@ -60,6 +75,11 @@ export function BagScreen() {
       alive = false
     }
   }, [active, pricesTick])
+
+  // V17-W3 (F1) — کارتِ نتیجه مثلِ توست رفتار می‌کند: با ترکِ تبِ کیف جمع می‌شود
+  React.useEffect(() => {
+    if (!active) setActionOutcome(null)
+  }, [active, setActionOutcome])
 
   const inventory = snapshot?.inventory ?? []
   const pets = snapshot?.pets ?? []
@@ -107,12 +127,47 @@ export function BagScreen() {
     if (ok) setRenamePet(null)
   }
 
+  /** V17-W3 (F1 + F6) — کنشِ آیتمِ شیت با قفلِ واحد: مصرف/فروش → کارتِ نتیجه؛
+   *  پوشیدن/علاقه‌مندی → همان توست (بی‌دلتا — runActionReveal خودش تصمیم می‌گیرد).
+   *  شیت فقط برای علاقه‌مندی باز می‌ماند تا حالتِ ستاره را ببینی؛ بقیه با موفقیت بسته می‌شود. */
+  async function itemAction(
+    action: "useItem" | "equipItem" | "favoriteItem" | "sellItem",
+    payload: Record<string, unknown>,
+    opts?: { keepSheet?: boolean },
+  ) {
+    if (busyKey || !itemKey) return
+    setBusyKey(itemKey)
+    const res = await runActionReveal(action, payload)
+    setBusyKey(null)
+    if (res && !opts?.keepSheet) setItemKey(null)
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <header className="px-1">
         <h1 className="text-xl font-extrabold leading-8">🎒 کیف</h1>
         <p className="text-xs text-muted-foreground">هر چیزی که داری و چندتا چیز که نداری ولی هست.</p>
       </header>
+
+      {/* V17-W3 (F1) — جایگاهِ کارتِ نتیجه‌ی کنش‌های آیتم (مصرف/فروش): بالایِ محتوا،
+          تا بسته شود می‌ماند؛ با ترکِ تب جمع می‌شود */}
+      {actionOutcome && snapshot ? (
+        <ActionOutcomeCard
+          data={actionOutcome}
+          nextStep={buildSnapshotNextStep(snapshot, {
+            goSoul: () => setActiveTab("soul"),
+            goSkills: () => {
+              setPendingSoulSection("skills")
+              setActiveTab("soul")
+            },
+            // کار/استراحت/کشیدنِ اتفاق روی پیشخوان زندگی می‌کنند — قدم به همان‌جا
+            work: () => setActiveTab("home"),
+            rest: () => setActiveTab("home"),
+            draw: () => setActiveTab("home"),
+          })}
+          onDismiss={() => setActionOutcome(null)}
+        />
+      ) : null}
 
       {/* ── حیوان‌ها ── */}
       <section aria-label="حیوان‌های من">
@@ -123,7 +178,16 @@ export function BagScreen() {
         />
         {pets.length === 0 ? (
           <GlassCard>
-            <EmptyState emoji="🐾" text="هنوز هیچ‌کس دنبالت راه نمی‌افتد." hint="شهر پر از حیوان‌هایی است که منتظر یه تصمیم بد هستند." />
+            <EmptyState
+              emoji="🐾"
+              text="هنوز هیچ‌کس دنبالت راه نمی‌افتد."
+              hint="شهر پر از حیوان‌هایی است که منتظر یه تصمیم بد هستند."
+              action={
+                <ActionButton variant="soft" size="sm" onClick={() => setActiveTab("home")}>
+                  یک اتفاق بکش
+                </ActionButton>
+              }
+            />
           </GlassCard>
         ) : (
           <div className="flex flex-col gap-3">
@@ -203,7 +267,15 @@ export function BagScreen() {
 
         {inventory.length === 0 ? (
           <GlassCard>
-            <EmptyState emoji="🕳" text="کیفت خالیه. فعلاً چیزی برای دزدیدن نداری." />
+            <EmptyState
+              emoji="🕳"
+              text="کیفت خالیه. فعلاً چیزی برای دزدیدن نداری."
+              action={
+                <ActionButton variant="soft" size="sm" onClick={() => setActiveTab("market")}>
+                  برو بازار
+                </ActionButton>
+              }
+            />
           </GlassCard>
         ) : filtered.length === 0 ? (
           <GlassCard>
@@ -303,10 +375,9 @@ export function BagScreen() {
                 <ActionButton
                   variant="soft"
                   emoji="✨"
-                  onClick={async () => {
-                    const ok = await runAction("useItem", { itemKey: entry.itemKey })
-                    if (ok) setItemKey(null)
-                  }}
+                  disabled={busyKey !== null}
+                  loading={busyKey === entry.itemKey}
+                  onClick={() => void itemAction("useItem", { itemKey: entry.itemKey })}
                 >
                   استفاده
                 </ActionButton>
@@ -315,11 +386,9 @@ export function BagScreen() {
                 <ActionButton
                   variant="soft"
                   emoji="🧥"
-                  disabled={entry.equipped}
-                  onClick={async () => {
-                    const ok = await runAction("equipItem", { itemKey: entry.itemKey })
-                    if (ok) setItemKey(null)
-                  }}
+                  disabled={entry.equipped || busyKey !== null}
+                  loading={busyKey === entry.itemKey}
+                  onClick={() => void itemAction("equipItem", { itemKey: entry.itemKey })}
                 >
                   {entry.equipped ? "تنِ توست ✓" : "پوشیدن"}
                 </ActionButton>
@@ -327,7 +396,9 @@ export function BagScreen() {
               <ActionButton
                 variant="ghost"
                 emoji={entry.favorite ? "☆" : "⭐"}
-                onClick={() => void runAction("favoriteItem", { itemKey: entry.itemKey })}
+                disabled={busyKey !== null}
+                loading={busyKey === entry.itemKey}
+                onClick={() => void itemAction("favoriteItem", { itemKey: entry.itemKey }, { keepSheet: true })}
               >
                 {entry.favorite ? "از علاقه‌مندی‌ها دربیار" : "علاقه‌مندی کن"}
               </ActionButton>
@@ -335,10 +406,9 @@ export function BagScreen() {
                 <ActionButton
                   variant="danger"
                   emoji="💰"
-                  onClick={async () => {
-                    const ok = await runAction("sellItem", { itemKey: entry.itemKey, quantity: 1 })
-                    if (ok) setItemKey(null)
-                  }}
+                  disabled={busyKey !== null}
+                  loading={busyKey === entry.itemKey}
+                  onClick={() => void itemAction("sellItem", { itemKey: entry.itemKey, quantity: 1 })}
                 >
                   فروش سریع ({faNum(quickSell(entry.itemKey) ?? 0)})
                 </ActionButton>

@@ -226,6 +226,10 @@ export interface GroupEventDTO {
   choices: GroupEventChoiceDTO[]
   expiresAt: string | null
   createdAt: string
+  /** V17-W3 (W3-F2) — کلیدِ انتخابِ بیننده در همین رویدادِ باز؛ null = هنوز انتخاب
+   *  نکرده. مینی‌اپ با همین فیلد دکمه‌ی انتخاب‌شده را علامت می‌زند — همان چیزی که
+   *  رباتِ گروه از پنلِ ge: می‌دهد، حالا در خودِ مینی‌اپ (Journey G، §10/§18). */
+  myChoice: string | null
 }
 
 export interface GameSessionDTO {

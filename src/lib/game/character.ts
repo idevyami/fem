@@ -545,7 +545,7 @@ export async function createCharacter(player: Player, opts: { name: string; clas
         data: {
           playerId: player.id,
           icon: "🎀",
-          text: `فمبویِ روح‌بسته‌اش به نامِ «${char.name}» متولد شد — ${cls.name}.`,
+          text: `فمبوی‌اش به نامِ «${char.name}» متولد شد — ${cls.name}.`,
           category: "social",
           day: player.day,
         },

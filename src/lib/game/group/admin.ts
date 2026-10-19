@@ -130,7 +130,7 @@ export function settingsCardText(s: GroupSettings, counts: AdminCounts, isAdmin:
 
 /** دکمه‌های تنظیمات — فقط برای ادمین؛ برچسب‌ها PLAIN با رقمِ انگلیسی */
 export function settingsButtons(s: GroupSettings, isAdmin: boolean): OutboxButton[] {
-  if (!isAdmin) return [{ label: "🏠 خانه‌ی شهر", style: "primary", cb: "gm:game" }]
+  if (!isAdmin) return [{ label: "↩ خانه", style: "primary", cb: "gm:game" }]
   return [
     { label: s.enabled ? "⛔ بستنِ بازیِ شهر" : "✅ بازکردنِ بازیِ شهر", style: s.enabled ? "danger" : "success", cb: "gs:toggle:enabled" },
     { label: `🔊 صدای عادی${s.noise === "normal" ? " ✓" : ""}`, style: "primary", cb: "gs:set:noise:normal" },

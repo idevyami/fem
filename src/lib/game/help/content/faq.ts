@@ -411,8 +411,8 @@ export const FAQ_TOPICS: HelpTopic[] = [
     icon: "🧭",
     titleFa: "الان چیکار کنم؟",
     titleEn: "What should I do next?",
-    summaryFa: "«راهنمای من» از وضعیتِ واقعیِ تو تا 4 قدمِ ممکنِ حال حاضر را با دلیل می‌گوید.",
-    keywords: ["چه کنم", "چیکار کنم", "what next", "راهنمای من", "guide", "قدم بعدی"],
+    summaryFa: "«قدمِ بعدی» از وضعیتِ واقعیِ تو تا 4 قدمِ ممکنِ حال حاضر را با دلیل می‌گوید.",
+    keywords: ["چه کنم", "چیکار کنم", "what next", "قدمِ بعدی", "guide"],
     blocks: [
       {
         h: "چطور کار می‌کند",
@@ -425,13 +425,13 @@ export const FAQ_TOPICS: HelpTopic[] = [
       {
         h: "قدمِ بعدی",
         lines: [
-          "در خصوصی «راهنمای من» (یا «حالا چیکار کنم») — در مینی‌اپ تبِ خونه.",
+          "در خصوصی «قدمِ بعدی» (یا «حالا چیکار کنم») — در مینی‌اپ تبِ خونه.",
           "برای عمقِ هر سیستم، از همین کدکس («📚 راهنمای کامل» در کارتِ راهنمای گروه).",
         ],
       },
     ],
     phrases: [
-      { fa: "راهنمای من", en: "guide", where: "private" },
+      { fa: "قدمِ بعدی", en: "guide", where: "private" },
       { fa: "حالا چیکار کنم", where: "private" },
     ],
     related: ["events-direction", "start-first-steps"],

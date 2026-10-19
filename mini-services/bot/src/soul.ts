@@ -143,7 +143,8 @@ async function noCharacter(ctx: Context): Promise<void> {
 
 /** ریدایرکتِ خصوصی برای دکمه‌های خصوصیِ زده‌شده در گروه */
 async function privateNudge(ctx: Context): Promise<void> {
-  const kb = new InlineKeyboard().url("🎀 فمبویِ روح‌بسته‌ام", soulDeepLink()).primary()
+  // V17-3 — واژگانِ قاعده‌مند (§16): «فمبویِ من» — نه نامِ قدیمیِ «روح‌بسته»
+  const kb = new InlineKeyboard().url("🎀 فمبویِ من", soulDeepLink()).primary()
   await show(ctx, "مدیریتِ فمبوی در گفت‌وگوی خصوصی است — این‌جا فقط تالار زنده است.", kb)
 }
 
@@ -547,7 +548,8 @@ async function consumeRenameText(ctx: Context, chatId: number): Promise<boolean>
 
 function confirmText(flow: SoulFlow): string {
   return [
-    "👑 <b>فمبویِ روح‌بسته‌ی تو</b>",
+    // V17-3 — واژگانِ قاعده‌مند (§16): «فمبویِ تو» — نه نامِ قدیمیِ «روح‌بسته»
+    "👑 <b>فمبویِ تو</b>",
     SEP,
     "",
     `🏷 کلاس: ${flow.classEmoji ?? "🎀"} <b>${esc(flow.className ?? flow.classKey ?? "؟")}</b>`,
@@ -624,7 +626,7 @@ function milestoneOfCard(card: SoulCardDTO): string {
   return `${chip(Math.max(0, need - into))} XP تا سطحِ ${chip(card.level + 1)}`
 }
 
-function hubCaption(card: SoulCardDTO): string {
+function hubCaption(card: SoulCardDTO, banner = ""): string {
   const dmg = card.condition.dmgMod
   const dmgPart =
     dmg !== 0 ? ` · ${chip(`${faNum(Math.abs(dmg))}%${dmg > 0 ? "+" : "−"}`)} آسیب` : ""
@@ -642,6 +644,10 @@ function hubCaption(card: SoulCardDTO): string {
     : null
   return [
     `👑 <b>فمبویِ اختصاصی‌ام: ${namePart}</b>`,
+    // V17-3 (ممیزی ④/§12) — قدمِ بعدیِ پیمانِ تازه: فقط یک خط، فقط برای فمبویِ
+    // سطحِ ≤۲ در مرحله‌ی سفرِ bound (قراردادِ snapshot.journey موتور). دکمه‌ی
+    // «💗 تعامل» همین کارت است — چیزی جز مسیرِ واقعی تبلیغ نمی‌شود (§16).
+    ...(banner ? [banner] : []),
     SEP,
     "",
     `🎖 رتبه: ${card.rank.emoji} <b>${esc(card.rank.name)}</b> · ⭐ سطح ${chip(card.level)}`,
@@ -690,22 +696,40 @@ function evolutionArtFile(card: { evolution: number; art?: string | null }): str
   return card.art.split("/").pop() ?? null
 }
 
+/** V17-3 — خطِ «قدمِ بعدی» بالای هاب، فقط برای پیمانِ تازه (فمبویِ سطحِ ≤۲).
+ *  استیج از قراردادِ server-authoritativeِ snapshot.journey می‌آید؛ واکشی فقط
+ *  وقتی لازم است (فمبویِ تازه) — بازیکنِ ریشه‌دار هیچ فراخوانیِ اضافه نمی‌دهد.
+ *  «💗 تعامل» دکمه‌ی همین کارت است؛ عبارتِ متنی‌ای برای تعامل در intent.ts
+ *  ثبت نشده (فقط دکمه) — پس تبلیغ هم فقط دکمه است (§16: فقط مسیرِ واقعی). */
+async function firstInteractBanner(telegramId: string, card: SoulCardDTO): Promise<string> {
+  if (card.level > 2 || !telegramId) return ""
+  try {
+    const { snapshot } = await api.state(telegramId)
+    if (snapshot.journey?.stage !== "bound") return ""
+  } catch {
+    return "" // استیج نامعلوم — خطی آموزش نمی‌دهیم
+  }
+  return "🌱 <b>قدمِ بعدی: اولین تعامل را انجام بده — دکمه‌ی «💗 تعامل» همین کارت.</b>"
+}
+
 async function sendHub(ctx: Context, card: SoulCardDTO): Promise<void> {
   // V16-3 — خطِ عبارت‌هایِ مرتبطِ هاب (ممیزی ⑭) — کپشنِ عکس با safeCutِ خودش
   // مدیریت می‌شود؛ اگر جا نشد بی‌صدا می‌افتد، کارت خراب نمی‌شود.
   const hint = cardHint("femboy")
-  const caption = hint ? `${hubCaption(card)}\n\n${hint}` : hubCaption(card)
+  const banner = await firstInteractBanner(tgId(ctx), card)
+  const caption = hint ? `${hubCaption(card, banner)}\n\n${hint}` : hubCaption(card, banner)
   await sendPhotoCard(ctx, card.classKey, caption, hubKeyboard(), evolutionArtFile(card))
 }
 
 /** تازه‌سازیِ کارتِ هاب در جا — همان پیامِ عکس (که دکمه‌اش زده شده) ویرایش می‌شود؛
  *  اگر نشد (پیامِ دیرشده/گم‌شده)، کارتِ تازه فرستاده می‌شود */
 async function refreshHub(ctx: Context, card: SoulCardDTO): Promise<void> {
+  const banner = await firstInteractBanner(tgId(ctx), card)
   const file = await classArt(card.classKey, evolutionArtFile(card))
   if (file) {
     try {
       await ctx.editMessageMedia(
-        { type: "photo", media: file, caption: cap(hubCaption(card)), parse_mode: "HTML" },
+        { type: "photo", media: file, caption: cap(hubCaption(card, banner)), parse_mode: "HTML" },
         { reply_markup: hubKeyboard() },
       )
       return
@@ -720,7 +744,8 @@ async function refreshHub(ctx: Context, card: SoulCardDTO): Promise<void> {
 
 function groupHubText(card: SoulCardDTO): string {
   return [
-    `👑 <b>فمبویِ روح‌بسته: ${esc(card.name)}</b>`,
+    // V17-3 — واژگانِ قاعده‌مند (§16): «فمبوی: X» — نه نامِ قدیمیِ «روح‌بسته»
+    `👑 <b>فمبوی: ${esc(card.name)}</b>`,
     SEP,
     "",
     `🎖 ${card.rank.emoji} ${esc(card.rank.name)} · ⭐ سطح ${chip(card.level)} · ${card.classEmoji} ${esc(card.className)}`,
@@ -1012,13 +1037,22 @@ async function onInteract(ctx: Context, kind: string): Promise<void> {
   try {
     const res = await api.soulAction(tgId(ctx), "interact", { kind })
     const lines = [`💗 ${esc(res.message)}`]
+    // V17-W2 (§13/§15): واکنشِ تازه‌ی پیوند — همان‌جا که باز شده جشن گرفته می‌شود،
+    // نه فقط در سابقه. فیلد از V14 در موتور بود؛ حالا این سطح هم می‌خواندش.
+    if (res.unlock) {
+      lines.push("", `🔓 واکنشِ تازه‌ی پیوند باز شد: ${esc(res.unlock.text)}`)
+    }
     if (res.card) {
       lines.push(
         "",
         SUB,
         "",
         `❤️ روحیه ${pct(res.card.spirit)} (${res.card.condition.emoji} ${esc(res.card.condition.label)}) · 🤝 پیوند ${chip(res.card.bond)}`,
-        `⏳ تعاملِ بعدی: ${chip(res.card.interactCooldownMin)} دقیقه دیگر`,
+        // V17-W2 (§16): زبانِ واحدِ «🧭 بعدی» — همان گرامری که کار/قمار/استراحت
+        // از V4 دارند؛ تعاملِ فمبوی هم حالا قدمِ بعدیِ روشن می‌گوید.
+        res.card.interactCooldownMin > 0
+          ? `🧭 بعدی: ⏳ ${chip(res.card.interactCooldownMin)} دقیقه دیگر دوباره تعامل`
+          : "🧭 بعدی: 💗 دوباره تعامل",
       )
     }
     const kb = new InlineKeyboard()

@@ -5,6 +5,7 @@ import type { Player, WorldState } from "@prisma/client"
 import type { Rarity } from "./types"
 import { ITEM_MAP, getNpc } from "./content"
 import { applyMoney } from "./economy"
+import { levelUpBody } from "./xp"
 import { STAT_META, clampStat, parseFlags, levelFromXp, faNum } from "./helpers"
 import { mulberry32, seedFrom, weightedPick, clamp, chance, randInt } from "./rng"
 import type { DeltaLineDTO, OpportunityDTO } from "./contract"
@@ -453,7 +454,7 @@ export async function claimOpportunity(
               playerId: p.id,
               icon: "🎉",
               title: `سطح ${p.level}`,
-              body: "شهر کمی جدی‌تر گرفتیت. دقیقاً به اندازه‌ای که خودش تصمیم گرفت.",
+              body: levelUpBody(p.level), // V17 — اسمِ واقعیِ بازشدنی‌ها
               kind: "reward",
             },
           })

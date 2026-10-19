@@ -4,8 +4,9 @@
 import { db } from "@/lib/db"
 import type { GroupWorld } from "@prisma/client"
 import { mulberry32, seedFrom, chance, randInt, clamp, weightedPick } from "../rng"
-import { tehranHour, tehranDayKey, weekNumber, minutesAgo, cultureOf, bumpCulture, computeCultureTag, parseJson, activeMembers, pushOutbox } from "./domain"
+import { tehranHour, tehranDayKey, weekNumber, cultureOf, bumpCulture, computeCultureTag, parseJson, activeMembers, pushOutbox } from "./domain"
 import { expireOpenEvents, spawnGroupEvent } from "./events"
+import { pacingOf } from "./pacing"
 import { tickGames, startGame } from "./games"
 import { closeVotes, openElection, paySalaries, collectProjectIncome } from "./politics"
 import { pushCityNews, ensureMysteryActive, decayMemories, spawnRumor } from "./world"
@@ -150,15 +151,18 @@ export async function tickGroup(group: GroupWorld, now = new Date()): Promise<vo
     }
   }
 
-  // ۶) رویدادِ خودجوش — رعایتِ فاصله و آشوب
-  const sinceEvent = minutesAgo(group.lastEventAt, now)
+  // ۶) رویدادِ خودجوش — V18: ریتمِ هوشمند. دروازه در خودِ spawnGroupEvent نشسته
+  // (۲ ساعت + ۱۰۰ پیام؛ یا ۶ ساعت + ۳۰ پیام در شهرِ آرام) — شانسِ این‌جا فقط
+  // جیترِ شخصیتِ شهر است: آشوبِ بالا زودتر از دروازه‌ی بازشده رد می‌شود، ولی هیچ
+  // شهری ازِ ۲ ماجرا در ۲ ساعت بیشتر نمی‌گیرد (نباید روی اعصاب شود).
   const chaosBoost = 1 + (group.chaos / 100) * 1.2
   const roleBoost = members.some((m) => m.role === "chaos_minister") ? 1.3 : 1
   // موجِ ۲ — ضریبِ رویّه‌ی ادمین (Part 9): off=0 · rare=0.4× · normal=1×.
   // فقط همین فاز؛ استایل‌شو (۵.۵) و بازیِ خودجوش (۷) از تنظیمِ ادمین تبعیت نمی‌کنند.
   const eventChance = Math.min(0.5, 0.12 * chaosBoost * roleBoost) * eventFreqMultiplier(getGroupSettings(group))
   const quietHours = hour >= 1 && hour < 7
-  if (sinceEvent >= 45 && !quietHours && chance(eventChance, mulberry32(seedFrom("amb", group.id, Math.floor(now.getTime() / 60000))))) {
+  const pacing = pacingOf(group, now)
+  if (pacing.gateOpen && !quietHours && chance(eventChance, mulberry32(seedFrom("amb", group.id, Math.floor(now.getTime() / 60000))))) {
     await spawnGroupEvent(group, { priority: 6 })
   }
 
@@ -280,11 +284,22 @@ export async function tickAllGroups(maxPerGroup = 2, now = new Date()): Promise<
     for (const m of list) {
       if (m.kind === "spawn_event") {
         // اکشنِ زمان‌بندی‌شده: تولدِ رویدادِ پیگیری — بدون ارسالِ متن.
-        // فلیپِ شرطی: دو درینِ هم‌زمان فقط یک‌بار پیگیری می‌سازند
+        // V18 — پیگیری هم ریتمِ هوشمند را رعایت می‌کند: شهرِ خسته پیگیری را به
+        // بعد می‌گذارد (defer: +۳۰ دقیقه) نه اینکه پشتِ سرِ هم ماجرا باز کند؛
+        // زنجیره‌ها زنده می‌مانند تا شهر نفس بکشد. سقفِ صبر: ۱۴ روز.
+        const g = await db.groupWorld.findUnique({ where: { id: m.groupId } })
+        const tooOld = now.getTime() - m.createdAt.getTime() > 14 * 86400000
+        const fuPacing = g ? pacingOf(g, now) : null
+        if (g && !tooOld && fuPacing && !fuPacing.gateOpen) {
+          await db.groupOutbox.updateMany({
+            where: { id: m.id, deliveredAt: null },
+            data: { deliverAfter: new Date(now.getTime() + 30 * 60000) },
+          })
+          continue
+        }
         const spawned = await db.groupOutbox.updateMany({ where: { id: m.id, deliveredAt: null }, data: { deliveredAt: now } })
         if (spawned.count === 0) continue
-        const g = await db.groupWorld.findUnique({ where: { id: m.groupId } })
-        if (g) {
+        if (g && !tooOld) {
           const roll = mulberry32(seedFrom("fu", m.id))()
           if (roll < 0.75) await spawnGroupEvent(g, { templateId: m.text, priority: 6 })
         }

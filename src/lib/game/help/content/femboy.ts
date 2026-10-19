@@ -28,7 +28,7 @@ export const FEMBOY_TOPICS: HelpTopic[] = [
     icon: "🪞",
     titleFa: "فمبوی چیست — لایه‌های هویت",
     titleEn: "What a Femboy is",
-    summaryFa: "همدمِ روح‌بسته‌ی تو: نام، کلاس، سطح، رتبه، فرمِ فرگشت، تسلط و ظاهر — همه روی یک کارت.",
+    summaryFa: "فمبویِ تو: نام، کلاس، سطح، رتبه، فرمِ فرگشت، تسلط و ظاهر — همه روی یک کارت.",
     keywords: ["هویت", "identity", "لایه", "همدم", "روح بسته", "soulbound"],
     blocks: [
       {

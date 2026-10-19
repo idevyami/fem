@@ -9,6 +9,7 @@ import { mulberry32, seedFrom, weightedPick, clamp, chance, randInt, pickOne } f
 import type { ActionResponse, DeltaLineDTO } from "./contract"
 import { claimOpportunity } from "./opportunities"
 import { awardXpTx, masteryPayoutBonus, workPayoutBonus, restGainBonus, marketBargainBonus } from "./character"
+import { applyPlayerXp, levelUpBody } from "./xp"
 import { masteryLevelOf as _mlo } from "./content/classes"
 
 /** V10 — درصدِ چانه‌زنیِ فمبوی بازیکن (فروش به دلال) */
@@ -85,10 +86,13 @@ export async function runAction(player: Player, action: string, payload: Record<
             })
             deltas.push(delta("money", income), delta("energy", -job.energyCost), delta("health", -5))
             await history(tx, player.id, job.emoji, `شیفت خراب شد: ${job.name}`, "job", p.day)
-            return { message: "شیفت خوب پیش نرفت.", flavor: failLine, income }
+            // V17-W3 (W3-F4) — پارگیِ پیوستگی دیده می‌شود تا قانونِ پاداش قابلِ یادگیری باشد (§15)
+            const brokeLine = player.workStreak > 0 ? `\n🔥 پیوستگیِ ${faDigits(player.workStreak)} شیفت پاره شد — از شیفتِ بعد دوباره بساز` : ""
+            return { message: "شیفت خوب پیش نرفت.", flavor: `${failLine}${brokeLine}`, income }
           } else {
             const workLine = pickOne(job.workLines, rng)
             let femboyWorkLine = "" // V10 — خطِ پاداشِ دستمزد (اگر مهارت/تسلط اثر کرد)
+            let levelLine = "" // V17 — اگر شیفت سطح آورد، خبرش در flavor می‌آید
             // V10 — هویتِ کلاس در زندگی: مهارتِ «% حقوقِ شیفت» (شاخه‌ی زندگی) + پاداشِ کلاس-تسلط
             const soulForWork = await tx.soulCharacter.findUnique({ where: { playerId: player.id } })
             let payoutPct = 0
@@ -102,15 +106,24 @@ export async function runAction(player: Player, action: string, payload: Record<
             }
             const xpGain = 8 + Math.floor(income / 120)
             await applyMoney(tx, p, income, "job", job.name)
+            // V17 — سیمِ XP→سطح: کار هم سطح می‌سازد (قبلاً فقط XP اضافه می‌شد و سطح قفل می‌ماند)
+            const xpRes = await applyPlayerXp(tx, p, xpGain)
             p = await tx.player.update({
               where: { id: p.id },
               data: {
                 energy: clamp(p.energy - job.energyCost, 0, 100),
-                xp: p.xp + xpGain,
                 workStreak: p.workStreak + 1,
                 lastWorkedAt: new Date(),
               },
             })
+            if (xpRes.leveledTo) levelLine = `🎉 سطحِ ${xpRes.leveledTo} — ${levelUpBody(xpRes.leveledTo)}`
+            // V17-W3 (W3-F4) — پیوستگیِ کار: پاداشِ پنهانِ موتور (تا +۳۰٪) حالا در
+            // نتیجه‌ی شیفت دیده می‌شود — هدفِ کوتاه‌مدتِ آماده (§13-C) + شفافیت (§13-H)
+            const streakPct = Math.min(30, p.workStreak * 3)
+            const streakLine =
+              streakPct >= 30
+                ? `🔥 پیوستگیِ ${faDigits(p.workStreak)} شیفت — پاداشِ کاملِ دستمزد (+${faDigits(30)}٪)`
+                : `🔥 پیوستگیِ ${faDigits(p.workStreak)} شیفت — شیفتِ بعد ${faDigits(streakPct)}٪ دستمزدِ بیشتر می‌دهد`
             deltas.push(delta("money", income), delta("energy", -job.energyCost), delta("xp", xpGain))
             await history(tx, player.id, job.emoji, `شیفت ${job.name} انجام شد: +${income} سکه`, "job", p.day)
             // پیمانکار مرموز: سابقه می‌سازد
@@ -125,7 +138,7 @@ export async function runAction(player: Player, action: string, payload: Record<
               const { char: updated } = await awardXpTx(tx, soul, { tracks: { fortune: 3 } })
               femboyLine = `${updated.name} شمارشِ سکه‌ها را از تو یاد گرفت (+3 XPِ بخت)`
             }
-            const femboyBits = [femboyWorkLine, femboyLine].filter(Boolean).join("\n")
+            const femboyBits = [femboyWorkLine, streakLine, femboyLine, levelLine].filter(Boolean).join("\n")
             return { message: "شیفت تمام شد.", flavor: femboyBits ? `${workLine}\n${femboyBits}` : workLine, income }
           }
         })
@@ -529,7 +542,13 @@ export async function runAction(player: Player, action: string, payload: Record<
 
     // ─────────────────────────── بدهی ───────────────────────────
     case "payDebt": {
-      const amount = clamp(num("amount") ?? 0, 1, player.money)
+      // V17-W3 (hotfixِ runNext): مبلغِ غایب/ناکافی دیگر ساکت به ۱ سکه تبدیل نمی‌شود —
+      // انتخابِ مبلغ جزئی از کنش است؛ بی‌مبلغ = خطای صریح (نه پرداختِ غافلگیرکننده)
+      const rawAmount = num("amount")
+      if (rawAmount === undefined || !Number.isFinite(rawAmount) || rawAmount < 1) {
+        return { error: "چند سکه؟ مبلغ را بگو." }
+      }
+      const amount = clamp(rawAmount, 1, player.money)
       if (player.debt <= 0) return { error: "بدهی نداری. این هم یه اتفاق است." }
       if (player.money < 1) return { error: "پولی برای پس دادن نداری." }
       const pay = Math.min(amount, player.money, player.debt)
@@ -576,7 +595,8 @@ export async function runAction(player: Player, action: string, payload: Record<
       await db.$transaction(async (tx) => {
         let p = await tx.player.findUniqueOrThrow({ where: { id: player.id } })
         await applyMoney(tx, p, -price, "market", `خرید ${vehicle.name}`)
-        p = await tx.player.update({ where: { id: p.id }, data: { vehicleKey: vehicle.key, xp: p.xp + 15 } })
+        await applyPlayerXp(tx, p, 15) // V17 — سیمِ XP→سطح
+        p = await tx.player.update({ where: { id: p.id }, data: { vehicleKey: vehicle.key } })
         await history(tx, player.id, vehicle.emoji, `${vehicle.name} خریدی`, "money", p.day)
       })
       return {
@@ -598,9 +618,10 @@ export async function runAction(player: Player, action: string, payload: Record<
       await db.$transaction(async (tx) => {
         let p = await tx.player.findUniqueOrThrow({ where: { id: player.id } })
         await applyMoney(tx, p, -house.price, "house", `خرید ${house.name}`)
+        await applyPlayerXp(tx, p, 25) // V17 — سیمِ XP→سطح
         p = await tx.player.update({
           where: { id: p.id },
-          data: { houseKey: house.key, houseRentDue: new Date(Date.now() + 24 * 3600000), xp: p.xp + 25 },
+          data: { houseKey: house.key, houseRentDue: new Date(Date.now() + 24 * 3600000) },
         })
         await history(tx, player.id, house.emoji, `به ${house.name} اسبی کشیدی`, "house", p.day)
       })
@@ -680,11 +701,11 @@ export async function runAction(player: Player, action: string, payload: Record<
           if (p.money < stake) throw new Error("NO_MONEY")
           const amount = win ? Math.round(stake * 1.8) : -stake
           await applyMoney(tx, p, amount, "gamble", win ? "برد" : "باخت")
+          await applyPlayerXp(tx, p, 5) // V17 — سیمِ XP→سطح
           p = await tx.player.update({
             where: { id: p.id },
             data: {
               chaos: clamp(p.chaos + (win ? 2 : 4), 0, 100),
-              xp: p.xp + 5,
             },
           })
           f.counters = { ...(f.counters ?? {}), gambleAt: Date.now() }

@@ -8,6 +8,8 @@ import type { MarketEntryDTO, PriceInfoDTO, ShopItemDTO } from "@/lib/game/contr
 import { api } from "@/lib/game/client"
 import { useGame } from "../store"
 import { faNum, faPercent } from "../fa"
+import { ActionOutcomeCard } from "../ActionOutcomeCard"
+import { buildSnapshotNextStep } from "../ui/outcomeMeta"
 import { ActionButton, Chip, EmptyState, GlassCard, MoneyBadge, RarityChip, SectionTitle } from "../ui"
 import { cn } from "@/lib/utils"
 
@@ -22,7 +24,16 @@ const TABS: { key: MarketTab; label: string }[] = [
 export function MarketScreen() {
   const snapshot = useGame((s) => s.snapshot)
   const active = useGame((s) => s.activeTab === "market")
+  // V17-W3 (F1): خرید از بازار نتیجه‌اش را در کارتِ نتیجه می‌گیرد، نه توستِ ۳.۵ ثانیه‌ای
+  const runActionReveal = useGame((s) => s.runActionReveal)
+  const actionOutcome = useGame((s) => s.actionOutcome)
+  const setActionOutcome = useGame((s) => s.setActionOutcome)
+  // پس گرفتنِ آگهی (بدونِ دلتا) همان توستِ همیشگی را دارد
   const runAction = useGame((s) => s.runAction)
+  // V17-W2 (F4): دکمه‌ی «قدمِ بعدی» حالت‌های خالی — مقصدِ موجود، نه صفحه‌ی تازه
+  const setActiveTab = useGame((s) => s.setActiveTab)
+  // V17-W3 (F5) — قدمِ «نقطه‌مهارت» مستقیم به سکشنِ مهارت‌ها deep-link می‌شود
+  const setPendingSoulSection = useGame((s) => s.setPendingSoulSection)
 
   const [tab, setTab] = React.useState<MarketTab>("listings")
   const [data, setData] = React.useState<{
@@ -51,6 +62,11 @@ export function MarketScreen() {
     void load()
   }, [active, load, reloadSeq])
 
+  // V17-W3 (F1) — کارتِ نتیجه مثلِ توست رفتار می‌کند: با ترکِ تبِ بازار جمع می‌شود
+  React.useEffect(() => {
+    if (!active) setActionOutcome(null)
+  }, [active, setActionOutcome])
+
   if (!snapshot) return null
   const money = snapshot.player.money
   const economy = snapshot.world.economyIndex
@@ -58,8 +74,10 @@ export function MarketScreen() {
   async function buyListing(listingId: string) {
     if (busyId) return
     setBusyId(listingId)
-    const ok = await runAction("buyItem", { listingId })
-    if (ok) await load()
+    // V17-W3 (F1): موتور پیام/طعم/دلتای خرید را برمی‌گرداند — کارتِ نتیجه در
+    // جایگاهِ خودِ بازار می‌نشیند (تا بسته شود می‌ماند) و بازار هم تازه می‌شود
+    const res = await runActionReveal("buyItem", { listingId })
+    if (res) await load()
     setBusyId(null)
   }
 
@@ -89,6 +107,25 @@ export function MarketScreen() {
           </Chip>
         </div>
       </header>
+
+      {/* V17-W3 (F1) — جایگاهِ کارتِ نتیجه‌ی خرید: بالایِ محتوای بازار، تا بسته شود می‌ماند */}
+      {actionOutcome ? (
+        <ActionOutcomeCard
+          data={actionOutcome}
+          nextStep={buildSnapshotNextStep(snapshot, {
+            goSoul: () => setActiveTab("soul"),
+            goSkills: () => {
+              setPendingSoulSection("skills")
+              setActiveTab("soul")
+            },
+            // کار/استراحت/کشیدنِ اتفاق روی پیشخوان زندگی می‌کنند — قدم به همان‌جا
+            work: () => setActiveTab("home"),
+            rest: () => setActiveTab("home"),
+            draw: () => setActiveTab("home"),
+          })}
+          onDismiss={() => setActionOutcome(null)}
+        />
+      ) : null}
 
       {/* سگمنت */}
       <div className="glass flex gap-1 p-1" role="tablist" aria-label="بخش‌های بازار">
@@ -143,9 +180,17 @@ export function MarketScreen() {
             busyId={busyId}
             onBuy={buyListing}
             onCancel={cancelListing}
+            onGoShop={() => setTab("shop")}
           />
         ) : tab === "shop" ? (
-          <ShopTab shop={data?.shop ?? []} money={money} busyId={busyId} listingFor={npcListingId} onBuy={buyListing} />
+          <ShopTab
+            shop={data?.shop ?? []}
+            money={money}
+            busyId={busyId}
+            listingFor={npcListingId}
+            onBuy={buyListing}
+            onSeeCity={() => setActiveTab("city")}
+          />
         ) : (
           <PricesTab prices={data?.prices ?? null} />
         )}
@@ -162,12 +207,23 @@ function ListingsTab(props: {
   busyId: string | null
   onBuy: (id: string) => void
   onCancel: (id: string) => void
+  /** V17-W2 (F4) — حالتِ خالی: برو سراغِ مغازه‌ی محله (همان سگمنتِ داخلِ صفحه) */
+  onGoShop: () => void
 }) {
-  const { listings, money, busyId, onBuy, onCancel } = props
+  const { listings, money, busyId, onBuy, onCancel, onGoShop } = props
   if (listings.length === 0) {
     return (
       <GlassCard>
-        <EmptyState emoji="🕸" text="الان کسی چیزی نمی‌فروشه." hint="یا همه چی دارن، یا همه چی ندارن." />
+        <EmptyState
+          emoji="🕸"
+          text="الان کسی چیزی نمی‌فروشه."
+          hint="یا همه چی دارن، یا همه چی ندارن."
+          action={
+            <ActionButton variant="soft" size="sm" onClick={onGoShop}>
+              برو مغازه‌ی محله
+            </ActionButton>
+          }
+        />
       </GlassCard>
     )
   }
@@ -230,12 +286,23 @@ function ShopTab(props: {
   busyId: string | null
   listingFor: (itemKey: string) => string | null
   onBuy: (id: string) => void
+  /** V17-W2 (F4) — حالتِ تعطیلی: برو ببین شهر چه خبر است (تبِ شهر) */
+  onSeeCity: () => void
 }) {
-  const { shop, money, busyId, listingFor, onBuy } = props
+  const { shop, money, busyId, listingFor, onBuy, onSeeCity } = props
   if (shop.length === 0) {
     return (
       <GlassCard>
-        <EmptyState emoji="🚪" text="مغازه‌ی این محله امروز تعطیل شده." hint="یا شغلِ دیگه‌ای پیدا کرده. مغازه‌ها هم دل دارند." />
+        <EmptyState
+          emoji="🚪"
+          text="مغازه‌ی این محله امروز تعطیل شده."
+          hint="یا شغلِ دیگه‌ای پیدا کرده. مغازه‌ها هم دل دارند."
+          action={
+            <ActionButton variant="soft" size="sm" onClick={onSeeCity}>
+              ببین چه خبر است
+            </ActionButton>
+          }
+        />
       </GlassCard>
     )
   }

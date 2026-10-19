@@ -4,7 +4,7 @@
 import { create } from "zustand"
 import { api } from "@/lib/game/client"
 import type { GroupScreenData } from "@/lib/game/client"
-import type { GameSnapshot, GuideResponse } from "@/lib/game/contract"
+import type { ActionResponse, GameSnapshot, GuideResponse } from "@/lib/game/contract"
 import { haptic, hapticNotify } from "./telegram"
 
 export type TabKey = "home" | "soul" | "city" | "group" | "bag" | "market" | "me"
@@ -47,8 +47,29 @@ interface GameState {
   dismissToast: (id: number) => void
   /** اجرای اکشن سرور + به‌روزرسانی snapshot + توست خودکار. true یعنی موفق */
   runAction: (action: string, payload?: Record<string, unknown>) => Promise<boolean>
+  /** V17-W2 (F1) — نتیجه‌ی آخرین اکشنِ پیشخوان: کارتِ نتیجه‌ی درون‌صفحه‌ای.
+   *  V17-W3 (F1): دیگر فقطِ خانه نیست — خرید/فروش/پس‌دادنِ بدهی هم از مسیرِ
+   *  runActionReveal می‌روند و کارت را در جایگاهِ خودِ صفحه‌شان می‌گیرند
+   *  (بازار/کیف/من). هر صفحه با ترکِ تب کارتِ خودش را جمع می‌کند؛ null = کارتی نیست. */
+  actionOutcome: ActionResponse | null
+  setActionOutcome: (o: ActionResponse | null) => void
+  /** V17-W2 (F1) — اکشنِ پیشخوان با کارتِ نتیجه: موفقیتِ همراهِ دلتا → کارت (بدونِ توستِ
+   *  تکراریِ همان متن)؛ موفقیتِ بی‌دلتا → همان توستِ همیشگی؛ خطا → توستِ خطا.
+   *  پاسخِ کامل برمی‌گردد (شیءِ truthy) تا مصرف‌کننده‌های بولی‌مانند بی‌تغییر کار کنند؛ null = شکست. */
+  runActionReveal: (action: string, payload?: Record<string, unknown>) => Promise<ActionResponse | null>
   /** تازه‌سازی snapshot از سرور */
   refresh: () => Promise<boolean>
+  /** V17-W3 (F5) — سکشنِ مقصدِ تبِ فمبوی (deep-link): CTAهای بیرونی (مسیرِ زندگی،
+   *  کارتِ فمبویِ پیشخوان، کارت‌های نتیجه) قبل از رفتن به تبِ فمبوی ستش می‌کنند و
+   *  SoulScreen هنگامِ ورود مصرفش می‌کند — فقط کلیدِ سکشن‌های موجود، صفحه‌ی تازه نه.
+   *  null = ورودِ عادی (سکشنِ آخرِ خودِ صفحه). */
+  pendingSoulSection: string | null
+  setPendingSoulSection: (s: string | null) => void
+  /** V17-W3 (hotfixِ runNext): شیتِ مقصدِ تبِ «من» (deep-link) — «بدهی‌ات را پس
+   *  بده» از مسیرِ زندگی به‌جایِ شلیکِ بی‌مبلغ (که موتور ۱ سکه می‌پرداخت!) به
+   *  شیتِ مبلغ می‌رود؛ null = ورودِ عادی. فقط کلیدهای شیت‌های موجود. */
+  pendingMeSheet: "debt" | null
+  setPendingMeSheet: (s: "debt" | null) => void
   // ─── V6: قولِ بازی روی این دستگاه ───
   /** درخواستِ پخشِ دوباره‌ی اینترو از تبِ «من» — GameShell مصرفش می‌کند */
   replayIntro: boolean
@@ -134,6 +155,29 @@ export const useGame = create<GameState>((set, get) => ({
     get().toast("error", res.error)
     return false
   },
+  // ─── V17-W2 (F1): اکشن‌های پیشخوان با انکشافِ نتیجه ───
+  actionOutcome: null,
+  setActionOutcome: (o) => set({ actionOutcome: o }),
+  runActionReveal: async (action, payload) => {
+    const res = await api.action(action, payload)
+    if (!res.ok) {
+      get().toast("error", res.error)
+      return null
+    }
+    get().setSnapshot(res.data.snapshot)
+    // دنیا نسخه می‌گیرد تا پیشخوان (راهنما/آخرین خبر/فرصت‌ها) تازه شود
+    get().bumpWorld()
+    if (res.data.deltas.length > 0) {
+      // کارتِ نتیجه خودش پیام را کامل می‌گوید — توستِ موفقیتِ همان متن تکرار نمی‌شود؛
+      // فقط هپتیکِ موفقیتِ همیشگی می‌ماند (بازخوردِ لمسی حفظ شد)
+      hapticNotify("success")
+      get().setActionOutcome(res.data)
+    } else if (res.data.message) {
+      // اکشنِ بی‌دلتا چیزی برای کارت ندارد — همان توستِ همیشگی
+      get().toast("success", res.data.message, res.data.flavor ?? undefined)
+    }
+    return res.data
+  },
   refresh: async () => {
     const res = await api.state()
     if (res.ok) {
@@ -142,6 +186,11 @@ export const useGame = create<GameState>((set, get) => ({
     }
     return false
   },
+  // ─── V17-W3 (F5): deep-linkِ سکشنِ تبِ فمبوی ───
+  pendingSoulSection: null,
+  setPendingSoulSection: (s) => set({ pendingSoulSection: s }),
+  pendingMeSheet: null,
+  setPendingMeSheet: (s) => set({ pendingMeSheet: s }),
   // ─── V5: شهرِ گروه ───
   groupData: null,
   groupLoading: false,

@@ -11,7 +11,7 @@ import * as React from "react"
 import { motion } from "framer-motion"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
-import type { HistoryItemDTO, ProfileResponse } from "@/lib/game/contract"
+import type { HistoryItemDTO, PlayerDTO, ProfileResponse } from "@/lib/game/contract"
 import type { CatalogResponse } from "@/lib/game/client"
 // ایمپورتِ مستقیم از globals — باندلِ کلاینت را از کشیدنِ events.ts (1877 خط) و بقیه‌ی بشکه‌ی content بی‌خیال می‌کند
 import { ACHIEVEMENTS } from "@/lib/game/content/globals"
@@ -19,6 +19,8 @@ import { api } from "@/lib/game/client"
 import { useGame, persistGuestIdentity } from "../store"
 import { haptic } from "../telegram"
 import { copyText, faNum } from "../fa"
+import { ActionOutcomeCard } from "../ActionOutcomeCard"
+import { buildSnapshotNextStep, STAT_MEANING, type OutcomeNextStep } from "../ui/outcomeMeta"
 import { ActionButton, Chip, EmptyState, GlassCard, GlassSheet, MoneyBadge, ProgressBar, SectionTitle } from "../ui"
 import { CodexSheet } from "./codex/CodexSheet"
 import { AVATARS } from "../IntroFlow"
@@ -42,11 +44,42 @@ const ADVANCED_STATS: { key: keyof ProfileResponse["player"]; icon: string; labe
 
 const HISTORY_PAGE = 20
 
+/** V17-W2 (F7) — نزدیکیِ زنده‌ی دستاوردهایِ آستانه‌ایِ پنهان از آمارِ واقعیِ بازیکن.
+ *  فقط همین ۳ کلید (رجیستری: globals.ts — survivor «7 روز»، deep_debt «10,000»،
+ *  chaos_agent «آشوب 50»)؛ بقیه‌ی دستاوردها رویدادی‌اند و همان «باید اتفاق بیفتد تا
+ *  بدانی» می‌مانند. current == 0 → پیشرفتی نشان نمی‌دهیم (صادقانه). */
+function achievementCloseness(
+  key: string,
+  player: PlayerDTO,
+): { current: number; target: number; unit: string } | null {
+  switch (key) {
+    case "survivor":
+      return { current: player.day, target: 7, unit: "روز" }
+    case "deep_debt":
+      return { current: player.debt, target: 10000, unit: "سکه" }
+    case "chaos_agent":
+      return { current: player.chaos, target: 50, unit: "آشوب" }
+    default:
+      return null
+  }
+}
+
 export function MeScreen() {
   const snapshot = useGame((s) => s.snapshot)
   const active = useGame((s) => s.activeTab === "me")
   const runAction = useGame((s) => s.runAction)
   const toast = useGame((s) => s.toast)
+  // V17-W3 (F1): خریدِ خانه/وسیله و پس‌دادنِ بدهی نتیجه‌شان را در کارتِ نتیجه می‌گیرد
+  const runActionReveal = useGame((s) => s.runActionReveal)
+  const actionOutcome = useGame((s) => s.actionOutcome)
+  const setActionOutcome = useGame((s) => s.setActionOutcome)
+  // V17-W2 (F4): دکمه‌ی «قدمِ بعدی» حالت‌های خالی — مقصدِ موجود (خانه)، نه صفحه‌ی تازه
+  const setActiveTab = useGame((s) => s.setActiveTab)
+  // V17-W3 (F5) — قدمِ «نقطه‌مهارت» مستقیم به سکشنِ مهارت‌ها deep-link می‌شود
+  const setPendingSoulSection = useGame((s) => s.setPendingSoulSection)
+  // V17-W3 (hotfixِ runNext) — «بدهی‌ات را پس بده» از مسیرِ زندگی به شیتِ مبلغ می‌آید
+  const pendingMeSheet = useGame((s) => s.pendingMeSheet)
+  const setPendingMeSheet = useGame((s) => s.setPendingMeSheet)
   const requestIntroReplay = useGame((s) => s.requestIntroReplay)
   // بعد از بازیابیِ نشست (V16-2) همین صفحه بی‌درنگ تازه می‌شود
   const reloadSeq = useGame((s) => s.reloadSeq)
@@ -66,6 +99,13 @@ export function MeScreen() {
   const [vehicleSheet, setVehicleSheet] = React.useState(false)
   const [jobSheet, setJobSheet] = React.useState(false)
   const [debtSheet, setDebtSheet] = React.useState(false)
+  // V17-W3 (hotfixِ runNext): «پس بده» از مسیرِ زندگی → شیتِ بدهی همین‌جا باز می‌شود؛
+  // انتخابِ مبلغ جزئی از خودِ کنش است — دیگر شلیکِ بی‌مبلغ (۱ سکه‌ایِ موتور) نداریم
+  React.useEffect(() => {
+    if (!active || pendingMeSheet === null) return
+    if (pendingMeSheet === "debt" && (profile?.player.debt ?? snapshot?.player.debt ?? 0) > 0) setDebtSheet(true)
+    setPendingMeSheet(null)
+  }, [active, pendingMeSheet, setPendingMeSheet, profile, snapshot])
   const [payAmount, setPayAmount] = React.useState("")
   const [paying, setPaying] = React.useState(false)
   const [busyKey, setBusyKey] = React.useState<string | null>(null)
@@ -79,6 +119,9 @@ export function MeScreen() {
   const [confirmBuy, setConfirmBuy] = React.useState<
     { kind: "house" | "vehicle"; key: string; name: string; emoji: string; price: number } | null
   >(null)
+  /** V17-W3 (F1) — نامِ اکشنی که کارتِ نتیجه‌ی فعلی را ساخت (پس‌دادن/خانه/وسیله)؛
+   *  برای قدمِ بعدیِ خاصِ همان کنش. با بسته‌شدنِ کارت/ترکِ تب پاک می‌شود */
+  const [outcomeAction, setOutcomeAction] = React.useState<string | null>(null)
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -104,6 +147,14 @@ export function MeScreen() {
     void load()
   }, [active, load, reloadSeq])
 
+  // V17-W3 (F1) — کارتِ نتیجه مثلِ توست رفتار می‌کند: با ترکِ تبِ من جمع می‌شود
+  React.useEffect(() => {
+    if (!active) {
+      setActionOutcome(null)
+      setOutcomeAction(null)
+    }
+  }, [active, setActionOutcome])
+
   async function loadMoreHistory() {
     if (histLoading || !hasMore) return
     setHistLoading(true)
@@ -125,6 +176,50 @@ export function MeScreen() {
     await load()
   }
 
+  // ─── V17-W3 (F1): قدمِ بعدیِ کارتِ نتیجه‌ی «من» ───
+  // اولویت: درسِ مخصوصِ همان کنش (از snapshotِ تازه — بدهی/خانه/...)، بعد همان
+  // زنجیره‌ی مشترکِ پیشخوان (پیمان → نقطه‌مهارت → کار → ...). هیچ hint ساختگی نیست.
+  function buildMeNextStep(): OutcomeNextStep | null {
+    if (!snapshot) return null
+    const p = snapshot.player
+    // پس‌دادنِ بدهی — خودِ زندگی جواب می‌دهد: تسویه شد یا هنوز مانده؟
+    if (outcomeAction === "payDebt") {
+      if (p.debt <= 0) {
+        return { icon: "⛓", label: "بدونِ بدهی", hint: "فرهاد هنوز اسمت را نشنیده. همین‌طوری بمون." }
+      }
+      return {
+        icon: "⛓",
+        label: "باقی‌مانده‌اش را هم پس بده",
+        hint: `${faNum(p.debt)} سکه مونده`,
+        onClick: () => {
+          setActionOutcome(null)
+          setOutcomeAction(null)
+          setPayAmount(String(p.debt))
+          setDebtSheet(true)
+        },
+      }
+    }
+    // خریدِ خانه — اولین اجاره‌ی سقفِ تازه، همان لحظه یادآوری می‌شود (آموزشِ §15)
+    if (outcomeAction === "buyHouse" && p.house) {
+      return {
+        icon: "🏠",
+        label: "اجاره‌ی سقفِ تازه‌ات را یادت باشد",
+        hint: `${faNum(p.house.rent)} سکه · ${faNum(p.house.rentDueInHours)} ساعت دیگه`,
+      }
+    }
+    return buildSnapshotNextStep(snapshot, {
+      goSoul: () => setActiveTab("soul"),
+      goSkills: () => {
+        setPendingSoulSection("skills")
+        setActiveTab("soul")
+      },
+      // کار/استراحت/کشیدنِ اتفاق روی پیشخوان زندگی می‌کنند — قدم به همان‌جا
+      work: () => setActiveTab("home"),
+      rest: () => setActiveTab("home"),
+      draw: () => setActiveTab("home"),
+    })
+  }
+
   async function payDebt() {
     if (paying) return
     const amount = Number(payAmount)
@@ -133,11 +228,13 @@ export function MeScreen() {
       return
     }
     setPaying(true)
-    const ok = await runAction("payDebt", { amount: Math.round(amount) })
+    // V17-W3 (F1): پیام/طعم/دلتای پس‌دادن در کارتِ نتیجه می‌نشیند، نه توستِ ۳.۵ ثانیه‌ای
+    const res = await runActionReveal("payDebt", { amount: Math.round(amount) })
     setPaying(false)
-    if (ok) {
+    if (res) {
       setDebtSheet(false)
       setPayAmount("")
+      setOutcomeAction("payDebt")
       void afterAction()
     }
   }
@@ -148,20 +245,23 @@ export function MeScreen() {
     const { kind, key } = confirmBuy
     setBusyKey(key)
     if (kind === "house") {
-      const ok = await runAction("buyHouse", { houseKey: key })
+      // V17-W3 (F1): خریدِ خانه هم کارتِ نتیجه می‌گیرد (دلتا + «چی یعنی؟» + قدمِ بعدی)
+      const res = await runActionReveal("buyHouse", { houseKey: key })
       setBusyKey(null)
-      if (ok) {
+      if (res) {
         setHouseSheet(false)
         setConfirmBuy(null)
+        setOutcomeAction("buyHouse")
         void afterAction()
       }
       return
     }
-    const ok = await runAction("buyVehicle", { vehicleKey: key })
+    const res = await runActionReveal("buyVehicle", { vehicleKey: key })
     setBusyKey(null)
-    if (ok) {
+    if (res) {
       setVehicleSheet(false)
       setConfirmBuy(null)
+      setOutcomeAction("buyVehicle")
       void afterAction()
     }
   }
@@ -181,6 +281,19 @@ export function MeScreen() {
 
   return (
     <div className="flex flex-col gap-4">
+      {/* V17-W3 (F1) — جایگاهِ کارتِ نتیجه‌ی کنش‌های «من» (پس‌دادنِ بدهی/خریدِ خانه/وسیله):
+          بالایِ محتوای صفحه، تا بسته شود می‌ماند */}
+      {actionOutcome ? (
+        <ActionOutcomeCard
+          data={actionOutcome}
+          nextStep={buildMeNextStep()}
+          onDismiss={() => {
+            setActionOutcome(null)
+            setOutcomeAction(null)
+          }}
+        />
+      ) : null}
+
       {/* ── ۱. شناسنامه — فشرده ── */}
       {loading && !profile ? (
         <div className="flex flex-col gap-3">
@@ -237,7 +350,12 @@ export function MeScreen() {
             <GlassCard pad="sm">
               <div className="grid grid-cols-4 gap-2">
                 {PRIMARY_STATS.map((st) => (
-                  <div key={st.key} className="flex flex-col items-center gap-0.5 rounded-xl bg-white/[0.03] py-2.5">
+                  <div
+                    key={st.key}
+                    // V17-W3 (F11) — معنای یک‌خطیِ هر کاشی از STAT_MEANING (ابزارکِ راهنما)
+                    title={STAT_MEANING[st.label]}
+                    className="flex flex-col items-center gap-0.5 rounded-xl bg-white/[0.03] py-2.5"
+                  >
                     <span aria-hidden className="text-lg leading-6">
                       {st.icon}
                     </span>
@@ -249,7 +367,11 @@ export function MeScreen() {
               {statsOpen ? (
                 <div className="mt-2 grid grid-cols-4 gap-2">
                   {ADVANCED_STATS.map((st) => (
-                    <div key={st.key} className="flex flex-col items-center gap-0.5 rounded-xl bg-white/[0.03] py-2.5">
+                    <div
+                      key={st.key}
+                      title={STAT_MEANING[st.label]}
+                      className="flex flex-col items-center gap-0.5 rounded-xl bg-white/[0.03] py-2.5"
+                    >
                       <span aria-hidden className="text-lg leading-6">
                         {st.icon}
                       </span>
@@ -257,6 +379,10 @@ export function MeScreen() {
                       <span className="text-[11px] leading-4 text-muted-foreground">{st.label}</span>
                     </div>
                   ))}
+                  {/* V17-W3 (F11) — یک خطِ کم‌سر‌و‌صدا: معنا روی خودِ کاشی‌ها است */}
+                  <p className="col-span-4 text-center text-[11px] leading-4 text-muted-foreground">
+                    برای معنای هر کاشی، انگشتت را رویش نگه دار.
+                  </p>
                 </div>
               ) : null}
               <button
@@ -374,6 +500,9 @@ export function MeScreen() {
                 {ACHIEVEMENTS.map((a) => {
                   const owned = ownedAchievements.has(a.key)
                   const hidden = a.hidden && !owned
+                  // V17-W2 (F7) — نزدیکیِ صادقِ دستاوردِ آستانه‌ایِ پنهان (فقط همین ۳ کلید)
+                  const closeness = hidden ? achievementCloseness(a.key, player) : null
+                  const showCloseness = closeness !== null && closeness.current > 0
                   return (
                     <div
                       key={a.key}
@@ -385,11 +514,26 @@ export function MeScreen() {
                       <span aria-hidden className={cn("text-xl leading-6", !owned && "grayscale")}>
                         {hidden ? "❔" : a.emoji}
                       </span>
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <p className="truncate text-[11px] font-bold">{hidden ? "؟؟؟" : a.name}</p>
-                        <p className="truncate text-[11px] leading-4 text-muted-foreground">
-                          {hidden ? "باید اتفاق بیفتد تا بدانی." : a.description}
-                        </p>
+                        {showCloseness && closeness ? (
+                          <>
+                            <p className="truncate text-[11px] leading-4 text-muted-foreground tabular-nums">
+                              {faNum(closeness.current)}/{faNum(closeness.target)} {closeness.unit}
+                            </p>
+                            <ProgressBar
+                              value={Math.min(closeness.current, closeness.target)}
+                              max={closeness.target}
+                              className="mt-1"
+                              barClassName="bg-amber-300"
+                              label={`نزدیکیِ دستاوردِ پنهانِ ${a.key}`}
+                            />
+                          </>
+                        ) : (
+                          <p className="truncate text-[11px] leading-4 text-muted-foreground">
+                            {hidden ? "باید اتفاق بیفتد تا بدانی." : a.description}
+                          </p>
+                        )}
                       </div>
                     </div>
                   )
@@ -403,7 +547,15 @@ export function MeScreen() {
             <SectionTitle icon="🎖" title="عنوان‌ها" />
             <GlassCard pad="sm">
               {player.titles.length === 0 ? (
-                <EmptyState emoji="🎖" text="هنوز هیچ عنوانی نداری. «تازه‌وارد» هم یه شروعه." />
+                <EmptyState
+                  emoji="🎖"
+                  text="هنوز هیچ عنوانی نداری. «تازه‌وارد» هم یه شروعه."
+                  action={
+                    <ActionButton variant="soft" size="sm" onClick={() => setActiveTab("home")}>
+                      قدمِ بعدی را ببین
+                    </ActionButton>
+                  }
+                />
               ) : (
                 <div className="flex flex-wrap gap-1.5">
                   {player.titles.map((t) => {
@@ -465,7 +617,15 @@ export function MeScreen() {
             <SectionTitle icon="📜" title="گذشته" />
             <GlassCard pad="sm">
               {history.length === 0 ? (
-                <EmptyState emoji="📜" text="هنوز چیزی سرت نیومده. برو اول یه اتفاق بساز." />
+                <EmptyState
+                  emoji="📜"
+                  text="هنوز چیزی سرت نیومده. برو اول یه اتفاق بساز."
+                  action={
+                    <ActionButton variant="soft" size="sm" onClick={() => setActiveTab("home")}>
+                      اولین اتفاق را بکش
+                    </ActionButton>
+                  }
+                />
               ) : (
                 <div className="flex flex-col gap-3">
                   {dayGroups.map((g) => (

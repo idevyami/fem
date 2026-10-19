@@ -80,9 +80,17 @@ export function gameHomeCardText(snap: GroupSnapshotDTO, groupTitle: string, vie
     const badge = [viewer.roleLabel ? `${viewer.roleEmoji ?? "🏛"} ${esc(viewer.roleLabel)}` : null, viewer.title ? esc(viewer.title) : null]
       .filter(Boolean)
       .join(" · ")
-    lines.push(`${c.classEmoji} <b>${esc(c.femboyName)}</b> · ${esc(c.className)} · سطح ${chip(c.level)}${badge ? ` · ${badge}` : ""}`)
+    // V17-W2 (§12): جایگاهِ شخصی کنارِ هویت — «تو» در این شهر فقط اسم نیست؛
+    // برد و آبرویش همان‌جا دیده می‌شود (فقط وقتی > 0 — عضوِ تازه شلوغ نمی‌شود).
+    const standing = [
+      viewer.wins && viewer.wins > 0 ? `🏅 ${chip(viewer.wins)} برد` : null,
+      viewer.fame && viewer.fame > 0 ? `✨ ${chip(viewer.fame)} آبرو` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ")
+    lines.push(`${c.classEmoji} <b>${esc(c.femboyName)}</b> · ${esc(c.className)} · سطح ${chip(c.level)}${badge ? ` · ${badge}` : ""}${standing ? ` · ${standing}` : ""}`)
   } else {
-    lines.push("بدونِ فمبویِ روح‌بسته فقط تماشاگری — ساختنش در پی‌ویِ ربات است.")
+    lines.push("بدونِ فمبوی فقط تماشاگری — ساختنش در پی‌ویِ ربات است.")
   }
 
   // V15-1 — هابِ ۱۲-بخشی: فهرستِ فشرده‌ی بخش‌ها در متن، گریدِ دکمه‌ها پایینِ کارت
@@ -227,7 +235,7 @@ export function helpCardText(): string {
     "",
     "این گروه خودش یک شهر است. حلقه‌ی بازی:",
     "",
-    `1️⃣ فمبویِ روح‌بسته‌ات را در پی‌ویِ ربات بساز — بدونِ او فقط تماشاگری.`,
+    `1️⃣ فمبوی‌ات را در پی‌ویِ ربات بساز — بدونِ او فقط تماشاگری.`,
     `2️⃣ ${chip("رویدادها")} — اتفاقِ شهر را باز کن؛ انتخابِ خودت را روی کارتش بزن.`,
     `3️⃣ ${chip("رأی‌گیری")} · ${chip("پروژه‌ها")} — رأی بده، کمک کن، شهر را بساز.`,
     `4️⃣ ${chip("جنگ فمبوی")} — روی پیامِ رقیب reply بزن و دعوتش کن؛ جواب با دکمه‌های دعوت‌نامه.`,

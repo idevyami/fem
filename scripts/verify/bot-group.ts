@@ -21,6 +21,10 @@
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
+// V17-3 §20 — DB مستقیم برای fixture/رستی‌آزماییِ ردیف‌های موتورِ واقعی
+// (الگویِ verify:group؛ فقط ردیف‌های یک‌بارمصرفِ همین اجرا لمس می‌شوند)
+import { db } from "../../src/lib/db"
+import { getServiceKey } from "../../src/lib/game/secrets"
 
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url))
 
@@ -38,6 +42,13 @@ if (existsSync(SECRET_FILE)) {
 }
 
 // ── mocks BEFORE importing bot src (dynamic imports) ──────────────────────────
+// V17-3 §20 — موتورِ واقعی برایِ بازیکن‌هایِ یک‌بارمصرفِ §20: fetch اصلی پیش از
+// نصبِ ماک گرفته شد؛ ماک برایِ همین بازیکن‌ها (REAL_PASS) پاس‌گذار می‌شود —
+// یعنی رباتِ واقعی (روترِ گرامی) + تلگرامِ ماک + موتورِ زنده‌ی :3000، همان
+// قراردادی که رباتِ در حالِ polling همین الان استفاده می‌کند.
+const realFetch = globalThis.fetch.bind(globalThis)
+const REAL_PASS = new Set<string>()
+
 const engineCalls: any[] = []
 let msgSeq = 4242
 const nextMsgId = () => ++msgSeq
@@ -64,6 +75,10 @@ globalThis.fetch = (async (url: any, init: any) => {
   const u = new URL(String(url))
   const body = init?.body ? JSON.parse(init.body as string) : null
   engineCalls.push({ path: u.pathname, method: init?.method ?? "GET", body })
+  // V17-3 §20 — بازیکنِ آزمونِ §20: همان فراخوانی عیناً به موتورِ واقعی می‌رود
+  const passWho =
+    typeof body?.telegramId === "string" ? body.telegramId : (u.searchParams.get("telegramId") ?? "")
+  if (REAL_PASS.has(passWho)) return realFetch(String(url), init)
   // V15-3 §14 — soulGet خصوصی (GET /api/game/character?telegramId=…): بازیکنِ بدونِ
   // فمبوی → کارتِ noCharacter (پنلِ خودش)؛ مسیرِ pathname خالص از body خبر ندارد
   if (u.pathname === "/api/game/character" && u.searchParams.has("telegramId")) {
@@ -1663,10 +1678,21 @@ console.log("⑱ V16-4: market listing flow (sell picker → price card → crea
     ok(Boolean(row) && row?.price === 27 && row?.quantity === 1 && row?.listingId, "C: a real Listing row exists in the (mock) engine with the pressed price")
     const toasts = tg("answerCallbackQuery").filter((c: any) => String(c.payload?.callback_query_id ?? "").length > 0)
     ok(toasts.length >= 1, "C: toast answers the press (Telegram feedback)")
-    // بازارِ تازه (ویرایشِ درجای همان پیام): بخشِ «آگهی‌های تو» + دکمه‌ی برداشتن
+    // V17-W3 (W3-F8): تأیید حالا کارتِ نتیجه می‌دهد — همان گرامرِ کار/قمار/استراحت
+    // («✅» + دکمه‌ی بافتیِ «🛍 بازار» برای ادامه‌ی خرید/فروش)؛ کارتِ بازار دیگر
+    // خودکار دوباره فرستاده نمی‌شود (ضدِ نویز) — با دکمه‌ی بافتی تازه می‌شود (C2).
+    const outcomeAfter = tg("editMessageText").at(-1)?.payload
+    const otext = outcomeAfter?.text ?? ""
+    ok(otext.startsWith("✅"), "C: confirm renders the outcome card (✅ message — V17-W3 outcome grammar)")
+    ok(cbsOf(outcomeAfter).includes("m:market"), "C: contextual «🛍 بازار» button on the outcome card")
+    ok(!otext.includes("آگهی‌های تو"), "C: outcome card is not the market card (no auto-refresh — anti-noise)")
+    // C2 — دکمه‌ی «🛍 بازار» کارتِ بازار را تازه می‌کند: «آگهی‌های تو» + برداشتن
+    // (خوابِ ۳۵۰ms — پنجره‌ی محافظِ دوبل‌کلیکِ ربات، همان قاعده‌ی بقیه‌ی زنجیره)
+    await sleep(350)
+    await bot.handleUpdate(privCb(u, "m:market", 9631))
     const marketAfter = tg("editMessageText").at(-1)?.payload
     const mtext = marketAfter?.text ?? ""
-    ok(mtext.includes("آگهی‌های تو") && mtext.includes("آب") && mtext.includes("<code>27</code>"), "C: refreshed market card lists my listing («آگهی‌های تو»)")
+    ok(mtext.includes("آگهی‌های تو") && mtext.includes("آب") && mtext.includes("<code>27</code>"), "C: «🛍 بازار» refreshes the market card — my listing listed («آگهی‌های تو»)")
     ok(cbsOf(marketAfter).includes(`mc:${row?.listingId}`), "C: «برداشتن» button carries mc:{listingId}")
   }
 
@@ -1682,8 +1708,12 @@ console.log("⑱ V16-4: market listing flow (sell picker → price card → crea
     const cancelCalls = engineCalls.slice(before).filter((c: any) => c.path === "/api/game/action" && c.body?.action === "cancelListing")
     ok(cancelCalls.length === 1 && cancelCalls[0]?.body?.payload?.listingId === row?.listingId, "D: exactly one engine cancelListing with the right listingId")
     ok(!mockMarketListings.some((l) => l.listingId === row?.listingId), "D: the Listing row is gone from the (mock) engine")
+    const cancelOutcome = tg("editMessageText").at(-1)?.payload
+    ok((cancelOutcome?.text ?? "").startsWith("✅") && cbsOf(cancelOutcome).includes("m:market"), "D: cancel renders the outcome card with the market button (V17-W3 outcome grammar)")
+    await sleep(350)
+    await bot.handleUpdate(privCb(u, "m:market", 9641))
     const marketAfter = tg("editMessageText").at(-1)?.payload
-    ok(!(marketAfter?.text ?? "").includes("آگهی‌های تو"), "D: refreshed market card no longer lists my listings")
+    ok(!(marketAfter?.text ?? "").includes("آگهی‌های تو"), "D: «🛍 بازار» refresh — my listings section is gone after cancel")
     // واگذاریِ مالکیت: دکمه‌ی برداشتنِ دیگری در گروه → guard (نه cancelListing)
     const c = -1001800, other = user(18005)
     mockMarketListings.push({ listingId: "ml-other", itemKey: "water", name: "آب", emoji: "💧", rarity: "common", price: 10, quantity: 1, sellerName: "دیگری", sellerId: "p-elsewhere" })
@@ -1784,6 +1814,255 @@ console.log("⑲ V16-4: bag pagination (i:page:{n}) — page 2 renders items 9-1
   }
 
   mockProfileOverrides.delete(String(u))
+}
+
+// ═══ 20. V17-3 — playable bot (ممیزی ⑥⑧⑨ + §10/§14/§16) ═════════════════════
+// سه زیربخش، همه با «رباتِ واقعی + تلگرامِ ماک + موتورِ واقعیِ :3000» و
+// بازیکن/گروه‌های یک‌بارمصرفِ 99xx (ماکِ fetch فقط برایِ همین‌ها پاس‌گذار است):
+//   A) «منو»ی گروه از تماشاگرِ بی‌ردیف → ثبتِ درجا (auth + member) + رتری →
+//      کارتِ خانه، نه کارتِ 404ِ «اول در خصوصی…» (ممیزی ⑥ / مأموریت §10)
+//   B) خریدِ خانه و وسیله از خودِ ربات (lv: لیست ← تأیید ← اجرا) — همان
+//      buyHouse/buyVehicle موتور؛ ردیفِ واقعی + کسرِ دقیقِ پول (ممیزی ⑨)
+//   C) واژگانِ قاعده‌مند: پیمانِ کامل رویِ موتورِ واقعی، صفرِ «روح‌بسته»
+//      در همه‌ی متن‌های بازیکن‌رو + بنرِ «قدمِ بعدی: اولین تعامل» (§16/§12)
+console.log("⑳ V17-3: group spectator auto-registration · house/vehicle purchase parity · canonical terminology")
+{
+  // ابزارهای محلیِ §20 (همان الگویِ بخش‌های قبل + fixture با retry برایِ SQLiteِ شغل‌دار)
+  const plainPriv = (userId: number, text: string) => ({
+    update_id: nextUpdateId(),
+    message: { message_id: nextUpdateId(), date: 1, chat: privChat(userId), from: user(userId), text, entities: [] },
+  })
+  const privCb = (userId: number, data: string, msgId: number) => ({
+    update_id: nextUpdateId(),
+    callback_query: { id: `cq${nextUpdateId()}`, from: user(userId), message: { message_id: msgId, date: 1, chat: privChat(userId) }, data },
+  })
+  const flatOf = (payload: any) => (payload?.reply_markup?.inline_keyboard ?? []).flat()
+  const cbsOf = (payload: any) => flatOf(payload).map((b: any) => b.callback_data ?? "")
+  const textsOf = (payload: any) => flatOf(payload).map((b: any) => b.text ?? "")
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  async function fixture20<T>(fn: () => Promise<T>): Promise<T> {
+    for (let i = 0; ; i++) {
+      try { return await fn() } catch (e) {
+        if (i >= 4 || !String(e).includes("locked")) throw e
+        await sleep(250 * (i + 1))
+      }
+    }
+  }
+
+  // بازیکن/گروه‌های یک‌بارمصرفِ این بخش — با cleanup در finally
+  const RUN20 = Date.now()
+  const STAMP20 = String(RUN20).slice(-9)
+  const tids20: string[] = []
+  const chats20: string[] = []
+  const t20 = (n: number) => { const t = `99${STAMP20}${n}`; tids20.push(t); REAL_PASS.add(t); return t }
+  const c20 = (n: number) => { const c = Number(`-10099${String(RUN20 % 100000)}${n}`); chats20.push(String(c)); return c }
+  const ENGINE = "http://localhost:3000"
+  const KEY20 = getServiceKey()
+
+  // خطِ مبنا برایِ نگهبانِ داده‌ی واقعی (start == end — الگویِ verify:group)
+  const basePlayers20 = await db.player.count()
+  const baseGroups20 = await db.groupWorld.count()
+
+  async function cleanup20(): Promise<void> {
+    const groups = await db.groupWorld.findMany({ where: { chatId: { in: chats20 } }, select: { id: true } })
+    const gids = groups.map((g) => g.id)
+    const players = await db.player.findMany({ where: { telegramId: { in: tids20 } }, select: { id: true } })
+    const pids = players.map((p) => p.id)
+    const chars = pids.length ? await db.soulCharacter.findMany({ where: { playerId: { in: pids } }, select: { id: true } }) : []
+    const cids = chars.map((c) => c.id)
+    const events = gids.length ? await db.groupEvent.findMany({ where: { groupId: { in: gids } }, select: { id: true } }) : []
+    const eids = events.map((e) => e.id)
+    await fixture20(async () => {
+      if (eids.length) await db.groupEventParticipant.deleteMany({ where: { eventId: { in: eids } } })
+      if (gids.length) {
+        await db.groupOutbox.deleteMany({ where: { groupId: { in: gids } } })
+        await db.groupChallenge.deleteMany({ where: { groupId: { in: gids } } })
+        await db.groupEvent.deleteMany({ where: { groupId: { in: gids } } })
+        await db.groupVote.deleteMany({ where: { groupId: { in: gids } } })
+        await db.groupProject.deleteMany({ where: { groupId: { in: gids } } })
+        await db.groupRumor.deleteMany({ where: { groupId: { in: gids } } })
+        await db.groupMemory.deleteMany({ where: { groupId: { in: gids } } })
+        await db.groupMystery.deleteMany({ where: { groupId: { in: gids } } })
+        await db.playerRelationship.deleteMany({ where: { groupId: { in: gids } } })
+        await db.gameSession.deleteMany({ where: { groupId: { in: gids } } })
+        await db.botDecision.deleteMany({ where: { groupId: { in: gids } } })
+        await db.groupHistory.deleteMany({ where: { groupId: { in: gids } } })
+        await db.groupNews.deleteMany({ where: { groupId: { in: gids } } })
+        await db.groupMember.deleteMany({ where: { groupId: { in: gids } } })
+        await db.groupWorld.deleteMany({ where: { id: { in: gids } } })
+      }
+      if (pids.length) {
+        if (cids.length) await db.characterLog.deleteMany({ where: { characterId: { in: cids } } })
+        await db.combatEncounter.deleteMany({ where: { OR: [{ playerId: { in: pids } }, { foeId: { in: pids } }] } })
+        await db.currencyLedger.deleteMany({ where: { playerId: { in: pids } } })
+        await db.historyEntry.deleteMany({ where: { playerId: { in: pids } } })
+        await db.notification.deleteMany({ where: { playerId: { in: pids } } })
+        await db.playerAchievement.deleteMany({ where: { playerId: { in: pids } } })
+        await db.playerTitle.deleteMany({ where: { playerId: { in: pids } } })
+        await db.inventoryItem.deleteMany({ where: { playerId: { in: pids } } })
+        await db.pet.deleteMany({ where: { playerId: { in: pids } } })
+        await db.opportunity.deleteMany({ where: { playerId: { in: pids } } })
+        await db.relationship.deleteMany({ where: { playerId: { in: pids } } })
+        await db.npcMemory.deleteMany({ where: { playerId: { in: pids } } })
+        await db.soulCharacter.deleteMany({ where: { playerId: { in: pids } } })
+        await db.player.deleteMany({ where: { id: { in: pids } } })
+      }
+    })
+  }
+
+  try {
+    // ── A) «منو»ی گروه از تماشاگرِ بدونِ Player → شهروندِ درجا ─────────────────
+    console.log("  ── A spectator «منو» → auth + member + retried card (audit ⑥ / §10) ──")
+    {
+      const cA = c20(1)
+      const uA = t20(1)
+      const before = engineCalls.length
+      await bot.handleUpdate(msgUpdate(cA, user(Number(uA), "تماشاگرِ الف"), "منو"))
+      const seq = engineCalls.slice(before)
+      const cmds = seq.filter((c: any) => c.path === "/api/group/command" && c.body?.action === "command")
+      const auths = seq.filter((c: any) => c.path === "/api/auth")
+      const members = seq.filter((c: any) => c.path === "/api/group/command" && c.body?.action === "member")
+      const iCmd1 = seq.findIndex((c: any) => c.path === "/api/group/command" && c.body?.action === "command")
+      const iAuth = seq.findIndex((c: any) => c.path === "/api/auth")
+      const iMember = seq.findIndex((c: any) => c.path === "/api/group/command" && c.body?.action === "member")
+      const iCmd2 = seq.map((c: any) => c.path === "/api/group/command" && c.body?.action === "command").lastIndexOf(true)
+      ok(cmds.length === 2 && cmds.every((c: any) => c.body.command === "game"), `A: «منو» hit the engine game command twice (404 → retried; got ${cmds.length})`)
+      ok(auths.length === 1 && auths[0]?.body?.telegramId === uA, "A: auto-registration called api.auth upsert for the spectator")
+      ok(members.length === 1 && members[0]?.body?.chatId === String(cA) && members[0]?.body?.telegramId === uA && typeof members[0]?.body?.playerName === "string", "A: member action registered the spectator into the throwaway city")
+      ok(iCmd1 < iAuth && iAuth < iMember && iMember < iCmd2, "A: order = command(404) → auth → member → retried command")
+      // ردیف‌های واقعیِ موتور — بازیکن و عضویت هر دو ساخته شدند
+      const rowA = await db.player.findUnique({ where: { telegramId: uA } })
+      ok(Boolean(rowA), "A: real engine Player row exists for the spectator (created in place)")
+      const gA = await db.groupWorld.findUnique({ where: { chatId: String(cA) } })
+      const memberRow = rowA && gA ? await db.groupMember.findUnique({ where: { groupId_playerId: { groupId: gA.id, playerId: rowA.id } } }) : null
+      ok(Boolean(gA) && Boolean(memberRow), "A: real GroupMember row exists (citizen of the throwaway city)")
+      // کارتِ خانه رسید — نه بن‌بستِ 404
+      const cardsA = sendPayloads(cA).map((c: any) => c.payload?.text ?? "")
+      ok(cardsA.some((t: string) => t.includes("بدونِ فمبوی فقط تماشاگری")), "A: the retried command delivered the city home card (spectator recognized in place)")
+      ok(!cardsA.some((t: string) => t.includes("اول در خصوصی")), "A: NO «اول در خصوصی…» 404 dead-end card in the group")
+    }
+
+    // ── B) خریدِ خانه و وسیله — همان buyHouse/buyVehicle موتور (ممیزی ⑨) ────
+    console.log("  ── B lv: purchase parity — list → confirm → execute on the REAL engine ──")
+    {
+      const uB = t20(2)
+      const userIdB = Number(uB)
+      const authRes = await realFetch(`${ENGINE}/api/auth`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-service-key": KEY20 },
+        body: JSON.stringify({ telegramId: uB, name: "خریدارِ آزمون" }),
+      })
+      ok(authRes.ok, "B: throwaway player authed over the real engine (service key)")
+      const pidB = (await db.player.findUniqueOrThrow({ where: { telegramId: uB } })).id
+      await fixture20(() => db.player.update({ where: { id: pidB }, data: { money: 70000 } }))
+
+      // B1) ورودی: کارتِ «من» دکمه‌ی «🏠 خانه و وسیله» دارد
+      await bot.handleUpdate(privCb(userIdB, "m:me", 970))
+      const meCard = tg("editMessageText").at(-1)?.payload
+      ok(cbsOf(meCard).includes("lv:home"), "B1: profile card carries «🏠 خانه و وسیله» (lv:home)")
+
+      // B2) لیستِ خانه‌ها — قیمت‌های واقعیِ کاتالوگ + مالِ فعلی
+      await sleep(350)
+      await bot.handleUpdate(privCb(userIdB, "lv:home", 971))
+      const listCard = tg("editMessageText").at(-1)?.payload
+      ok((listCard?.text ?? "").includes("🏠 <b>خانه و وسیله</b>") && (listCard?.text ?? "").includes("اتاق زیر شیروانی"), "B2: living list shows the current home")
+      ok((listCard?.text ?? "").includes("<code>6,000</code>") && (listCard?.text ?? "").includes("<code>18,000</code>"), "B2: list shows the REAL catalog prices (6,000 / 18,000)")
+      ok(cbsOf(listCard).includes("lv:buyh:small_flat") && cbsOf(listCard).includes("lv:veh"), "B2: buy buttons + the vehicle switch present")
+
+      // B3) کارتِ تأیید — قیمتِ نهایی + دکمه‌ی lv:go (الگوی b:go بینگو)
+      await sleep(350)
+      await bot.handleUpdate(privCb(userIdB, "lv:buyh:small_flat", 972))
+      const confirmH = tg("editMessageText").at(-1)?.payload
+      ok((confirmH?.text ?? "").includes("قیمتِ واقعی") && (confirmH?.text ?? "").includes("<code>6,000</code>"), "B3: confirm card states the real cost")
+      ok(cbsOf(confirmH).includes("lv:go:h:small_flat") && textsOf(confirmH).some((t: string) => t.includes("می‌خرم")), "B3: «🤝 می‌خرم» carries lv:go:h:small_flat")
+
+      // B4) اجرا — همان buyHouse؛ ردیف + کسرِ دقیق
+      const moneyBeforeH = (await db.player.findUniqueOrThrow({ where: { id: pidB }, select: { money: true } })).money
+      await sleep(350)
+      const before4 = engineCalls.length
+      await bot.handleUpdate(privCb(userIdB, "lv:go:h:small_flat", 973))
+      const buyH = engineCalls.slice(before4).filter((c: any) => c.path === "/api/game/action" && c.body?.action === "buyHouse")
+      ok(buyH.length === 1 && buyH[0]?.body?.payload?.houseKey === "small_flat" && buyH[0]?.body?.telegramId === uB, "B4: engine buyHouse {houseKey:'small_flat'} over the real API")
+      const rowH = await db.player.findUniqueOrThrow({ where: { telegramId: uB } })
+      ok(rowH.houseKey === "small_flat", "B4: engine Player row houseKey actually set")
+      ok(rowH.money === moneyBeforeH - 6000, `B4: money debited by the exact catalog price (${moneyBeforeH} → ${rowH.money})`)
+      const outcomeH = tg("editMessageText").at(-1)?.payload
+      ok((outcomeH?.text ?? "").includes("آپارتمان کوچیک") && (outcomeH?.text ?? "").includes("جیبِ الان"), "B4: outcome card carries the engine message + updated money")
+
+      // B5) وسیله — قیمت با شاخصِ اقتصاد؛ کسرِ دقیق
+      await sleep(350)
+      await bot.handleUpdate(privCb(userIdB, "lv:veh", 974))
+      const vehList = tg("editMessageText").at(-1)?.payload
+      ok((vehList?.text ?? "").includes("دوچرخه‌ی لرزان") && (vehList?.text ?? "").includes("شاخصِ اقتصاد"), "B5: vehicle list renders the economy-indexed prices")
+      ok(cbsOf(vehList).includes("lv:buyv:wobbly_bike"), "B5: wobbly_bike buy button present")
+
+      await sleep(350)
+      await bot.handleUpdate(privCb(userIdB, "lv:buyv:wobbly_bike", 975))
+      const confirmV = tg("editMessageText").at(-1)?.payload
+      const priceMatch = String(confirmV?.text ?? "").match(/قیمتِ واقعی: <b><code>([\d,]+)<\/code> سکه<\/b>/)
+      ok(Boolean(priceMatch) && cbsOf(confirmV).includes("lv:go:v:wobbly_bike"), "B5: vehicle confirm card states the real price + lv:go button")
+      const vehPrice = Number((priceMatch?.[1] ?? "0").replace(/,/g, ""))
+      const moneyBeforeV = (await db.player.findUniqueOrThrow({ where: { telegramId: uB }, select: { money: true } })).money
+      // شاخصِ اقتصاد ممکن است در فاصله‌ی تأیید→اجرا یک تیکِ ۵دقیقه‌ای بخورد —
+      // عددِ صحیح یکی از دو حالتِ مجاور است (هر دو از داده‌ی واقعی، نه از ماک)
+      const ecoPre = (await db.worldState.findUniqueOrThrow({ where: { id: "world" } })).economyIndex
+      await sleep(350)
+      await bot.handleUpdate(privCb(userIdB, "lv:go:v:wobbly_bike", 976))
+      const rowV = await db.player.findUniqueOrThrow({ where: { telegramId: uB } })
+      const ecoPost = (await db.worldState.findUniqueOrThrow({ where: { id: "world" } })).economyIndex
+      const debitV = moneyBeforeV - rowV.money
+      const expPre = Math.round(900 * ecoPre / 100)
+      const expPost = Math.round(900 * ecoPost / 100)
+      ok(rowV.vehicleKey === "wobbly_bike", "B5: engine Player row vehicleKey actually set")
+      ok(debitV === vehPrice || debitV === expPre || debitV === expPost, `B5: money debited by the exact economy-indexed price (${moneyBeforeV} → ${rowV.money}; price shown ${vehPrice})`)
+    }
+
+    // ── C) واژگانِ قاعده‌مند — پیمانِ کامل + هابِ گروه + صفرِ «روح‌بسته» ──────
+    console.log("  ── C canonical labels — real pact journey + group hub, zero «روح‌بسته» ──")
+    {
+      const uC = t20(3)
+      const userIdC = Number(uC)
+      const cC = c20(3)
+      // پیمان از رباتِ واقعی رویِ موتورِ واقعی: /femboy → begin → class → name → confirm
+      // (privMsgUpdate موجودِ هارنس — با entity های bot_command؛ گرام‌ی فرمان را با entity می‌شناسد)
+      await bot.handleUpdate(privMsgUpdate(userIdC, "/femboy"))
+      await sleep(350)
+      await bot.handleUpdate(privCb(userIdC, "fw:begin", 980))
+      await sleep(350)
+      await bot.handleUpdate(privCb(userIdC, "fw:class:ranger", 981))
+      await bot.handleUpdate(plainPriv(userIdC, "پیمان‌آزمون"))
+      const confirmC = sendPayloads(userIdC).at(-1)?.payload
+      ok((confirmC?.text ?? "").includes("👑 <b>فمبویِ تو</b>"), "C: pact confirm card title is canonical «فمبویِ تو» (was «روح‌بسته»)")
+      ok(!(confirmC?.text ?? "").includes("روح‌بسته"), "C: confirm card carries zero «روح‌بسته»")
+      await sleep(350)
+      await bot.handleUpdate(privCb(userIdC, "fw:confirm", 982))
+      // هابِ خصوصی — کپشنِ عکس + بنرِ «قدمِ بعدی: اولین تعامل» (journey.stage bound)
+      const hubC = tg("sendPhoto").at(-1)?.payload
+      ok((hubC?.caption ?? "").includes("فمبویِ اختصاصی‌ام"), "C: femboy hub caption renders (photo card)")
+      ok((hubC?.caption ?? "").includes("قدمِ بعدی: اولین تعامل"), "C: post-pact banner teaches the first interaction (bound + level ≤ 2)")
+      ok(!(hubC?.caption ?? "").includes("روح‌بسته"), "C: hub carries zero «روح‌بسته»")
+      // هابِ گروهی — عنوانِ قاعده‌مند
+      await bot.handleUpdate(msgUpdate(cC, user(userIdC, "پیمانی"), "/femboy"))
+      const groupHub = sendPayloads(cC).at(-1)?.payload
+      ok((groupHub?.text ?? "").includes("👑 <b>فمبوی: پیمان‌آزمون</b>"), "C: group hub title is canonical «فمبوی: X»")
+      // جاروی کامل: هیچ متنِ بازیکن‌رویِ §20 واژه‌ی منسوخ ندارد
+      const allTexts = [
+        ...tg("sendMessage").map((c: any) => c.payload?.text ?? ""),
+        ...tg("editMessageText").map((c: any) => c.payload?.text ?? ""),
+        ...tg("sendPhoto").map((c: any) => c.payload?.caption ?? ""),
+      ]
+      ok(!allTexts.some((t: string) => t.includes("روح‌بسته")), "C: ZERO «روح‌بسته» across every captured player-facing text")
+    }
+  } finally {
+    await cleanup20()
+    // نگهبانِ داده‌ی واقعی + بقایایِ §20
+    ok((await db.player.count({ where: { telegramId: { in: tids20 } } })) === 0, "§20 residue: all throwaway players removed")
+    ok((await db.groupWorld.count({ where: { chatId: { in: chats20 } } })) === 0, "§20 residue: all throwaway groups removed")
+    const playersNow = await db.player.count()
+    const groupsNow = await db.groupWorld.count()
+    ok(playersNow === basePlayers20 && groupsNow === baseGroups20, `§20 real-data guard preserved (${basePlayers20} players / ${baseGroups20} groups start==end)`)
+    await db.$disconnect().catch(() => undefined)
+  }
 }
 
 // ── result ─────────────────────────────────────────────────────────────────────

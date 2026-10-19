@@ -183,23 +183,72 @@ async function sendEngineError(ctx: Context, e: unknown, opts: CardOpts): Promis
   await sendCard(ctx, `⚠️ ${CITY_UNREACHABLE}`, [], opts)
 }
 
+// ─── V17-3 (ممیزی ⑥) — شهروند شدنِ تماشاگرِ ناشناس، همان‌جا در گروه ───────────
+// موتور برای فرمان/کال‌بکِ گروهیِ بازیکنِ بی‌ردیف 404/no_player می‌دهد و کارتِ
+// «اول در خصوصیِ ربات…» تماشاگر را از کنشِ جمعی جدا می‌کرد (مأموریت §10:
+// تعاملِ ذاتیِ جمعی نباید به پیوی تبعید شود). ربات همان دو فراخوانیِ آشنا را
+// می‌زند — api.auth (مثل /startِ خصوصی؛ ردیفِ Player) + action:member (مثل
+// new_chat_members؛ ردیفِ GroupMember + کارتِ خوش‌آمد از outbox) — و بعد خودِ
+// فرمان/کال‌بکِ اصلی را یک‌بار دیگر می‌فرستد. هر شکلی → همان کارتِ 404ِ صادقِ
+// دیروز (جعل نمی‌شود؛ فقط مسیرِ جمعی باز می‌شود).
+
+/** آیا خطا همان بن‌بستِ «بازیکن نیست» است؟ — کدِ قراردادیِ موتور */
+function isNoPlayer(e: unknown): boolean {
+  return e instanceof GameApiError && e.code === "no_player" && !isInfraError(e)
+}
+
+/** ثبتِ درجایِ تماشاگر: Player + GroupMember (همان new_chat_members). */
+async function autoRegisterMember(ctx: Context): Promise<boolean> {
+  const from = ctx.from
+  const chatId = ctx.chat?.id
+  if (!from || from.is_bot || chatId === undefined) return false
+  const telegramId = String(from.id)
+  const playerName = from.first_name || from.username || ""
+  try {
+    await api.auth(telegramId, playerName)
+    await api.groupCommand<GroupMemberResponse>("member", {
+      chatId: String(chatId),
+      chatTitle: ctx.chat?.title ?? "",
+      telegramId,
+      playerName,
+    })
+    log(`group auto-register: «${playerName}» همین‌جا در «${ctx.chat?.title || chatId}» شهروند شد`)
+    return true
+  } catch (e) {
+    bumpError(e instanceof Error ? e.message : String(e))
+    log(`group auto-register: ${stats.lastError}`)
+    return false
+  }
+}
+
 /** اجرای فرمانِ شهر در موتور و رندرِ کارتش — تمامِ متن/دکمه‌ها از موتور */
 export async function sendEngineCommand(ctx: Context, command: string, opts: CardOpts = {}): Promise<void> {
   stats.groupCommands++
   // V12 — بازخوردِ فوری: «در حال نوشتن…» تا کارتِ موتور برسد (بی‌انتظار؛ هرگز نمی‌بُرد)
   void ctx.replyWithChatAction("typing").catch(() => {})
+  const payload = {
+    chatId: String(ctx.chat?.id ?? ""),
+    chatTitle: ctx.chat?.title ?? "",
+    telegramId: String(ctx.from?.id ?? ""),
+    command,
+    ...(opts.isAdmin === true ? { isAdmin: true } : {}),
+  }
   let r: GroupCommandResponse
   try {
-    r = await api.groupCommand<GroupCommandResponse>("command", {
-      chatId: String(ctx.chat?.id ?? ""),
-      chatTitle: ctx.chat?.title ?? "",
-      telegramId: String(ctx.from?.id ?? ""),
-      command,
-      ...(opts.isAdmin === true ? { isAdmin: true } : {}),
-    })
+    r = await api.groupCommand<GroupCommandResponse>("command", payload)
   } catch (e) {
-    await sendEngineError(ctx, e, opts)
-    return
+    // V17-3 — تماشاگرِ بدونِ ردیف: ثبت + یک رتری؛ شکست → همان صدای 404ِ صادق
+    if (isNoPlayer(e) && (await autoRegisterMember(ctx))) {
+      try {
+        r = await api.groupCommand<GroupCommandResponse>("command", payload)
+      } catch (e2) {
+        await sendEngineError(ctx, e2, opts)
+        return
+      }
+    } else {
+      await sendEngineError(ctx, e, opts)
+      return
+    }
   }
   // متنِ خالی یعنی کارت از راهِ outbox می‌رسد (مثل /event) — این‌جا چیزی نمی‌فرستیم
   if (!r.text.trim()) return
@@ -473,14 +522,41 @@ export async function handleGroupCallback(ctx: Context): Promise<void> {
   let ackText = ""
   let alert = false
 
+  // V17-3 — کال‌بکِ تماشاگرِ بی‌ردیف هم مسیرِ فرمان را دارد: ثبت + یک رتری
+  const callPayload = {
+    chatId,
+    chatTitle,
+    telegramId,
+    data,
+    ...(isAdmin ? { isAdmin: true } : {}),
+  }
+  let r: GroupCallbackResponse | null = null
+  let failed: unknown = null
   try {
-    const r = await api.groupCommand<GroupCallbackResponse>("callback", {
-      chatId,
-      chatTitle,
-      telegramId,
-      data,
-      ...(isAdmin ? { isAdmin: true } : {}),
-    })
+    r = await api.groupCommand<GroupCallbackResponse>("callback", callPayload)
+  } catch (e) {
+    if (isNoPlayer(e) && (await autoRegisterMember(ctx))) {
+      try {
+        r = await api.groupCommand<GroupCallbackResponse>("callback", callPayload)
+      } catch (e2) {
+        failed = e2
+      }
+    } else {
+      failed = e
+    }
+  }
+  if (failed !== null) {
+    const e = failed
+    if (e instanceof GameApiError && !isInfraError(e)) {
+      ackText = e.message // صدای خودِ موتور (مثل «اول به ربات بنویس: شروع بازی.»)
+      alert = true
+    } else {
+      bumpError(e instanceof Error ? e.message : String(e))
+      log(`group callback: ${stats.lastError}`)
+      ackText = `⚠️ ${CITY_UNREACHABLE}`
+      alert = true
+    }
+  } else if (r) {
     ackText = r.ackText
     alert = !r.ok && isRealAckError(r.ackText)
     if (r.editCard) {
@@ -495,16 +571,6 @@ export async function handleGroupCallback(ctx: Context): Promise<void> {
           await sendCard(ctx, r.editCard.text, r.editCard.buttons, {})
         }
       }
-    }
-  } catch (e) {
-    if (e instanceof GameApiError && !isInfraError(e)) {
-      ackText = e.message // صدای خودِ موتور (مثل «اول به ربات بنویس: شروع بازی.»)
-      alert = true
-    } else {
-      bumpError(e instanceof Error ? e.message : String(e))
-      log(`group callback: ${stats.lastError}`)
-      ackText = `⚠️ ${CITY_UNREACHABLE}`
-      alert = true
     }
   }
 
