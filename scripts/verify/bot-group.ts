@@ -2030,15 +2030,25 @@ console.log("⑳ V17-3: group spectator auto-registration · house/vehicle purch
       await bot.handleUpdate(privCb(userIdC, "fw:begin", 980))
       await sleep(350)
       await bot.handleUpdate(privCb(userIdC, "fw:class:ranger", 981))
+      await sleep(350)
+      // V19 — گامِ طبع: بعد از کلاس، انتخابگرِ طبع می‌آید (show روی کال‌بک ممکن است
+      // editMessageText باشد — هر دو کانال را جمع می‌کنیم)؛ یکی را انتخاب کن
+      const personaMsg = [...sendPayloads(userIdC).map((c: any) => c.payload), ...editPayloads()].at(-1)
+      const personaText = personaMsg?.text ?? personaMsg?.caption ?? ""
+      ok(personaText.includes("حالا طبعش را برگزین"), "C: V19 persona picker step appears after class", JSON.stringify(personaText.slice(0, 100)))
+      await bot.handleUpdate(privCb(userIdC, "fw:persona:sunny", 9815))
+      await sleep(350)
       await bot.handleUpdate(plainPriv(userIdC, "پیمان‌آزمون"))
       const confirmC = sendPayloads(userIdC).at(-1)?.payload
       ok((confirmC?.text ?? "").includes("👑 <b>فمبویِ تو</b>"), "C: pact confirm card title is canonical «فمبویِ تو» (was «روح‌بسته»)")
+      ok((confirmC?.text ?? "").includes("🎭 طبع:"), "C: V19 confirm card carries the chosen persona")
       ok(!(confirmC?.text ?? "").includes("روح‌بسته"), "C: confirm card carries zero «روح‌بسته»")
       await sleep(350)
       await bot.handleUpdate(privCb(userIdC, "fw:confirm", 982))
       // هابِ خصوصی — کپشنِ عکس + بنرِ «قدمِ بعدی: اولین تعامل» (journey.stage bound)
       const hubC = tg("sendPhoto").at(-1)?.payload
       ok((hubC?.caption ?? "").includes("فمبویِ اختصاصی‌ام"), "C: femboy hub caption renders (photo card)")
+      ok((hubC?.caption ?? "").includes("🎭 طبع:"), "C: V19 hub caption carries the persona line")
       ok((hubC?.caption ?? "").includes("قدمِ بعدی: اولین تعامل"), "C: post-pact banner teaches the first interaction (bound + level ≤ 2)")
       ok(!(hubC?.caption ?? "").includes("روح‌بسته"), "C: hub carries zero «روح‌بسته»")
       // هابِ گروهی — عنوانِ قاعده‌مند

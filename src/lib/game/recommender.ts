@@ -36,6 +36,22 @@ export function nextActions(
     })
   }
 
+  // 0.45) V19 — داستانِ شخصیِ فمبوی فصلِ تازه دارد (فقط وقتی باز است — چیپِ قفل «اعتماد دیگر» دارد)
+  if (
+    snapshot.femboy?.storyChip &&
+    !snapshot.femboy.storyChip.includes("کامل شد") &&
+    !snapshot.femboy.storyChip.includes("اعتماد دیگر")
+  ) {
+    push({
+      id: "femboyStory",
+      icon: "📖",
+      title: `فصلِ تازه از قصه‌ی ${snapshot.femboy.name}`,
+      reason: snapshot.femboy.storyChip,
+      actionLabel: "📖 ادامه‌ی داستان",
+      tone: "good",
+    })
+  }
+
   // 0.5) V9 — نقطه‌مهارتِ فمبوی بی‌استفاده مانده
   if (snapshot.femboy && snapshot.femboy.skillPoints > 0) {
     push({

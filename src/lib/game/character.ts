@@ -25,6 +25,9 @@ import {
 } from "./content/classes"
 import { ENEMIES, availableEnemies, getEnemy, type EnemyDef } from "./content/enemies"
 import { COSMETICS, SOURCE_LABELS, getCosmetic, parseEquipped, parseOwned, type CosmeticDef, type CosmeticSource } from "./content/appearance"
+import { PERSONAS, getPersona, type PersonaDef, type InteractKindKey } from "./content/personas"
+import { getTalent, getFlaw, DOMAIN_LABELS, type TalentDef, type FlawDef, type TalentDomain } from "./content/talents"
+import { STORY_MAP, getStory, STORY_TOTAL_CHAPTERS, trustTierOf, nextTrustTier, type StoryDef, type StoryChoice } from "./content/stories"
 import type {
   SoulCardDTO,
   ClassCardDTO,
@@ -39,6 +42,10 @@ import type {
   AppearanceDTO,
   CosmeticDTO,
   MasteryDTO,
+  PersonaCardDTO,
+  TalentCardDTO,
+  AffinityRowDTO,
+  StoryCardDTO,
 } from "./contract"
 import { clamp, mulberry32, seedFrom, pickOne } from "./rng"
 import { faDigits } from "./helpers"
@@ -70,6 +77,261 @@ export const SOUL = {
   // ── V10: تعامل — سقفِ روزانه‌ی XP (بعد از آن فقط طعم) ──
   INTERACT_XP_DAILY: 6,
 } as const
+
+// ─── V19: شخصیتِ عمیق — طبع/استعداد/ضعف (حلِ قطعی و ماندگار) ────────────────────
+//
+// حلِ سه‌لایه قطعی است: personaKey/talentKey/flawKey روی رکورد می‌نشینند؛ اگر
+// رکوردِ قدیمی خالی باشد (قبل از backfill)، از بذرِ charId قطعی حل می‌شوند —
+// همان بازیکن، همان طبع، هر بار. هیچ rngِ شناورِ ری‌رول وجود ندارد.
+
+/** طبعِ مؤثر — کلیدِ رکورد یا حلِ قطعیِ میراث */
+export function personaOf(char: Pick<SoulCharacter, "id" | "personaKey">): PersonaDef {
+  if (char.personaKey) {
+    const p = getPersona(char.personaKey)
+    if (p) return p
+  }
+  const rng = mulberry32(seedFrom("persona", char.id))
+  return PERSONAS[Math.floor(rng() * PERSONAS.length) % PERSONAS.length]!
+}
+
+/** استعدادِ قطعی برای (charId, طبع) — برای ساختِ تازه و backfill */
+function rollTalentFor(charId: string, persona: PersonaDef): TalentDef {
+  const rng = mulberry32(seedFrom("talent", charId))
+  const pool = persona.talents.map(getTalent).filter((t): t is TalentDef => t !== null)
+  return pool[Math.floor(rng() * pool.length) % pool.length] ?? pool[0] ?? TALENT_FALLBACK
+}
+const TALENT_FALLBACK: TalentDef = {
+  key: "quick_study", emoji: "📚", name: "آموزش‌پذیر", desc: "از هر اتفاق زودتر یاد می‌گیرد: 6% XPِ بیشتر در همه‌ی مسیرها.", domain: "xp", pct: 6,
+}
+
+/** ضعفِ قطعی برای (charId, طبع, استعداد) — دامنه‌ی هم‌پوشان با استعداد نمی‌گیرد */
+function rollFlawFor(charId: string, persona: PersonaDef, talent: TalentDef): FlawDef {
+  const rng = mulberry32(seedFrom("flaw", charId))
+  const all = persona.flaws.map(getFlaw).filter((f): f is FlawDef => f !== null)
+  const pool = all.filter((f) => f.domain !== talent.domain)
+  const use = pool.length > 0 ? pool : all
+  return use[Math.floor(rng() * use.length) % use.length] ?? all[0] ?? FLAW_FALLBACK
+}
+const FLAW_FALLBACK: FlawDef = {
+  key: "slow_learner", emoji: "🐌", name: "آهسته‌آموز", desc: "با وقتم یاد می‌گیرد: 5% XPِ کمتر در همه‌ی مسیرها.", domain: "xp", pct: -5,
+}
+
+export interface PersonaChain {
+  persona: PersonaDef
+  talent: TalentDef
+  flaw: FlawDef
+}
+
+/** حلِ کاملِ شخصیت — طبع + استعداد + ضعف (رکورد یا قطعیِ میراث) */
+export function resolvePersonaChain(char: Pick<SoulCharacter, "id" | "personaKey" | "talentKey" | "flawKey">): PersonaChain {
+  const persona = personaOf(char)
+  let talent = char.talentKey ? getTalent(char.talentKey) : null
+  if (!talent || !persona.talents.includes(talent.key)) talent = rollTalentFor(char.id, persona)
+  let flaw = char.flawKey ? getFlaw(char.flawKey) : null
+  const validFlaws = persona.flaws.map(getFlaw).filter((f): f is FlawDef => f !== null)
+  const nonOverlap = validFlaws.filter((f) => f.domain !== talent!.domain)
+  if (!flaw || !(validFlaws.some((f) => f.key === flaw!.key) && flaw.domain !== talent!.domain)) flaw = rollFlawFor(char.id, persona, talent)
+  return { persona, talent, flaw }
+}
+
+/** ماتریسِ دامنه‌ها — درصدِ امضای استعداد+ضعف (کلمپ [−12,+12]؛ سقفِ رانشِ محتوا) */
+export interface Affinity {
+  work: number
+  market: number
+  spirit: number
+  rest: number
+  combatMoney: number
+  drop: number
+  xp: number
+  duel: number
+  recharge: number
+  group: number
+}
+
+export function affinityOf(char: Pick<SoulCharacter, "id" | "personaKey" | "talentKey" | "flawKey">): Affinity {
+  const { talent, flaw } = resolvePersonaChain(char)
+  const a: Affinity = { work: 0, market: 0, spirit: 0, rest: 0, combatMoney: 0, drop: 0, xp: 0, duel: 0, recharge: 0, group: 0 }
+  a[talent.domain] += talent.pct
+  if (flaw) a[flaw.domain] += flaw.pct
+  for (const k of Object.keys(a) as (keyof Affinity)[]) a[k] = clamp(a[k], -12, 12)
+  return a
+}
+
+/** هزینه‌ی هر واحدِ شارژ برای «این» فمبوی — صرفه‌جو ارزان‌تر (کف 60) */
+export function rechargeCostPer(char: Pick<SoulCharacter, "id" | "personaKey" | "talentKey" | "flawKey">): number {
+  const aff = affinityOf(char)
+  return Math.max(60, Math.round(SOUL.RECHARGE_COST_PER * (1 + aff.recharge / 100)))
+}
+
+/** بسته‌ی طبع‌ها برای مرحله‌ی پیمان (bot + Mini App) */
+export function personaCardsDTO(): PersonaCardDTO[] {
+  return PERSONAS.map((p) => ({ key: p.key, emoji: p.emoji, name: p.name, tagline: p.tagline, traits: [...p.traits], voiceSample: null }))
+}
+
+/** نمونه‌ی صدای فمبوی (خطِ talk طبع) — «این‌جوری حرف می‌زنه» */
+export function voiceSampleOf(char: Pick<SoulCharacter, "id" | "personaKey" | "name">): string {
+  return personaOf(char).voice.talk.replaceAll("{name}", char.name)
+}
+
+function talentCardDTOOf(t: TalentDef | FlawDef): TalentCardDTO {
+  return { key: t.key, emoji: t.emoji, name: t.name, desc: t.desc, domain: t.domain, domainLabel: DOMAIN_LABELS[t.domain].label, pct: t.pct }
+}
+
+function affinityRowsOf(talent: TalentDef, flaw: FlawDef): AffinityRowDTO[] {
+  return [
+    { domain: talent.domain, label: DOMAIN_LABELS[talent.domain].label, icon: DOMAIN_LABELS[talent.domain].icon, pct: talent.pct, kind: "talent" },
+    { domain: flaw.domain, label: DOMAIN_LABELS[flaw.domain].label, icon: DOMAIN_LABELS[flaw.domain].icon, pct: flaw.pct, kind: "flaw" },
+  ]
+}
+
+// ─── V19: داستانِ شخصی — وضعیت/نما/پیش‌بردن ─────────────────────────────────────
+
+export interface StoryState {
+  ch: number
+  choices: Record<string, number>
+  lastStoryAt: string | null
+}
+
+export function storyStateOf(char: Pick<SoulCharacter, "storyJson">): StoryState {
+  try {
+    const obj = JSON.parse(char.storyJson || "{}") as Partial<StoryState>
+    const ch = typeof obj.ch === "number" && obj.ch >= 0 ? Math.min(STORY_TOTAL_CHAPTERS, Math.floor(obj.ch)) : 0
+    const choices = obj.choices && typeof obj.choices === "object" ? (obj.choices as Record<string, number>) : {}
+    return { ch, choices, lastStoryAt: typeof obj.lastStoryAt === "string" ? obj.lastStoryAt : null }
+  } catch {
+    return { ch: 0, choices: {}, lastStoryAt: null }
+  }
+}
+
+/** فاصله تا سدهای فصلِ بعد — null یعنی باز است */
+function storyRequirementLine(char: Pick<SoulCharacter, "trust" | "level" | "personaKey" | "id" | "storyJson">): string | null {
+  const st = storyStateOf(char)
+  if (st.ch >= STORY_TOTAL_CHAPTERS) return null
+  const story = getStory(personaOf(char).key)
+  if (!story) return null
+  const c = story.chapters[st.ch]
+  if (!c) return null
+  const miss: string[] = []
+  if (char.trust < c.req.trust) miss.push(`${faDigits(c.req.trust - char.trust)} اعتماد دیگر`)
+  if (char.level < c.req.level) miss.push(`سطحِ ${faDigits(c.req.level)} فمبوی`)
+  return miss.length > 0 ? miss.join(" · ") : null
+}
+
+/** نمایِ داستان برای DTO — بدون memories (مسیرهایِ لاگ‌دار جدا پرش می‌کنند) */
+export function storyView(char: SoulCharacter): StoryCardDTO {
+  const persona = personaOf(char)
+  const story = getStory(persona.key)
+  const st = storyStateOf(char)
+  const tier = trustTierOf(char.trust)
+  const next = nextTrustTier(char.trust)
+  const req = storyRequirementLine(char)
+  const status: StoryCardDTO["status"] = st.ch >= STORY_TOTAL_CHAPTERS ? "complete" : req !== null ? "locked" : "available"
+  const cur = story && st.ch < STORY_TOTAL_CHAPTERS ? story.chapters[st.ch] : null
+  return {
+    arcKey: story?.key ?? persona.key,
+    arcTitle: story?.title ?? "داستانِ ثبت‌نشده",
+    arcEmoji: story?.emoji ?? persona.emoji,
+    chaptersTotal: STORY_TOTAL_CHAPTERS,
+    chaptersDone: st.ch,
+    status,
+    requirement: status === "locked" ? req : null,
+    current:
+      status === "available" && cur
+        ? {
+            index: st.ch,
+            title: cur.title,
+            icon: cur.icon,
+            text: [...cur.text],
+            choices: cur.choices.map((c, i) => ({ idx: i, label: c.label, hint: c.hint })),
+          }
+        : null,
+    trust: char.trust,
+    trustPct: char.trust,
+    trustTier: { label: tier.label, emoji: tier.emoji },
+    nextTrustTier: next ? { label: next.label, emoji: next.emoji, at: next.min } : null,
+    memories: [],
+  }
+}
+
+/** خواندنِ فصلِ جاری — بی‌اثر؛ فقط نما + پیامِ تعارفِ طبع */
+export async function storyRead(player: Player, char: SoulCharacter): Promise<{ ok?: { message: string; story: StoryCardDTO }; error?: string }> {
+  const persona = personaOf(char)
+  const story = getStory(persona.key)
+  if (!story) return { error: "برای این طبع هنوز قصه‌ای نوشته نشده." }
+  const st = storyStateOf(char)
+  if (st.ch >= STORY_TOTAL_CHAPTERS) {
+    const memories = await db.characterLog.findMany({ where: { characterId: char.id, type: "story" }, orderBy: { createdAt: "desc" }, take: 5 })
+    const view = storyView(char)
+    view.memories = memories.map((m) => ({ id: m.id, type: m.type, icon: m.icon, text: m.text, at: m.createdAt.toISOString() }))
+    return { ok: { message: `📖 قصه‌ی «${story.title}» تمام شده — از این به بعد، فصل‌هایش را خودتان می‌نویسید.`, story: view } }
+  }
+  const req = storyRequirementLine(char)
+  if (req !== null) return { error: `این فصل هنوز قفل است: ${req} لازم است.` }
+  const chapter = story.chapters[st.ch]!
+  const opener = persona.voice.memory.replaceAll("{name}", char.name)
+  const view = storyView(char)
+  const memories = await db.characterLog.findMany({ where: { characterId: char.id, type: "story" }, orderBy: { createdAt: "desc" }, take: 5 })
+  view.memories = memories.map((m) => ({ id: m.id, type: m.type, icon: m.icon, text: m.text, at: m.createdAt.toISOString() }))
+  return { ok: { message: `${opener}\n📖 فصلِ ${faDigits(st.ch + 1)} از ${faDigits(STORY_TOTAL_CHAPTERS)}: «${chapter.title}»`, story: view } }
+}
+
+/** انتخابِ فصلِ جاری — ایدمپوتنت (فصلِ خوانده‌شده دوباره حل نمی‌شود) */
+export async function storyChoose(
+  player: Player,
+  char: SoulCharacter,
+  choiceIdx: number,
+): Promise<{ ok?: { message: string; story: StoryCardDTO }; error?: string }> {
+  const persona = personaOf(char)
+  const story = getStory(persona.key)
+  if (!story) return { error: "برای این طبع هنوز قصه‌ای نوشته نشده." }
+  const st = storyStateOf(char)
+  if (st.ch >= STORY_TOTAL_CHAPTERS) return { error: `قصه‌ی «${story.title}» تمام شده — پایانش مالِ خودتان است.` }
+  const chapter = story.chapters[st.ch]!
+  const choice = chapter.choices[choiceIdx]
+  if (!choice) return { error: "چنین انتخابی در این فصل نیست." }
+  return db.$transaction(async (tx) => {
+    const fresh = await tx.soulCharacter.findUniqueOrThrow({ where: { id: char.id } })
+    if (fresh.playerId !== player.id) return { error: "این فمبوی مالِ تو نیست." }
+    const st2 = storyStateOf(fresh)
+    if (st2.ch !== st.ch) return { error: "این فصل دیگر جلو نیست — قصه را از فصلِ تازه ادامه بده." }
+    if (st2.choices[chapter.id] !== undefined) return { error: "این فصل را خوانده‌ای — قصه جلوتر است." }
+    if (fresh.trust < chapter.req.trust || fresh.level < chapter.req.level) {
+      const miss: string[] = []
+      if (fresh.trust < chapter.req.trust) miss.push(`${faDigits(chapter.req.trust - fresh.trust)} اعتماد دیگر`)
+      if (fresh.level < chapter.req.level) miss.push(`سطحِ ${faDigits(chapter.req.level)} فمبوی`)
+      return { error: `این فصل هنوز قفل است: ${miss.join(" · ")}` }
+    }
+    // پیامدها — اعتماد/پیوند/روحیه + پول/XP اگر فصل خواسته باشد
+    const newTrust = clamp(fresh.trust + choice.trust, 0, 100)
+    const data: Partial<SoulCharacter> = {
+      trust: newTrust,
+      bond: Math.min(999, fresh.bond + (choice.bond ?? 0)),
+      spirit: clamp(fresh.spirit + (choice.spirit ?? 0), 0, 100),
+      storyJson: JSON.stringify({ ch: st.ch + 1, choices: { ...st2.choices, [chapter.id]: choiceIdx }, lastStoryAt: new Date().toISOString() }),
+    }
+    let updated = await tx.soulCharacter.update({ where: { id: fresh.id }, data })
+    if (choice.money) await applyMoney(tx, player, choice.money, "misc", `داستانِ شخصی: ${chapter.title}`)
+    if (choice.xp && choice.xp > 0) updated = (await awardXpTx(tx, updated, { tracks: { spirit: choice.xp } })).char
+    await addCharLog(tx, fresh.id, "story", chapter.icon, `${chapter.title} — ${choice.outcome}`, true)
+    const lines: string[] = [choice.outcome]
+    // پله‌ی اعتمادِ تازه
+    const prevTier = trustTierOf(fresh.trust)
+    const nowTier = trustTierOf(newTrust)
+    if (nowTier.min > prevTier.min) lines.push(`🤝 پله‌ی اعتماد تازه: ${nowTier.emoji} «${nowTier.label}»`)
+    // پایانِ قوس — عنوانِ «راویِ پیمان» + جلا
+    if (st.ch + 1 >= STORY_TOTAL_CHAPTERS) {
+      const spiritBonus = 15
+      updated = await tx.soulCharacter.update({ where: { id: fresh.id }, data: { spirit: clamp(updated.spirit + spiritBonus, 0, 100) } })
+      await grantPlayerTitleTx(tx, player.id, "story_weaver")
+      await addCharLog(tx, fresh.id, "milestone", "📖", `قصه‌ی «${story.title}» کامل شد.`, true)
+      lines.push(`📖 قصه‌ی «${story.title}» به پایان رسید — عنوانِ «راویِ پیمان» به تو رسید و ${faDigits(spiritBonus)} روحیه‌ی جلا به ${fresh.name}.`)
+    }
+    const memories = await tx.characterLog.findMany({ where: { characterId: fresh.id, type: "story" }, orderBy: { createdAt: "desc" }, take: 5 })
+    const view = storyView(updated)
+    view.memories = memories.map((m) => ({ id: m.id, type: m.type, icon: m.icon, text: m.text, at: m.createdAt.toISOString() }))
+    return { ok: { message: lines.join("\n"), story: view } }
+  })
+}
 
 // ─── V10: کلاس-تسلط — سطح/پاداش‌ها ─────────────────────────────────────────────
 
@@ -469,14 +731,17 @@ export interface XpAward {
   tracks: Partial<Record<XpTrack, number>>
 }
 
-/** اعطای XP داخلِ تراکنش + ارتقای سطح/رتبه + لاگ. کاراکترِ به‌روزشده را برمی‌گرداند. */
+/** اعطای XP داخلِ تراکنش + ارتقای سطح/رتبه + لاگ. کاراکترِ به‌روزشده را برمی‌گرداند.
+ *  V19 — استعداد/ضعفِ «XP» همین‌جا اعمال می‌شود: تک‌قلابِ همه‌ی مسیرهایِ XP. */
 export async function awardXpTx(tx: Tx, char: SoulCharacter, award: XpAward): Promise<{ char: SoulCharacter; levelUps: number[]; rankUps: string[] }> {
   const xpJson = JSON.parse(char.xpJson || "{}") as Record<string, number>
   let total = char.totalXp
+  const xpPct = affinityOf(char).xp // V19 — استعدادِ آموزش‌پذیر / ضعفِ آهسته‌آموز
   for (const [k, v] of Object.entries(award.tracks)) {
     if (!v || v <= 0) continue
-    xpJson[k] = (xpJson[k] ?? 0) + Math.round(v)
-    total += Math.round(v)
+    const scaled = Math.max(1, Math.round(v * (1 + xpPct / 100)))
+    xpJson[k] = (xpJson[k] ?? 0) + scaled
+    total += scaled
   }
   const oldLevel = char.level
   const newLevel = levelFromTotalXp(total)
@@ -519,17 +784,31 @@ export async function awardXpTx(tx: Tx, char: SoulCharacter, award: XpAward): Pr
 
 // ─── ساختِ فمبوی (اتمیک؛ دوباره‌سازی غیرممکن) ──────────────────────────────────
 
-export async function createCharacter(player: Player, opts: { name: string; classKey: string }): Promise<{ char?: SoulCharacter; error?: string }> {
+/** V19 — طبع را بازیکن در مراسمِ پیمان برمی‌گزیند؛ اگر نیامد، قطعی از بذرِ بازیکن */
+export async function createCharacter(
+  player: Player,
+  opts: { name: string; classKey: string; personaKey?: string },
+): Promise<{ char?: SoulCharacter; error?: string }> {
   const nameCheck = validateCharacterName(opts.name)
   if (!nameCheck.ok) return { error: nameCheck.error }
   const cls = getClass(opts.classKey)
   if (!cls) return { error: "چنین کلاسی در این جهان وجود ندارد." }
+  let persona: PersonaDef | null = null
+  if (opts.personaKey !== undefined && opts.personaKey !== "") {
+    persona = getPersona(opts.personaKey)
+    if (!persona) return { error: "چنین طبعی در این شهر نمی‌روید — یکی از هشت طبعِ شهر را انتخاب کن." }
+  } else {
+    // قطعی از بذرِ بازیکن — همان بازیکن همیشه همان طبعِ پیش‌فرض را می‌گیرد
+    const rng = mulberry32(seedFrom("persona", player.id))
+    persona = PERSONAS[Math.floor(rng() * PERSONAS.length) % PERSONAS.length]!
+  }
+  const chosenPersona = persona
   try {
     return await db.$transaction(async (tx) => {
       // invariant: یک بازیکن = یک فمبوی — unique playerId این را تضمین می‌کند
       const existing = await tx.soulCharacter.findUnique({ where: { playerId: player.id } })
       if (existing) return { error: "فمبوی تو همین‌جاست. عهد، عهد است." }
-      const char = await tx.soulCharacter.create({
+      let char = await tx.soulCharacter.create({
         data: {
           playerId: player.id,
           name: opts.name.trim().replace(/\s+/g, " "),
@@ -538,14 +817,28 @@ export async function createCharacter(player: Player, opts: { name: string; clas
           staminaMax: SOUL.STAMINA_START,
         },
       })
+      // V19 — استعداد/ضعفِ قطعی روی رکورد بنشیند (همان منطقِ backfill)
+      const talent = rollTalentFor(char.id, chosenPersona)
+      const flaw = rollFlawFor(char.id, chosenPersona, talent)
+      char = await tx.soulCharacter.update({
+        where: { id: char.id },
+        data: { personaKey: chosenPersona.key, talentKey: talent.key, flawKey: flaw.key },
+      })
       // V10 — هدیه‌ی پیمان: پاپیونِ پیمان خودکار پوشیده می‌شود
       await grantCosmeticTx(tx, char, "acc_ribbon", "starter")
-      await addCharLog(tx, char.id, "creation", cls.emoji, `پیمانِ فمبوی بسته شد: ${char.name}، ${cls.name}.`, true)
+      await addCharLog(
+        tx,
+        char.id,
+        "creation",
+        cls.emoji,
+        `پیمانِ فمبوی بسته شد: ${char.name}، ${cls.name} با طبعِ ${chosenPersona.emoji} «${chosenPersona.name}».`,
+        true,
+      )
       await tx.historyEntry.create({
         data: {
           playerId: player.id,
           icon: "🎀",
-          text: `فمبوی‌اش به نامِ «${char.name}» متولد شد — ${cls.name}.`,
+          text: `فمبوی‌اش به نامِ «${char.name}» متولد شد — ${cls.name}، ${chosenPersona.name}.`,
           category: "social",
           day: player.day,
         },
@@ -715,6 +1008,14 @@ export function femboySummaryDTO(char: SoulCharacter): FemboySummaryDTO {
   const mTier = masteryTierOf(mLevel)
   const equipped = parseEquipped(char.appearanceJson)
   const acc = equipped.accessory ? getCosmetic(equipped.accessory) : null
+  // V19 — طبع + تراشه‌ی داستان برای کارت‌های سبک (چیپِ قفل، فاصله تا سدها را می‌گوید)
+  const persona = personaOf(char)
+  const st = storyStateOf(char)
+  const reqLine = storyRequirementLine(char)
+  const storyChip =
+    st.ch >= STORY_TOTAL_CHAPTERS
+      ? "📖 قصه‌ش کامل شد"
+      : `📖 فصلِ ${faDigits(st.ch + 1)} از ${faDigits(STORY_TOTAL_CHAPTERS)}${reqLine ? ` · ${reqLine}` : ""}`
   return {
     name: char.name,
     classKey: cls.key,
@@ -742,6 +1043,9 @@ export function femboySummaryDTO(char: SoulCharacter): FemboySummaryDTO {
     accessoryEmoji: acc?.emoji ?? null,
     evolutionPathName: evo && path.some((p) => p === 1) ? (evo.pathLabel ?? null) : null,
     nextMilestone: nextMilestoneOf(char, cls),
+    // V19 — طبع + تراشه‌ی داستان
+    persona: { key: persona.key, emoji: persona.emoji, name: persona.name },
+    storyChip,
   }
 }
 
@@ -893,6 +1197,9 @@ export function soulCardDTO(char: SoulCharacter): SoulCardDTO {
     xp: xpJson[k] ?? 0,
   }))
 
+  // V19 — حلِ کاملِ شخصیت + ماتریسِ دامنه‌ها + داستان
+  const chain = resolvePersonaChain(char)
+
   return {
     name: char.name,
     classKey: cls.key,
@@ -952,6 +1259,20 @@ export function soulCardDTO(char: SoulCharacter): SoulCardDTO {
     createdAt: char.createdAt.toISOString(),
     interactCooldownMin: Math.ceil(interactLeft),
     renameCooldownMin: Math.ceil(renameLeft),
+    // ── V19: شخصیتِ عمیق — طبع/استعداد/ضعف/داستان/ماتریس ──
+    persona: {
+      key: chain.persona.key,
+      emoji: chain.persona.emoji,
+      name: chain.persona.name,
+      tagline: chain.persona.tagline,
+      traits: [...chain.persona.traits],
+      voiceSample: voiceSampleOf(char),
+    },
+    talent: talentCardDTOOf(chain.talent),
+    flaw: talentCardDTOOf(chain.flaw),
+    story: storyView(char),
+    affinityRows: affinityRowsOf(chain.talent, chain.flaw),
+    rechargeCostPer: rechargeCostPer(char),
   }
 }
 
@@ -1228,16 +1549,17 @@ export async function interactWithCharacter(player: Player, char: SoulCharacter,
   // V10 — مرورِ خاطره آزاد است: نه کول‌داون می‌خورد نه ذخیره‌ی نفس (فقط روایت)
   if (kind.flavorOnly) {
     const voice = voiceLineFor(char, kind.key, mulberry32(seedFrom("interact", char.id, Date.now())))
-    // V14 — پنجره‌ی خاطره 5تایی + نوع‌های عنوان/دستاورد (اگر در پنجره باشند)
+    // V14 — پنجره‌ی خاطره 5تایی + نوع‌های عنوان/دستاورد/داستان (اگر در پنجره باشند)
     const lastMilestones = await db.characterLog.findMany({
-      where: { characterId: char.id, type: { in: ["creation", "evolution", "victory", "mastery", "milestone", "rank", "bond", "title", "achievement"] } },
+      where: { characterId: char.id, type: { in: ["creation", "evolution", "victory", "mastery", "milestone", "rank", "bond", "title", "achievement", "story"] } },
       orderBy: { createdAt: "desc" },
       take: 5,
     })
     const variant = interactVariantFor(char, kind.key)
+    const persona = personaOf(char) // V19 — تعارفِ خاطره با صدای طبع
     const lines: string[] = []
     if (lastMilestones.length === 0) {
-      lines.push(`${char.name} پیشانی‌اش را چین می‌اندازد: «هنوز خاطره‌ی مشترکِ درش‌وازه‌ای نداریم — بریم یکی بسازیم؟»`)
+      lines.push(persona.voice.memory.replaceAll("{name}", char.name))
     } else {
       lines.push(`📖 با ${char.name} خاطره‌ها را ورق می‌زنید…`)
       for (const m of lastMilestones) {
@@ -1262,8 +1584,8 @@ export async function interactWithCharacter(player: Player, char: SoulCharacter,
       await applyMoney(tx, player, -kind.moneyCost, "misc", `تعامل: ${kind.label}`)
     }
     const rng = mulberry32(seedFrom("interact", char.id, Date.now()))
-    // V10 — مهارتِ «% روحیه‌ی تعامل بیشتر» از شاخه‌ی زندگی
-    const gainPct = spiritGainBonus(fresh)
+    // V10 — مهارتِ «% روحیه‌ی تعامل بیشتر» از شاخه‌ی زندگی + V19 استعداد/ضعفِ «جلای تعامل»
+    const gainPct = spiritGainBonus(fresh) + affinityOf(fresh).spirit
     const rawSpirit = kind.spiritGain[0] + rng() * (kind.spiritGain[1] - kind.spiritGain[0])
     const spirit = Math.round(rawSpirit * (1 + gainPct / 100))
     const newSpirit = clamp(fresh.spirit + spirit, 0, 100)
@@ -1274,6 +1596,12 @@ export async function interactWithCharacter(player: Player, char: SoulCharacter,
     })
     // XP هم‌نفس — فقط اولینِ چند تعاملِ روزانه (سقفِ ضدِ مزرعه)
     const daily = parseMasteryDaily(fresh.masteryDaily)
+    // V19 — اعتماد: اولینِ تعاملِ روز، +1 (فقط همین — اسپم اعتماد نمی‌سازد)
+    let trustGain = 0
+    if (daily.interacts === 0) {
+      trustGain = 1
+      await tx.soulCharacter.updateMany({ where: { id: fresh.id }, data: { trust: Math.min(100, fresh.trust + 1) } })
+    }
     if (daily.interacts < SOUL.INTERACT_XP_DAILY) {
       await awardXpTx(tx, updated, { tracks: { spirit: 2 } })
       await awardMasteryTx(tx, updated, "interact", 1, `تعاملِ ${kind.label} با بازیکنش`)
@@ -1281,10 +1609,20 @@ export async function interactWithCharacter(player: Player, char: SoulCharacter,
     // V14 — واریانتِ واعی به حال (از ردیفِ تازه: روحیه‌ی همین لحظه) + واکنشِ پیوند
     const variant = interactVariantFor(updated, kind.key)
     const voice = voiceLineFor(fresh, kind.key, rng)
-    const base = pickOne(INTERACT_LINES[kind.key] ?? INTERACT_LINES.talk, rng).replaceAll("{name}", fresh.name)
+    // V19 — صدای طبع، خطِ پایه است؛ عمومی فقط پشتیبانِ طبع‌های گمشده
+    const personaVoice = personaOf(fresh).voice[kind.key as InteractKindKey]
+    const base = personaVoice
+      ? personaVoice.replaceAll("{name}", fresh.name)
+      : pickOne(INTERACT_LINES[kind.key] ?? INTERACT_LINES.talk, rng).replaceAll("{name}", fresh.name)
     const lines = [base, variant.moodLine]
     if (variant.evoTail) lines.push(variant.evoTail)
     if (voice) lines.push(voice.replaceAll("{name}", fresh.name))
+    // V19 — پله‌ی اعتمادِ تازه از اولینِ تعاملِ روز
+    if (trustGain > 0) {
+      const prevTrustTier = trustTierOf(fresh.trust)
+      const nowTrustTier = trustTierOf(Math.min(100, fresh.trust + 1))
+      if (nowTrustTier.min > prevTrustTier.min) lines.push(`🤝 پله‌ی اعتماد تازه: ${nowTrustTier.emoji} «${nowTrustTier.label}»`)
+    }
     // واکنشِ پیوند — پله‌ی تازه یا پله‌ی رسیده‌ی همیشگی
     const prevTier = bondReactionOf(oldBond)
     const nowTier = bondReactionOf(updated.bond)
@@ -1320,7 +1658,8 @@ function faDaysAgo(at: Date): string {
 export async function rechargeStamina(player: Player, char: SoulCharacter, units: number): Promise<{ ok?: { message: string; stamina: number }; error?: string }> {
   const n = Math.floor(units)
   if (n < 1 || n > SOUL.RECHARGE_MAX_AT_ONCE) return { error: `بین 1 تا ${faDigits(SOUL.RECHARGE_MAX_AT_ONCE)} واحد.` }
-  const cost = n * SOUL.RECHARGE_COST_PER
+  // V19 — هزینه‌ی هر واحد شخصی است (استعدادِ صرفه‌جو)؛ سقفِ بازپرداخت هم همان
+  const perUnit = rechargeCostPer(char)
   return db.$transaction(async (tx) => {
     const fresh = await tx.soulCharacter.findUniqueOrThrow({ where: { id: char.id } })
     if (fresh.playerId !== player.id) return { error: "این فمبوی مالِ تو نیست." }
@@ -1328,8 +1667,8 @@ export async function rechargeStamina(player: Player, char: SoulCharacter, units
     if (missing <= 0) return { error: "استقامتت پُر است." }
     const apply = Math.min(n, missing)
     const p = await tx.player.findUniqueOrThrow({ where: { id: player.id } })
-    if (p.money < apply * SOUL.RECHARGE_COST_PER) return { error: `هر واحد ${faDigits(SOUL.RECHARGE_COST_PER)} سکه است — ${faDigits(apply)} واحد نمی‌خریداری.` }
-    await applyMoney(tx, p, -apply * SOUL.RECHARGE_COST_PER, "misc", "شارژِ استقامتِ فمبوی")
+    if (p.money < apply * perUnit) return { error: `هر واحد ${faDigits(perUnit)} سکه است — ${faDigits(apply)} واحد نمی‌خریداری.` }
+    await applyMoney(tx, p, -apply * perUnit, "misc", "شارژِ استقامتِ فمبوی")
     const updated = await tx.soulCharacter.update({
       where: { id: fresh.id },
       data: { stamina: fresh.stamina + apply, staminaAt: new Date() },
@@ -1601,6 +1940,8 @@ export async function publicFemboyCard(targetTelegramId: string): Promise<Public
   // عنوانِ فعالِ بازیکنِ هدف (اگر عنوانی فعال کرده باشد)
   const activeTitle = await db.playerTitle.findFirst({ where: { playerId: player.id, active: true } })
   const titleDef = activeTitle ? TITLE_MAP[activeTitle.titleKey] : undefined
+  // V19 — هویتِ عمومیِ طبع/استعداد (عمومی‌اند — شخصیت، راز نیست)
+  const chain = resolvePersonaChain(char)
   return {
     target,
     exists: true,
@@ -1626,6 +1967,9 @@ export async function publicFemboyCard(targetTelegramId: string): Promise<Public
       evolutionPathName: evo?.pathLabel ?? null,
       // V8 §24 — آرتِ کارتِ عمومی = پرتره‌ی فُرمِ فعلیِ فرگشت‌یافته (مرحله‌ی ≥۲)؛ وگرنه آرتِ کلاس
       art: evo?.art ?? cls.art,
+      // V19 — هویتِ عمومیِ طبع/استعداد
+      persona: { key: chain.persona.key, emoji: chain.persona.emoji, name: chain.persona.name, tagline: chain.persona.tagline },
+      talent: { key: chain.talent.key, emoji: chain.talent.emoji, name: chain.talent.name },
     },
   }
 }

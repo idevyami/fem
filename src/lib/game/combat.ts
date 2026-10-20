@@ -23,6 +23,8 @@ import {
   soulCardDTO,
   grantPlayerAchievementTx,
   grantPlayerTitleTx,
+  affinityOf,
+  resolvePersonaChain,
 } from "./character"
 import { faDigits } from "./helpers"
 import { applyMoney } from "./economy"
@@ -616,20 +618,32 @@ export async function actOnEncounter(player: Player, encounterId: string, act: C
           base = Math.round(base * (1 - stolenPct / 100))
           if (stolenPct > 0) rlines.push(`🕴️ ${faDigits(stolenPct)}% از کیفِ نبرد وصول شد.`)
         }
-        // V10 — پاداشِ جایزه‌ی نبرد از کلاس-تسلط (M7: 3% · M10: 5%)
+        // V10 — پاداشِ جایزه‌ی نبرد از کلاس-تسلط (M7: 3% · M10: 5%) + V19 استعداد/ضعفِ «جایزه‌ی نبرد»
+        const aff = affinityOf(char)
         const mBonus = masteryRewardBonus(masteryLevelOf(char.masteryXp))
-        money = Math.max(10, Math.round(base * lootMult * (1 + mBonus / 100)))
+        const tBonus = aff.combatMoney
+        money = Math.max(10, Math.round(base * lootMult * (1 + mBonus / 100) * (1 + tBonus / 100)))
         if (mBonus > 0) rlines.push(`🎓 تسلطِ کلاس ${faDigits(mBonus)}% جایزه را سنگین‌تر کرد.`)
+        if (tBonus !== 0) {
+          const chain = resolvePersonaChain(char)
+          rlines.push(
+            tBonus > 0
+              ? `✨ استعدادِ ${chain.talent.emoji} «${chain.talent.name}» جایزه را ${faDigits(tBonus)}% دیگر هم سنگین کرد.`
+              : `🫧 ضعفِ ${chain.flaw.emoji} «${chain.flaw.name}» جایزه را ${faDigits(Math.abs(tBonus))}% سبک‌تر کرد.`,
+          )
+        }
         const p = await tx.player.findUniqueOrThrow({ where: { id: player.id } })
         await applyMoney(tx, p, money, "reward", `نبرد: ${enemy.name}`)
         spiritDelta = 4
+        // V19 — پیروزی، یک قدمِ اعتماد است (روشن و بدونِ سقفِ جدا — استقامت خودش سقف می‌گذارد)
+        await tx.soulCharacter.updateMany({ where: { id: char.id }, data: { trust: Math.min(100, char.trust + 1) } })
         const battleXp = enemy.xp
         xpList.push({ track: "battle", label: "نبرد", icon: "⚔️", amount: battleXp })
         xpList.push({ track: cls.xpBias.primary, label: trackLabel(cls.xpBias.primary), icon: trackIcon(cls.xpBias.primary), amount: Math.round(battleXp * 0.6) })
         rlines.push(`💰 ${faDigits(money)} سکه غنیمت شد.`)
         rlines.push(`⚔️ ${faDigits(battleXp)} XP نبرد + ${faDigits(Math.round(battleXp * 0.6))} XP ${trackLabel(cls.xpBias.primary)}.`)
-        // افتِ آیتم (12% + شانس)
-        if (chance((12 + deriveStats(char).luck / 4) / 100, rng)) {
+        // افتِ آیتم (12% + شانس) + V19 استعداد/ضعفِ «شانسِ غنیمتِ میدان»
+        if (chance(clamp((12 + deriveStats(char).luck / 4 + affinityOf(char).drop) / 100, 0.05, 0.4), rng)) {
           const drops = ["potion", "cake", "ribbon", "blue_flower", "lucky_charm"]
           const dropKey = drops[Math.floor(rng() * drops.length)]
           await tx.inventoryItem.upsert({
@@ -1071,13 +1085,23 @@ export async function duelCharacters(initiator: Player, foePlayer: Player, group
 
     log.push(`🏆 ${winnerSheet.emoji} ${winner.name} دوئل را برد!`)
 
-    // پاداش‌ها — کوچک و سکه‌ی جدید (انتقالِ پول بین بازیکن‌ها نیست)
+    // پاداش‌ها — کوچک و سکه‌ی جدید (انتقالِ پول بین بازیکن‌ها نیست) + V19 استعداد/ضعفِ «جایزه‌ی دوئل»
     let prize = randInt(250, 420, rng)
     const winnerBurst = winnerIsA ? sim.burstMoneyA : sim.burstMoneyB
     if (winnerBurst) {
       // جادوگرِ برنده: جایزه‌ی انفجارِ کهکشانی (آینه‌ی PvE — یک‌بار در نبرد)
       prize = Math.round(prize * (1 + (winnerSheet.passive.burstBonus ?? 25) / 100))
       log.push(`✨ تابشِ انفجار، کیفِ جایزه را هم سنگین‌تر کرد.`)
+    }
+    const duelPct = affinityOf(winner).duel // V19 — قلبِ دوئل‌باز / خودنما
+    if (duelPct !== 0) {
+      prize = Math.max(50, Math.round(prize * (1 + duelPct / 100)))
+      const chain = resolvePersonaChain(winner)
+      log.push(
+        duelPct > 0
+          ? `⚔️ استعدادِ ${chain.talent.emoji} «${chain.talent.name}» جایزه‌ی دوئل را ${faDigits(duelPct)}% سنگین‌تر کرد.`
+          : `🎩 ضعفِ ${chain.flaw.emoji} «${chain.flaw.name}» جایزه‌ی دوئل را ${faDigits(Math.abs(duelPct))}% سبک کرد.`,
+      )
     }
     const pWinner = winnerIsA ? initiator : foePlayer
     await applyMoney(tx, pWinner, prize, "reward", "برنده‌ی دوئل")
@@ -1092,6 +1116,8 @@ export async function duelCharacters(initiator: Player, foePlayer: Player, group
           spirit: clamp(cur.spirit + (won ? 6 : -10), 0, 100),
           wins: won ? cur.wins + 1 : cur.wins,
           losses: won ? cur.losses : cur.losses + 1,
+          // V19 — بردِ دوئل هم یک قدمِ اعتماد است
+          trust: won ? Math.min(100, cur.trust + 1) : cur.trust,
         },
       })
       const cls = getClass(char.classKey)

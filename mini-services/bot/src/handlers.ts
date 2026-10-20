@@ -64,6 +64,9 @@ import {
   handleDuelCommand,
   handleFemboyCommand,
   handleMyFemboyCommand,
+  handlePersonaCommand,
+  handleStoryCommand,
+  handleTalentsCommand,
   handleSoulCallback,
   isSoulCallbackData,
   rememberUser,
@@ -465,6 +468,9 @@ export async function routeNextAction(ctx: Context, na: NextActionDTO): Promise<
     case "femboyInteract":
     case "femboyHunt":
       return handleFemboyCommand(ctx)
+    // V19 — داستانِ شخصی: مستقیم فصلِ جاری
+    case "femboyStory":
+      return handleStoryCommand(ctx)
     case "menu":
     case "home":
       return sendHome(ctx)
@@ -1334,6 +1340,10 @@ const PRIVATE_INTENT: Record<IntentId, (ctx: Context) => Promise<void>> = {
   guide: showGuide,
   femboy: handleFemboyCommand,
   myfemboy: handleMyFemboyCommand,
+  // V19 — شخصیتِ عمیق: طبع/استعداد/داستان (خصوصی؛ گروه → دعوت به خصوصی)
+  femboyPersona: handlePersonaCommand,
+  femboyTalents: handleTalentsCommand,
+  femboyStory: handleStoryCommand,
   profile: showProfile,
   city: showCity,
   status: showCity,

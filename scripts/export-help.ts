@@ -46,7 +46,7 @@ function parseIntents(): { ids: string[]; byId: Map<string, ParsedAlias> } {
   //   menu: [
   //     ["منو", true], ["پیشخوان", true],
   //   ],
-  const blockRe = /^  ([a-z_]+): \[$([\s\S]*?)^  \],$/gm
+  const blockRe = /^  ([a-zA-Z_]+): \[$([\s\S]*?)^  \],$/gm
   let m: RegExpExecArray | null
   while ((m = blockRe.exec(body))) {
     const id = m[1]!
@@ -111,7 +111,7 @@ const rows: TableRow[] = ids.map((id) => {
 // شمارشِ واقعیِ نیت‌ها در intent.ts = 38 (35 تا V14 + سه‌گانه‌ی هابِ شهرِ V15-2:
 // duels/economy/fame — V16-3 سندشان کرد و این عدد به‌روز شد). اگر رجیستری رشد
 // کرد این عدد را به‌روز کن.
-const EXPECTED_INTENT_COUNT = 39
+const EXPECTED_INTENT_COUNT = 42
 if (rows.length !== EXPECTED_INTENT_COUNT) {
   throw new Error(`intent.ts exposes ${rows.length} intents, expected ${EXPECTED_INTENT_COUNT} (update EXPECTED_INTENT_COUNT if the registry grew)`)
 }

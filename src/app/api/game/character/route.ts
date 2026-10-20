@@ -5,6 +5,7 @@ import {
   getSyncedCharacter,
   soulCardDTO,
   classCardsDTO,
+  personaCardsDTO,
   createCharacter,
   interactWithCharacter,
   rechargeStamina,
@@ -16,6 +17,8 @@ import {
   equipAppearance,
   getCharLogs,
   publicFemboyCard,
+  storyRead,
+  storyChoose,
   INTERACTIONS,
 } from "@/lib/game/character"
 import { getActiveEncounter, combatStateDTO, availableEnemies } from "@/lib/game/combat"
@@ -41,11 +44,13 @@ export async function GET(req: NextRequest) {
     const char = await getSyncedCharacter(player.id)
     const encounter = char ? await getActiveEncounter(player) : null
     if (!char) {
-      // پیمان نبسته — بسته‌ی کلاس‌ها برای صفحه‌ی ساخت
-      return jsonOk({ exists: false, classes: classCardsDTO(), interactions: INTERACTIONS })
+      // پیمان نبسته — بسته‌ی کلاس‌ها + طبع‌ها برای صفحه‌ی ساخت (V19)
+      return jsonOk({ exists: false, classes: classCardsDTO(), personas: personaCardsDTO(), interactions: INTERACTIONS })
     }
     const card = soulCardDTO(char)
     const logs = await getCharLogs(char.id, 25)
+    // V19 — خاطره‌های داستان داخلِ کارت (همان لاگ‌هایِ موجود، فیلترِ story)
+    if (card.story) card.story.memories = logs.filter((l) => l.type === "story").slice(0, 5)
     return jsonOk({
       exists: true,
       card,
@@ -75,12 +80,14 @@ export async function POST(req: NextRequest) {
         if (!rl.allowed) return jsonErr("شهر این‌قدر فمبویِ تازه تحمل نمی‌کند — کمی بعد بیا.", 429, "rate_limited")
         const name = typeof payload.name === "string" ? payload.name : ""
         const classKey = typeof payload.classKey === "string" ? payload.classKey : ""
-        const res = await createCharacter(player, { name, classKey })
+        const personaKey = typeof payload.personaKey === "string" ? payload.personaKey : undefined
+        const res = await createCharacter(player, { name, classKey, personaKey })
         if (res.error || !res.char) return jsonErr(res.error ?? "پیمان بسته نشد.", 409, "create_failed")
         // V10 — کارت را از ردیفِ پس از اعطای کیهاناتِ پیمان بساز (نه از ردیفِ خام)
         const fresh = await getSyncedCharacter(player.id)
         const card = soulCardDTO(fresh ?? res.char)
-        return jsonOk({ message: `🎀 پیمان بسته شد — «${res.char.name}» از این‌به بعد فمبویِ اختصاصی توست. کلاسِ همیشگی‌اش: ${card.className}.`, card })
+        const personaLine = card.persona ? ` طبعِ ${card.persona.emoji} «${card.persona.name}» — ${card.persona.tagline}.` : ""
+        return jsonOk({ message: `🎀 پیمان بسته شد — «${res.char.name}» از این‌به بعد فمبویِ اختصاصی توست. کلاسِ همیشگی‌اش: ${card.className}.${personaLine}`, card })
       }
       case "rename": {
         const char = await getSyncedCharacter(player.id)
@@ -171,6 +178,22 @@ export async function POST(req: NextRequest) {
         if (!char) return jsonErr("فمبوی اختصاصی تو هنوز آماده‌ی نبرده.", 404, "no_character")
         const logs = await getCharLogs(char.id, 30)
         return jsonOk({ logs })
+      }
+      // ── V19: داستانِ شخصی — خواندنِ فصل / انتخابِ پیامد ──
+      case "story": {
+        const char = await getSyncedCharacter(player.id)
+        if (!char) return jsonErr("فمبوی اختصاصی تو هنوز آماده‌ی نبرده — قصه‌ای هم نیست.", 404, "no_character")
+        const op = typeof payload.op === "string" ? payload.op : "read"
+        if (op === "choose") {
+          const choiceIdx = typeof payload.choice === "number" ? Math.max(0, Math.floor(payload.choice)) : -1
+          const res = await storyChoose(player, char, choiceIdx)
+          if (res.error || !res.ok) return jsonErr(res.error ?? "انجام نشد.", 409, "story_failed")
+          const fresh = await getSyncedCharacter(player.id)
+          return jsonOk({ message: res.ok.message, story: res.ok.story, card: fresh ? soulCardDTO(fresh) : null })
+        }
+        const res = await storyRead(player, char)
+        if (res.error || !res.ok) return jsonErr(res.error ?? "انجام نشد.", 409, "story_failed")
+        return jsonOk({ message: res.ok.message, story: res.ok.story })
       }
       default:
         return jsonErr("چنین کاری برای فمبوی وجود ندارد.")

@@ -31,6 +31,8 @@ import type { Context } from "grammy"
 import {
   api,
   GameApiError,
+  type BotPersonaCardDTO,
+  type BotStoryCardDTO,
   type CosmeticDTO,
   type EvolutionChoiceDTO,
   type HallDTO,
@@ -150,7 +152,7 @@ async function privateNudge(ctx: Context): Promise<void> {
 
 // ─── حافظه‌ی جریانِ پیمان (خصوصی؛ ۵ دقیقه اعتبار) ─────────────────────────────
 
-type SoulFlowStep = "picker" | "name" | "confirm" | "rename"
+type SoulFlowStep = "picker" | "persona" | "name" | "confirm" | "rename"
 
 interface SoulFlow {
   step: SoulFlowStep
@@ -159,6 +161,9 @@ interface SoulFlow {
   classEmoji?: string
   className?: string
   classRole?: string
+  personaKey?: string // V19 — طبعِ برگزیده در مراسمِ پیمان
+  personaEmoji?: string
+  personaName?: string
   name?: string
   at: number
 }
@@ -424,7 +429,7 @@ async function onPickerNav(ctx: Context, dir: 1 | -1): Promise<void> {
 
 const NAME_PROMPT = `📛 <b>اسمِ فمبویِ اختصاصی‌ات را بفرست</b> (${chip(2)} تا ${chip(24)} حرف):\n\n<i>«لغو» برای انصراف.</i>`
 
-/** fw:class:{key} — کلاس انتخاب شد؛ اسم را بخواه */
+/** fw:class:{key} — کلاس انتخاب شد؛ طبع را بخواه (V19: گامِ تازه‌ی پیمان) */
 async function onPickClass(ctx: Context, classKey: string): Promise<void> {
   if (!isPrivate(ctx)) {
     await answer(ctx, "پیمان در گفت‌وگوی خصوصی بسته می‌شود.")
@@ -451,7 +456,7 @@ async function onPickClass(ctx: Context, classKey: string): Promise<void> {
   }
   const idx = idxOfClass(data.classes ?? [], classKey)
   setFlow(chatId, {
-    step: "name",
+    step: "persona",
     idx,
     classKey: c.key,
     classEmoji: c.emoji,
@@ -459,7 +464,136 @@ async function onPickClass(ctx: Context, classKey: string): Promise<void> {
     classRole: c.roleName,
     at: Date.now(),
   })
-  await show(ctx, NAME_PROMPT) // پیامِ عکسِ انتخابگر ویرایش‌شدنی نیست — پیامِ تازه
+  await sendPersonaPicker(ctx, data.personas ?? [])
+}
+
+// ─── گامِ ۳ (V19) — انتخابگرِ طبع ────────────────────────────────────────────
+
+function personaPickerText(p: BotPersonaCardDTO, classEmoji?: string, className?: string): string {
+  const traits = p.traits.map((t) => `▫️ ${esc(t)}`).join("\n")
+  return [
+    // کلاسِ برگزیده + طبعِ درِ دست
+    `${classEmoji ?? "🎀"} <b>${esc(className ?? "فمبوی")}</b> — حالا طبعش را برگزین:`,
+    SEP,
+    "",
+    `${p.emoji} <b>${esc(p.name)}</b>`,
+    `<i>${esc(p.tagline)}</i>`,
+    "",
+    traits,
+    "",
+    SUB,
+    "",
+    "<i>کلاس می‌گوید «چه‌کاره است»؛ طبع می‌گوید «چطور رفتار می‌کند» — روی حرف‌هاش، داستانِ شخصی‌اش و استعدادهایش اثر می‌گذارد. مثلِ کلاس، برای همیشه است.</i>",
+  ].join("\n")
+}
+
+const PERSONA_ORDER = ["sunny", "shadow", "noble", "sly", "gentle", "prickly", "storm", "mind"] as const
+
+/** انتخابگرِ طبع — یک کارت برای هر طبع؛ دکمه‌ی «بعدی/قبلی» می‌چرخاند */
+async function sendPersonaPicker(ctx: Context, personas: BotPersonaCardDTO[]): Promise<void> {
+  if (personas.length === 0) {
+    // موتور بسته‌ی طبع‌ها را نفرستاد — همان مسیرِ قدیمی (اسم) ادامه می‌یابد
+    const chatId = ctx.chat?.id
+    const flow = chatId !== undefined ? flowOf(chatId) : null
+    if (flow) {
+      flow.step = "name"
+      setFlow(chatId!, flow)
+    }
+    await show(ctx, NAME_PROMPT)
+    return
+  }
+  const sorted = [...personas].sort((a, b) => PERSONA_ORDER.indexOf(a.key as never) - PERSONA_ORDER.indexOf(b.key as never))
+  const idx = personaPickerIdx(ctx, sorted)
+  const p = sorted[idx] ?? sorted[0]!
+  const flow = ctx.chat?.id !== undefined ? flowOf(ctx.chat.id) : null
+  const kb = new InlineKeyboard()
+  kb.text("→ بعدی", "fw:pNext").primary()
+  kb.text("قبلی ←", "fw:pPrev").primary().row()
+  kb.text(`✅ همین طبع — ${clampText(p.name, 14)}`, `fw:persona:${p.key}`).success().row()
+  kb.text("↩️ کلاسِ دیگری", "fw:begin").primary()
+  await show(ctx, personaPickerText(p, flow?.classEmoji, flow?.className), kb)
+}
+
+function personaPickerIdx(ctx: Context, personas: BotPersonaCardDTO[]): number {
+  const flow = ctx.chat?.id !== undefined ? flowOf(ctx.chat.id) : null
+  if (flow?.personaKey) {
+    const i = personas.findIndex((p) => p.key === flow.personaKey)
+    if (i >= 0) return i
+  }
+  return 0
+}
+
+/** ناوبریِ طبع — fw:pNext / fw:pPrev */
+async function onPersonaNav(ctx: Context, dir: 1 | -1): Promise<void> {
+  const chatId = ctx.chat?.id
+  if (chatId === undefined) return
+  const flow = flowOf(chatId)
+  if (!flow || flow.step !== "persona") {
+    await answer(ctx, "پیمان از یاد رفته — از نو بگو: پیمان فمبوی")
+    return
+  }
+  let data: SoulGetData
+  try {
+    data = await api.soulGet(tgId(ctx))
+  } catch (e) {
+    await fail(ctx, e)
+    return
+  }
+  if (data.exists && data.card) {
+    clearFlow(chatId)
+    await sendHub(ctx, data.card)
+    return
+  }
+  const personas = data.personas ?? []
+  if (personas.length === 0) {
+    await answer(ctx)
+    return
+  }
+  const cur = personaPickerIdx(ctx, personas)
+  const next = wrapIdx(cur + dir, personas.length)
+  flow.personaKey = personas[next]?.key
+  flow.personaEmoji = personas[next]?.emoji
+  flow.personaName = personas[next]?.name
+  setFlow(chatId, flow)
+  await sendPersonaPicker(ctx, personas)
+}
+
+/** fw:persona:{key} — طبع انتخاب شد؛ اسم را بخواه */
+async function onPickPersona(ctx: Context, personaKey: string): Promise<void> {
+  if (!isPrivate(ctx)) {
+    await answer(ctx, "پیمان در گفت‌وگوی خصوصی بسته می‌شود.")
+    return
+  }
+  const chatId = ctx.chat?.id
+  if (chatId === undefined) return
+  const flow = flowOf(chatId)
+  if (!flow || flow.step !== "persona") {
+    await answer(ctx, "پیمان از یاد رفته — از نو بگو: پیمان فمبوی")
+    return
+  }
+  let data: SoulGetData
+  try {
+    data = await api.soulGet(tgId(ctx))
+  } catch (e) {
+    await fail(ctx, e)
+    return
+  }
+  if (data.exists && data.card) {
+    clearFlow(chatId)
+    await sendHub(ctx, data.card)
+    return
+  }
+  const p = (data.personas ?? []).find((x) => x.key === personaKey)
+  if (!p) {
+    await answer(ctx, "چنین طبعی نیست — دوباره انتخاب کن.")
+    return
+  }
+  flow.step = "name"
+  flow.personaKey = p.key
+  flow.personaEmoji = p.emoji
+  flow.personaName = p.name
+  setFlow(chatId, flow)
+  await show(ctx, NAME_PROMPT)
 }
 
 /** fw:name2 — پس از خطای ساخت، دوباره اسم بخواه */
@@ -554,6 +688,7 @@ function confirmText(flow: SoulFlow): string {
     "",
     `🏷 کلاس: ${flow.classEmoji ?? "🎀"} <b>${esc(flow.className ?? flow.classKey ?? "؟")}</b>`,
     ...(flow.classRole ? [`💬 ${esc(flow.classRole)}`] : []),
+    ...(flow.personaName ? [`🎭 طبع: ${flow.personaEmoji ?? ""} <b>${esc(flow.personaName)}</b>`] : []),
     `📛 اسم: <b>${esc(flow.name ?? "")}</b>`,
     "",
     SUB,
@@ -584,7 +719,11 @@ async function onConfirm(ctx: Context): Promise<void> {
     return
   }
   try {
-    const res = await api.soulAction(tgId(ctx), "create", { name: flow.name, classKey: flow.classKey })
+    const res = await api.soulAction(tgId(ctx), "create", {
+      name: flow.name,
+      classKey: flow.classKey,
+      ...(flow.personaKey ? { personaKey: flow.personaKey } : {}),
+    })
     clearFlow(chatId)
     if (res.card) {
       await sendHub(ctx, res.card)
@@ -652,6 +791,8 @@ function hubCaption(card: SoulCardDTO, banner = ""): string {
     "",
     `🎖 رتبه: ${card.rank.emoji} <b>${esc(card.rank.name)}</b> · ⭐ سطح ${chip(card.level)}`,
     `🏷 کلاس: ${card.classEmoji} ${esc(card.className)} · ${card.evolutionEmoji} ${esc(card.evolutionName)}`,
+    ...(card.persona ? [`🎭 طبع: ${card.persona.emoji} <b>${esc(card.persona.name)}</b> — <i>${esc(clampText(card.persona.tagline, 60))}</i>`] : []),
+    ...(card.story && card.story.status === "available" ? [`📖 <b>فصلِ ${chip(card.story.chaptersDone + 1)} از ${chip(card.story.chaptersTotal)} — آماده است</b>`] : []),
     ...(masteryLine ? [masteryLine] : []),
     "",
     SUB,
@@ -673,19 +814,22 @@ function hubCaption(card: SoulCardDTO, banner = ""): string {
 function hubKeyboard(): InlineKeyboard {
   // V10 — ردیف‌های تمیز (حداکثر ~۳ دکمه): جنگ / منبع / هویت / خانه
   // V8 — 🧪 شربتِ روح کنارِ تعامل (نفس‌های روحی) · ✏️ تغییرِ نام در ردیفِ هویت
+  // V19 — 🎭 طبع و 📖 داستان کنارِ هویت (شخصیتِ عمیق)
   const kb = new InlineKeyboard()
   kb.text("⚔️ شکار", "fw:hunt").danger()
   kb.text("💗 تعامل", "fw:interact").success()
   kb.text("✨ مهارت‌ها", "fw:skills").primary().row()
-  kb.text("🧪 شربتِ روح", "fwsp:go").danger()
-  kb.text("⚡ شارژِ استقامت", "fw:charge").danger().row()
+  kb.text("🎭 طبع", "fw:about").primary()
+  kb.text("📖 داستان", "fw:story").success()
+  kb.text("🧪 شربتِ روح", "fwsp:go").danger().row()
+  kb.text("⚡ شارژِ استقامت", "fw:charge").danger()
   kb.text("🌌 فرگشت", "fw:evo").primary()
-  kb.text("🎨 ظاهر و استایل", "fw:style").primary()
-  kb.text("✏️ تغییرِ نام", "fw:rename").primary().row()
+  kb.text("🎨 ظاهر و استایل", "fw:style").primary().row()
+  kb.text("✏️ تغییرِ نام", "fw:rename").primary()
   kb.text("🎓 تسلط", "fw:mastery").primary()
-  kb.text("🕰 سابقه", "fw:history").primary()
-  kb.text("🏆 تالار", "fw:hall").primary().row()
-  kb.text("🏠 خانه", "m:menu").primary()
+  kb.text("🕰 سابقه", "fw:history").primary().row()
+  kb.text("🏆 تالار", "fw:hall").primary()
+  kb.text("🏠 خانه", "m:menu").primary().row()
   return withMiniApp(kb)
 }
 
@@ -749,6 +893,7 @@ function groupHubText(card: SoulCardDTO): string {
     SEP,
     "",
     `🎖 ${card.rank.emoji} ${esc(card.rank.name)} · ⭐ سطح ${chip(card.level)} · ${card.classEmoji} ${esc(card.className)}`,
+    ...(card.persona ? [`🎭 ${card.persona.emoji} ${esc(card.persona.name)}${card.talent ? ` · ${card.talent.emoji} ${esc(card.talent.name)}` : ""}`] : []),
     `❤️ روحیه ${pct(card.spirit)} (${card.condition.emoji}) · ⚡ ${chip(`${faNum(card.stamina)}/${faNum(card.staminaMax)}`)} · ⚔️ ${chip(`${faNum(card.wins)}W/${faNum(card.losses)}L`)}`,
     "",
     `<i>برای مدیریتِ کامل، در خصوصی بگو: ${chip("پیمان فمبوی")}</i>`,
@@ -846,6 +991,190 @@ function combatKeyboard(enc: SoulCombatDTO): InlineKeyboard {
   kb.text("🛡️ گارد", `fwa:${enc.id}:guard`).primary()
   kb.text("🏃 فرار", `fwa:${enc.id}:flee`).danger().row()
   return kb
+}
+
+// ─── V19: طبع/استعداد — کارتِ «شخصیتش رو بیشتر بشناسم» ────────────────────────
+
+/** متنِ کارتِ طبع — طبع + صفت‌ها + صدای نمونه + استعداد/ضعف + ماتریسِ دامنه‌ها */
+function personaCardText(card: SoulCardDTO): string {
+  const p = card.persona
+  if (!p) return "شخصیتِ این فمبوی هنوز ثبت نشده."
+  const t = card.talent
+  const f = card.flaw
+  const rows = (card.affinityRows ?? []).map(
+    (r) => `${r.icon} ${esc(r.label)} — <b>${r.pct > 0 ? "+" : "−"}${faNum(Math.abs(r.pct))}%</b> (${r.kind === "talent" ? "استعداد" : "ضعف"})`,
+  )
+  return [
+    `🎭 <b>طبعِ ${esc(card.name)}: ${p.emoji} ${esc(p.name)}</b>`,
+    `<i>${esc(p.tagline)}</i>`,
+    "",
+    p.traits.map((x) => `▫️ ${esc(x)}`).join("\n"),
+    "",
+    SUB,
+    "",
+    ...(p.voiceSample ? [quote(p.voiceSample), ""] : []),
+    ...(t ? [`${t.emoji} <b>استعداد: ${esc(t.name)}</b>`, `<i>${esc(clampText(t.desc, 110))}</i>`] : []),
+    ...(f ? [`${f.emoji} <b>ضعف: ${esc(f.name)}</b>`, `<i>${esc(clampText(f.desc, 110))}</i>`] : []),
+    ...(rows.length > 0 ? ["", SUB, "", ...rows] : []),
+    "",
+    "<i>این اعداد واقعی‌اند: هر سطر دقیقاً همان‌جای بازی اعمال می‌شود که می‌گوید.</i>",
+  ].join("\n")
+}
+
+function personaCardKeyboard(): InlineKeyboard {
+  const kb = new InlineKeyboard()
+  kb.text("📖 داستانِ شخصی", "fw:story").success()
+  kb.text("👑 هابِ فمبوی", "fw:hub").primary().row()
+  return kb
+}
+
+/** fw:about / «شخصیتش رو بیشتر بشناسم» — کارتِ طبع + استعداد/ضعف */
+async function showPersona(ctx: Context): Promise<void> {
+  if (!isPrivate(ctx)) {
+    await privateNudge(ctx)
+    return
+  }
+  let data: SoulGetData
+  try {
+    data = await api.soulGet(tgId(ctx))
+  } catch (e) {
+    await fail(ctx, e)
+    return
+  }
+  if (!data.exists || !data.card) {
+    await sendIntro(ctx)
+    return
+  }
+  await openPrivatePanel(ctx, { type: "fw:about", nav: "fw:hub" })
+  await show(ctx, personaCardText(data.card), personaCardKeyboard())
+}
+
+// ─── V19: داستانِ شخصی — فصل/انتخاب/اعتماد ────────────────────────────────────
+
+/** متنِ کارتِ داستان — اعتماد + فصلِ جاری (متن درِ expand) + انتخاب‌ها */
+function storyCardText(story: BotStoryCardDTO, name: string): string {
+  const trustBar = bar(story.trust, 8)
+  const nextTier = story.nextTrustTier
+  const header = [
+    `📖 <b>داستانِ شخصیِ ${esc(name)}</b> — ${story.arcEmoji} <i>${esc(story.arcTitle)}</i>`,
+    `فصلِ ${chip(Math.min(story.chaptersDone + 1, story.chaptersTotal))} از ${chip(story.chaptersTotal)}`,
+    SEP,
+    "",
+    `🤝 اعتماد: ${story.trustTier.emoji} <b>${esc(story.trustTier.label)}</b> ${chip(`${faNum(story.trust)}/100`)}`,
+    `${trustBar}${nextTier ? ` — ${chip(faNum(Math.max(0, nextTier.at - story.trust)))} تا «${esc(nextTier.label)}»` : " — سقف"}`,
+  ]
+  if (story.status === "complete") {
+    return [
+      ...header,
+      "",
+      SUB,
+      "",
+      "👑 <b>قصه کامل شد.</b> عنوانِ «راویِ پیمان» مالِ توست — فصل‌های بعدی را خودتان با هم می‌نویسید.",
+      ...(story.memories.length > 0 ? ["", SUB, "", ...story.memories.map((m) => `${m.icon} ${esc(clampText(m.text, 90))}`)] : []),
+    ].join("\n")
+  }
+  if (story.status === "locked" || !story.current) {
+    return [
+      ...header,
+      "",
+      SUB,
+      "",
+      `🔒 <b>فصلِ بعدی هنوز قفل است.</b>`,
+      ...(story.requirement ? [`نیاز: ${esc(story.requirement)}`] : []),
+      "",
+      "<i>اعتماد از انتخاب‌های داستان، اولینِ تعاملِ هر روز و پیروزی‌ها می‌آید.</i>",
+    ].join("\n")
+  }
+  const c = story.current
+  const body = c.text.map((p) => esc(clampText(p, 220))).join("\n\n")
+  return [
+    ...header,
+    "",
+    `${c.icon} <b>${esc(c.title)}</b>`,
+    "",
+    expand(body),
+    "",
+    SUB,
+    "",
+    "<b>انتخابت چیست؟</b>",
+    ...c.choices.map((ch) => `${chip(faNum(ch.idx + 1))} ${esc(ch.label)} — <i>${esc(clampText(ch.hint, 48))}</i>`),
+    "",
+    `<i>دکمه‌ها را بزن؛ پیامدش برای همیشه در سابقه می‌نشیند.</i>`,
+  ].join("\n")
+}
+
+function storyKeyboard(story: BotStoryCardDTO): InlineKeyboard {
+  const kb = new InlineKeyboard()
+  if (story.status === "available" && story.current) {
+    for (const ch of story.current.choices) {
+      kb.text(`${ch.label}`, `fwd:${ch.idx}`).primary().row()
+    }
+    kb.text("👑 هابِ فمبوی", "fw:hub").primary().row()
+  } else {
+    kb.text("💗 تعامل (اعتماد)", "fw:interact").success()
+    kb.text("👑 هابِ فمبوی", "fw:hub").primary().row()
+  }
+  return kb
+}
+
+/** fw:story / «داستانش رو ادامه بده» — خواندنِ فصلِ جاری (بی‌اثر) */
+async function showStory(ctx: Context): Promise<void> {
+  if (!isPrivate(ctx)) {
+    await privateNudge(ctx)
+    return
+  }
+  const id = tgId(ctx)
+  if (!id) return
+  let data: SoulGetData
+  try {
+    data = await api.soulGet(id)
+  } catch (e) {
+    await fail(ctx, e)
+    return
+  }
+  if (!data.exists || !data.card) {
+    await sendIntro(ctx)
+    return
+  }
+  const name = data.card.name
+  let res: Awaited<ReturnType<typeof api.soulStory>>
+  try {
+    res = await api.soulStory(id, "read")
+  } catch (e) {
+    if (isInfraError(e)) {
+      await fail(ctx, e)
+      return
+    }
+    await show(ctx, `📖 ${errText(e)}`)
+    return
+  }
+  if (!res.story) {
+    await show(ctx, "قصه‌ای برای این فمبوی ثبت نشده.")
+    return
+  }
+  await openPrivatePanel(ctx, { type: "fw:story", nav: "fw:hub" })
+  await show(ctx, `${esc(res.message)}\n\n${storyCardText(res.story, name)}`, storyKeyboard(res.story))
+}
+
+/** fwd:{idx} — انتخابِ فصل: پیامد + داستانِ تازه از همان پاسخ */
+async function onStoryChoose(ctx: Context, choiceIdx: number): Promise<void> {
+  const id = tgId(ctx)
+  if (!id) return
+  let res: Awaited<ReturnType<typeof api.soulStory>>
+  try {
+    res = await api.soulStory(id, "choose", choiceIdx)
+  } catch (e) {
+    if (isInfraError(e)) {
+      await fail(ctx, e)
+      return
+    }
+    await show(ctx, `⚠️ ${errText(e)}`)
+    return
+  }
+  const card = res.card
+  const name = card?.name ?? "فمبویِ تو"
+  const story = res.story
+  await show(ctx, `✍️ <b>پیامدِ انتخابت</b>\n${esc(res.message)}${story ? `\n\n${storyCardText(story, name)}` : ""}`, story ? storyKeyboard(story) : new InlineKeyboard().text("👑 هابِ فمبوی", "fw:hub").primary())
 }
 
 /** fw:hunt — لیستِ شکار (یا ادامه‌ی نبردِ باز) */
@@ -1860,6 +2189,8 @@ function publicCardCaption(playerName: string, card: NonNullable<PublicFemboyCar
     SEP,
     "",
     `${card.classEmoji} ${esc(card.className)} — ${esc(card.classRole)}`,
+    ...(card.persona ? [`🎭 ${card.persona.emoji} ${esc(card.persona.name)} — <i>${esc(clampText(card.persona.tagline, 60))}</i>`] : []),
+    ...(card.talent ? [`✨ ${card.talent.emoji} ${esc(card.talent.name)}`] : []),
     `🎖 ${card.rankEmoji} ${esc(card.rankName)} · ⭐ سطح ${chip(card.level)} · ${esc(card.evolutionName)}${pathPart}`,
     ...(card.mastery ? [`🎓 ${card.mastery.emoji} ${esc(card.mastery.label)} — سطحِ تسلط ${chip(card.mastery.level)}`] : []),
     `⚔️ نبرد ${chip(`${faNum(card.wins)}W/${faNum(card.losses)}L`)}`,
@@ -1998,7 +2329,7 @@ export async function handleDuelCommand(ctx: Context): Promise<void> {
 
 // ─── مسیریابِ کال‌بک‌های سول‌باند ─────────────────────────────────────────────
 
-const SOUL_CB_PREFIXES = ["fw:", "fwa:", "fwi:", "fwk:", "fwh:", "fwt:", "fwr:", "fwsp:"] as const
+const SOUL_CB_PREFIXES = ["fw:", "fwa:", "fwi:", "fwk:", "fwh:", "fwt:", "fwr:", "fwsp:", "fwd:"] as const
 
 /** آیا این callback-data مالِ لایه‌ی فمبویِ روح‌بسته است؟ */
 export function isSoulCallbackData(data: string | undefined): boolean {
@@ -2010,6 +2341,8 @@ const PRIVATE_ONLY_VERBS = new Set([
   "begin",
   "next",
   "prev",
+  "pNext", // V19 — ناوبریِ انتخابگرِ طبع
+  "pPrev",
   "name2",
   "confirm",
   "hunt",
@@ -2023,10 +2356,12 @@ const PRIVATE_ONLY_VERBS = new Set([
   "style",
   "mastery",
   "rename", // V8 — تغییرِ نام: جریانِ متنیِ خصوصی
+  "about", // V19 — کارتِ طبع/استعداد
+  "story", // V19 — داستانِ شخصی
 ])
 
-/** فعل‌های خصوصیِ آرگومان‌دار (پیشوندی) — evoGo:/evoYes:/wear:/strip: */
-const PRIVATE_ONLY_VERB_PREFIXES = ["evoGo:", "evoYes:", "wear:", "strip:"] as const
+/** فعل‌های خصوصیِ آرگومان‌دار (پیشوندی) — evoGo:/evoYes:/wear:/strip:/persona: */
+const PRIVATE_ONLY_VERB_PREFIXES = ["evoGo:", "evoYes:", "wear:", "strip:", "persona:"] as const
 
 export async function handleSoulCallback(ctx: Context, data: string): Promise<void> {
   // V15-3 — پنلِ فمبوی پنلِ شخصی است: هویتش در چتِ خصوصی مُهر می‌شود (§3A)؛
@@ -2040,6 +2375,12 @@ export async function handleSoulCallback(ctx: Context, data: string): Promise<vo
     if (verb.startsWith("class:")) {
       if (await guardOwnerPanel(ctx, { panel: "fw" })) return
       await onPickClass(ctx, verb.slice(6))
+      return
+    }
+    // V19 — انتخابِ طبع در مراسمِ پیمان
+    if (verb.startsWith("persona:")) {
+      if (await guardOwnerPanel(ctx, { panel: "fw" })) return
+      await onPickPersona(ctx, verb.slice(8))
       return
     }
     // زیرصفحه‌های خصوصی — در گروه فقط تالار و هابِ جمع‌وجور زنده‌اند
@@ -2057,6 +2398,10 @@ export async function handleSoulCallback(ctx: Context, data: string): Promise<vo
         return onPickerNav(ctx, 1)
       case "prev":
         return onPickerNav(ctx, -1)
+      case "pNext":
+        return onPersonaNav(ctx, 1)
+      case "pPrev":
+        return onPersonaNav(ctx, -1)
       case "name2":
         return onAskName(ctx)
       case "confirm":
@@ -2083,6 +2428,10 @@ export async function handleSoulCallback(ctx: Context, data: string): Promise<vo
         return showStyle(ctx)
       case "mastery":
         return showMastery(ctx)
+      case "about":
+        return showPersona(ctx)
+      case "story":
+        return showStory(ctx)
       case "rename":
         return onRenameAsk(ctx)
       case "duel":
@@ -2124,6 +2473,11 @@ export async function handleSoulCallback(ctx: Context, data: string): Promise<vo
     if (await guardOwnerPanel(ctx, { panel: "fwr" })) return
     return onRecharge(ctx, toNum(data.slice(4)))
   }
+  // V19 — داستانِ شخصی: انتخابِ فصل
+  if (data.startsWith("fwd:")) {
+    if (await guardOwnerPanel(ctx, { panel: "fwd" })) return
+    return onStoryChoose(ctx, toNum(data.slice(4)))
+  }
   // V8 — شربتِ روح (DoD 14): یک‌ضرب از هاب
   if (data.startsWith("fwsp:")) {
     if (await guardOwnerPanel(ctx, { panel: "fwsp" })) return
@@ -2137,4 +2491,21 @@ export async function handleSoulCallback(ctx: Context, data: string): Promise<vo
     return showHall(ctx, data.slice(4)) // تالار در گروه و خصوصی زنده است
   }
   await answer(ctx)
+}
+
+// ─── V19: هندلرهایِ نیتِ زبانِ طبیعیِ شخصیتِ عمیق (intent.ts → handlers.ts) ──────
+
+/** «شخصیتش رو بیشتر بشناسم» / «طبعش چیه؟» — کارتِ طبع + استعداد/ضعف + ماتریس */
+export async function handlePersonaCommand(ctx: Context): Promise<void> {
+  await showPersona(ctx)
+}
+
+/** «استعدادهاش چیه؟» / «برای چه کاری مناسبه؟» — همان کارتِ شخصیت (بخشِ استعداد/ماتریس درِ آن) */
+export async function handleTalentsCommand(ctx: Context): Promise<void> {
+  await showPersona(ctx)
+}
+
+/** «داستانش رو ادامه بده» / «داستان فمبوی» — فصلِ جاری + انتخاب‌ها */
+export async function handleStoryCommand(ctx: Context): Promise<void> {
+  await showStory(ctx)
 }

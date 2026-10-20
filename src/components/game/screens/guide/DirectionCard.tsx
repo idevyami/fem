@@ -174,6 +174,12 @@ export function DirectionCard({ onDrawEvent, focusMode = false }: { onDrawEvent:
       setActiveTab("soul")
       return
     }
+    // V19 — داستانِ شخصی → سکشنِ داستان
+    if (a.id === "femboyStory") {
+      setPendingSoulSection("story")
+      setActiveTab("soul")
+      return
+    }
 
     // بازار → تبِ بازار
     if (a.id === "market") {

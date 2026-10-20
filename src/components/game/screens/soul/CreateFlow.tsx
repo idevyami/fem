@@ -6,36 +6,41 @@
 import * as React from "react"
 import { AnimatePresence, motion } from "framer-motion"
 import { Input } from "@/components/ui/input"
-import type { ClassCardDTO } from "@/lib/game/contract"
+import type { ClassCardDTO, PersonaCardDTO } from "@/lib/game/contract"
 import { haptic } from "../../telegram"
 import { faNum } from "../../fa"
 import { ActionButton, Chip, GlassCard, ArtImage } from "../../ui"
 import { cn } from "@/lib/utils"
 import { GLASS_BLUE, NAME_MAX, validateNameClient } from "./classMeta"
 
-type Step = "intro" | "class" | "name" | "confirm"
+type Step = "intro" | "class" | "persona" | "name" | "confirm"
 
 const STEP_LABELS: { key: Step; label: string }[] = [
   { key: "intro", label: "پیمان" },
   { key: "class", label: "کلاس" },
+  { key: "persona", label: "طبع" },
   { key: "name", label: "اسم" },
   { key: "confirm", label: "قفل" },
 ]
 
 interface CreateFlowProps {
   classes: ClassCardDTO[]
+  /** V19 — بسته‌ی طبع‌ها برای مرحله‌ی سومِ پیمان */
+  personas?: PersonaCardDTO[]
   /** ساختِ فمبوی — true یعنی بسته شد و والد به ویترین می‌رود */
-  onCreate: (name: string, classKey: string) => Promise<{ ok: boolean; error?: string }>
+  onCreate: (name: string, classKey: string, personaKey?: string) => Promise<{ ok: boolean; error?: string }>
 }
 
-export function CreateFlow({ classes, onCreate }: CreateFlowProps) {
+export function CreateFlow({ classes, personas, onCreate }: CreateFlowProps) {
   const [step, setStep] = React.useState<Step>("intro")
   const [classKey, setClassKey] = React.useState<string | null>(null)
+  const [personaKey, setPersonaKey] = React.useState<string | null>(null)
   const [name, setName] = React.useState("")
   const [submitting, setSubmitting] = React.useState(false)
   const [serverError, setServerError] = React.useState<string | null>(null)
 
   const chosen = classes.find((c) => c.key === classKey) ?? null
+  const chosenPersona = personas?.find((p) => p.key === personaKey) ?? null
   const nameCheck = name.trim() ? validateNameClient(name) : null
   const stepIdx = STEP_LABELS.findIndex((s) => s.key === step)
 
@@ -56,7 +61,7 @@ export function CreateFlow({ classes, onCreate }: CreateFlowProps) {
     haptic("heavy")
     setSubmitting(true)
     setServerError(null)
-    const res = await onCreate(name.trim().replace(/\s+/g, " "), chosen.key)
+    const res = await onCreate(name.trim().replace(/\s+/g, " "), chosen.key, personaKey ?? undefined)
     setSubmitting(false)
     if (!res.ok) setServerError(res.error ?? "پیمان بسته نشد.")
   }
@@ -216,7 +221,7 @@ export function CreateFlow({ classes, onCreate }: CreateFlowProps) {
                     fullWidth
                     className="mt-3"
                     emoji="➡️"
-                    onClick={() => go("name")}
+                    onClick={() => go("persona")}
                   >
                     انتخابِ این کلاس
                   </ActionButton>
@@ -237,6 +242,81 @@ export function CreateFlow({ classes, onCreate }: CreateFlowProps) {
             >
               ↩️ برگرد به مقدمه
             </button>
+          </motion.section>
+        ) : null}
+
+        {/* ── 2.5) V19 — انتخابِ طبع ── */}
+        {step === "persona" && chosen ? (
+          <motion.section
+            key="persona"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.28 }}
+            aria-label="انتخابِ طبعِ فمبوی"
+          >
+            <header className="px-1">
+              <h1 className="text-lg font-extrabold leading-7">طبعش چطور باشد؟</h1>
+              <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+                کلاس می‌گوید «چه‌کاره است»؛ طبع می‌گوید «چطور رفتار می‌کند». طبع روی حرف‌هاش، داستانِ شخصی‌اش و استعدادهایش اثر می‌گذارد — و مثلِ کلاس، برای همیشه است.
+              </p>
+            </header>
+
+            <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+              {(personas ?? []).map((p) => (
+                <PersonaPickCard
+                  key={p.key}
+                  persona={p}
+                  selected={p.key === personaKey}
+                  onSelect={() => {
+                    haptic("light")
+                    setPersonaKey(p.key)
+                  }}
+                />
+              ))}
+            </div>
+
+            {chosenPersona ? (
+              <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }} className="mt-3">
+                <GlassCard pad="sm" className="border-primary/25">
+                  <div className="flex items-center gap-2">
+                    <span aria-hidden className="text-xl leading-none">{chosenPersona.emoji}</span>
+                    <h2 className="text-sm font-extrabold">{chosenPersona.name}</h2>
+                  </div>
+                  <p className="mt-1.5 text-[11.5px] leading-5 text-foreground/80">{chosenPersona.tagline}</p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {chosenPersona.traits.map((t) => (
+                      <Chip key={t} tone="pink">{t}</Chip>
+                    ))}
+                  </div>
+                  <ActionButton
+                    variant="primary"
+                    fullWidth
+                    className="mt-3"
+                    emoji="➡️"
+                    onClick={() => go("name")}
+                  >
+                    همین طبعش خوبه
+                  </ActionButton>
+                </GlassCard>
+              </motion.div>
+            ) : (
+              <GlassCard pad="sm" className="mt-3">
+                <p className="py-2 text-center text-xs leading-6 text-muted-foreground">
+                  یک طبع را لمس کن تا صدایش را بشنوی.
+                </p>
+              </GlassCard>
+            )}
+
+            <div className="mt-3 flex gap-2">
+              <button
+                type="button"
+                onClick={() => go("class")}
+                className="mx-auto block px-3 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+              >
+                ↩️ برگرد به کلاس‌ها
+              </button>
+            </div>
           </motion.section>
         ) : null}
 
@@ -308,9 +388,9 @@ export function CreateFlow({ classes, onCreate }: CreateFlowProps) {
                   variant="glass"
                   fullWidth
                   className={cn(GLASS_BLUE, "min-h-12")}
-                  onClick={() => go("class")}
+                  onClick={() => go("persona")}
                 >
-                  ↩️ کلاس‌ها
+                  ↩️ طبع‌ها
                 </ActionButton>
                 <ActionButton
                   variant="primary"
@@ -350,7 +430,10 @@ export function CreateFlow({ classes, onCreate }: CreateFlowProps) {
                   <p className="text-lg font-black leading-8 text-white drop-shadow">
                     👤 {name.trim()} <span aria-hidden>—</span> {chosen.emoji} {chosen.name}
                   </p>
-                  <p className="text-[11px] text-white/70">{chosen.roleName} · {chosen.difficultyLabel}</p>
+                  <p className="text-[11px] text-white/70">
+                    {chosen.roleName} · {chosen.difficultyLabel}
+                    {chosenPersona ? ` · ${chosenPersona.emoji} ${chosenPersona.name}` : ""}
+                  </p>
                 </div>
               </div>
 
@@ -492,4 +575,46 @@ const ClassPickCard = React.memo(
     )
   },
   (a, b) => a.cls.key === b.cls.key && a.selected === b.selected,
+)
+
+/** V19 — کارتِ انتخابِ طبع (مرحله‌ی سومِ پیمان) — سبکِ همان ClassPickCardِ کوچک */
+const PersonaPickCard = React.memo(
+  function PersonaPickCard({
+    persona,
+    selected,
+    onSelect,
+  }: {
+    persona: PersonaCardDTO
+    selected: boolean
+    onSelect: () => void
+  }) {
+    return (
+      <button
+        type="button"
+        onClick={onSelect}
+        aria-pressed={selected}
+        aria-label={`طبعِ ${persona.name}: ${persona.tagline}`}
+        className={cn(
+          "flex min-h-11 flex-col gap-1.5 rounded-2xl border p-3 text-right transition-all",
+          selected
+            ? "border-primary/40 bg-primary/[0.12] shadow-[0_0_0_1px_rgba(236,72,153,0.25)]"
+            : "border-white/10 bg-white/[0.03] hover:border-white/20",
+        )}
+      >
+        <div className="flex items-center justify-between gap-1">
+          <span aria-hidden className="text-2xl leading-none">
+            {persona.emoji}
+          </span>
+          {selected ? (
+            <span aria-hidden className="rounded-full bg-primary/20 px-1.5 py-0.5 text-[10px] font-bold text-primary">
+              ✓
+            </span>
+          ) : null}
+        </div>
+        <p className="text-xs font-extrabold leading-5">{persona.name}</p>
+        <p className="text-[11px] leading-4 text-muted-foreground line-clamp-2">{persona.tagline}</p>
+      </button>
+    )
+  },
+  (a, b) => a.persona.key === b.persona.key && a.selected === b.selected,
 )

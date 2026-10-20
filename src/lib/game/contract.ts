@@ -166,6 +166,9 @@ export interface FemboySummaryDTO {
   accessoryEmoji: string | null
   evolutionPathName: string | null
   nextMilestone: string
+  // ── V19: طبع + تراشه‌ی داستان برای کارت‌های سبک ──
+  persona: { key: string; emoji: string; name: string } | null
+  storyChip: string | null
 }
 
 /** خلاصه‌ی کلاس-تسلط برای کارت‌های سبک */
@@ -597,6 +600,75 @@ export interface AppearanceDTO {
   owned: CosmeticDTO[]
 }
 
+// ─── V19: شخصیتِ عمیق — طبع/استعداد/ضعف/داستانِ شخصی/اعتماد ──────────────────
+
+/** کارتِ طبع — لایه‌ی «چطور رفتار می‌کند و حرف می‌زند» */
+export interface PersonaCardDTO {
+  key: string
+  emoji: string
+  name: string
+  /** تفسیرِ خوانا (یک خط) — مدلِ عمیق پشتِ صحنه می‌ماند */
+  tagline: string
+  traits: string[]
+  /** نمونه‌ی صدای امروز (خطِ talk) — «این‌جوری حرف می‌زنه» */
+  voiceSample: string | null
+}
+
+/** کارتِ استعداد/ضعف — دامنه‌ی واقعیِ gameplay، توضیحِ صادقانه */
+export interface TalentCardDTO {
+  key: string
+  emoji: string
+  name: string
+  desc: string
+  domain: string
+  domainLabel: string
+  /** درصدِ امضا (برای drop: نقطه‌ی درصدی) — مثبت=بونوس، منفی=مالوس */
+  pct: number
+}
+
+/** سطرِ ماتریسِ دامنه‌ها — کدام فعالیت‌ها از شخصیت اثر می‌گیرند */
+export interface AffinityRowDTO {
+  domain: string
+  label: string
+  icon: string
+  pct: number
+  kind: "talent" | "flaw"
+}
+
+/** پله‌های اعتماد */
+export interface TrustTierDTO {
+  label: string
+  emoji: string
+  min: number
+}
+
+/** فصلِ درِ دسترس — متن + انتخاب‌ها */
+export interface StoryCurrentChapterDTO {
+  index: number
+  title: string
+  icon: string
+  text: string[]
+  choices: { idx: number; label: string; hint: string }[]
+}
+
+/** داستانِ شخصی — وضعیت/اعتماد/فصلِ جاری (memories فقط در مسیرهایِ لاگ‌دار پر می‌شود) */
+export interface StoryCardDTO {
+  arcKey: string
+  arcTitle: string
+  arcEmoji: string
+  chaptersTotal: number
+  chaptersDone: number
+  status: "available" | "locked" | "complete"
+  /** چرا قفل است (فاصله تا سدها) — فقط وقتی locked */
+  requirement: string | null
+  current: StoryCurrentChapterDTO | null
+  trust: number
+  trustPct: number
+  trustTier: { label: string; emoji: string }
+  nextTrustTier: { label: string; emoji: string; at: number } | null
+  memories: CharacterLogDTO[]
+}
+
 /** V10 — کلاس-تسلط (کارتِ کامل) */
 export interface MasteryDTO {
   level: number
@@ -670,6 +742,19 @@ export interface SoulCardDTO {
   createdAt: string
   interactCooldownMin: number // دقایق مانده تا تعاملِ بعدی (0 = آماده)
   renameCooldownMin: number // دقایق مانده تا تغییرِ اسمِ بعدی
+  // ── V19: شخصیتِ عمیق — طبع/استعداد/ضعف/داستان/ماتریسِ دامنه‌ها ──
+  /** طبع — لایه‌ی رفتار/گفتار (null فقط اگر رکورد بی‌طبع باشد — عملاً نمی‌افتد) */
+  persona: PersonaCardDTO | null
+  /** استعدادِ شخصی — بونوسِ واقعی روی یک دامنه‌ی gameplay */
+  talent: TalentCardDTO | null
+  /** ضعفِ شخصی — مالوسِ کوچک، منصفانه و روی کارت دیده‌شونده */
+  flaw: TalentCardDTO | null
+  /** داستانِ شخصی — وضعیت/اعتماد/فصلِ جاری */
+  story: StoryCardDTO | null
+  /** ماتریسِ دامنه‌ها — کدام فعالیت‌ها از استعداد/ضعف اثر می‌گیرند */
+  affinityRows: AffinityRowDTO[]
+  /** هزینه‌ی هر واحدِ شارژِ استقامت برای «این» فمبوی (استعدادِ صرفه‌جو) */
+  rechargeCostPer: number
 }
 
 export interface CharacterLogDTO {
@@ -755,9 +840,9 @@ export interface InteractDTO {
   flavorOnly?: boolean
 }
 
-/** GET /api/game/character — پیمان نبسته: بسته‌ی کلاس‌ها · بسته: کارتِ کامل */
+/** GET /api/game/character — پیمان نبسته: بسته‌ی کلاس‌ها + طبع‌ها · بسته: کارتِ کامل */
 export type CharacterData =
-  | { exists: false; classes: ClassCardDTO[]; interactions: InteractDTO[] }
+  | { exists: false; classes: ClassCardDTO[]; personas: PersonaCardDTO[]; interactions: InteractDTO[] }
   | {
       exists: true
       card: SoulCardDTO
@@ -789,6 +874,8 @@ export interface CharacterActionData {
   unlock?: { threshold: number; text: string }
   /** شمارِ خاطره‌هایِ ذخیره‌شده */
   memory?: { count: number }
+  // ── V19: داستانِ شخصی — مسیرِ story فصل/انتخاب را برمی‌گرداند ──
+  story?: StoryCardDTO
 }
 
 // ─── V8: کارتِ عمومیِ فمبوی (نمایِ ربات؛ فقط با X-Service-Key) ────────────────
@@ -831,6 +918,9 @@ export interface PublicFemboyCardDTO {
     evolutionPathName: string | null
     /** V8 §24 — آرتِ فُرمِ فعلی (فرگشتِ ≥۲ = پرتره‌ی اختصاصی؛ وگرنه آرتِ کلاس) */
     art?: string | null
+    // ── V19: هویتِ عمومیِ طبع/استعداد (عمومی‌اند — شخصیت، راز نیست) ──
+    persona: { key: string; emoji: string; name: string; tagline: string } | null
+    talent: { key: string; emoji: string; name: string } | null
   } | null
 }
 

@@ -13,12 +13,18 @@ interface OverviewSectionProps {
   card: SoulCardDTO
   /** خلاصه‌ی فمبوی از snapshot — برای خطِ سلوکِ بعدی (🎯) */
   femboy?: FemboySummaryDTO | null
+  /** V19 — CTAهای طبع/داستان روی نمایِ سریع */
+  onGoPersona?: () => void
+  onGoStory?: () => void
 }
 
-export function OverviewSection({ card, femboy }: OverviewSectionProps) {
+export function OverviewSection({ card, femboy, onGoPersona, onGoStory }: OverviewSectionProps) {
   const dmg = dmgModLabel(card.condition.dmgMod)
   const mProg = masteryProgress(card.mastery.xp, card.mastery.level, card.mastery.nextTierXp)
   const accessory = card.appearance.equipped.accessory
+  const persona = card.persona
+  const story = card.story
+  const storyOpen = story?.status === "available"
   return (
     <div className="flex flex-col gap-4">
       {/* ── کارتِ بزرگ: آرت + هویت ── */}
@@ -41,6 +47,11 @@ export function OverviewSection({ card, femboy }: OverviewSectionProps) {
               <Chip tone="pink" className="font-bold">
                 {card.classEmoji} {card.className}
               </Chip>
+              {persona ? (
+                <Chip tone="amber" className="font-bold">
+                  {persona.emoji} {persona.name}
+                </Chip>
+              ) : null}
               <Chip tone="violet" className="font-bold">
                 {card.rank.emoji} {card.rank.name}
               </Chip>
@@ -60,6 +71,46 @@ export function OverviewSection({ card, femboy }: OverviewSectionProps) {
         </div>
 
         <div className="flex flex-col gap-3 p-4">
+          {/* V19 — خطِ طبع + اقدامِ پیشنهادیِ داستان (نمایِ سریع: یک اقدامِ روشن) */}
+          {persona ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white/[0.03] px-3 py-2">
+              <button
+                type="button"
+                onClick={onGoPersona}
+                className="flex min-w-0 flex-1 items-center gap-2 text-right"
+                aria-label={`طبعِ ${persona.name} — ${persona.tagline}`}
+              >
+                <span aria-hidden className="text-lg">{persona.emoji}</span>
+                <span className="min-w-0">
+                  <span className="block text-[11px] text-muted-foreground">طبعش:</span>
+                  <span className="block truncate text-[13px] font-bold">{persona.tagline}</span>
+                </span>
+              </button>
+              {story ? (
+                <button
+                  type="button"
+                  onClick={onGoStory}
+                  aria-label="ادامه‌ی داستانِ شخصی"
+                  className={cn(
+                    "flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11.5px] font-bold transition-colors",
+                    storyOpen
+                      ? "border-primary/30 bg-primary/15 text-primary"
+                      : "border-white/10 bg-white/[0.03] text-muted-foreground",
+                  )}
+                >
+                  <span aria-hidden>📖</span>
+                  {story.status === "complete"
+                    ? "قصه کامل شد"
+                    : storyOpen
+                      ? `فصلِ ${faNum(Math.min(story.chaptersDone + 1, story.chaptersTotal))} — ادامه بده`
+                      : femboy?.storyChip
+                        ? femboy.storyChip.replace("📖 ", "")
+                        : "داستان"}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+
           {/* سطح + XP */}
           <div>
             <div className="mb-1 flex items-center justify-between text-[11px]">

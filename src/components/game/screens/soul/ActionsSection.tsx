@@ -175,11 +175,11 @@ export function ActionsSection({ card, interactions, money, cakes, act }: Action
       <GlassCard>
         <SectionTitle icon="⚡" title="شارژِ استقامت" action={<Chip tone="amber">{faNum(card.stamina)}/{faNum(card.staminaMax)}</Chip>} />
         <p className="mb-3 text-[11px] leading-5 text-muted-foreground">
-          هر واحد 120 سکه — نبردِ هر دشمن 3 واحد می‌برد. (شکارِ بعدی: {faNum(Math.floor(card.stamina / 3))})
+          هر واحد {faNum(card.rechargeCostPer)} سکه — نبردِ هر دشمن 3 واحد می‌برد. (شکارِ بعدی: {faNum(Math.floor(card.stamina / 3))})
         </p>
         <div className="grid grid-cols-3 gap-2">
           {[3, 6, 9].map((units) => {
-            const price = 120 * units
+            const price = card.rechargeCostPer * units
             const poor = money < price
             return (
               <ActionButton

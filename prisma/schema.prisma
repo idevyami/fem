@@ -103,6 +103,12 @@ model SoulCharacter {
   bond            Int       @default(0) // پیوند با بازیکن (interactions، 0..999)
   lastInteractAt  DateTime?
   lastNameChangeAt DateTime?
+  // ── V19: شخصیتِ عمیق — طبع/استعداد/ضعف/داستانِ شخصی/اعتماد ──
+  personaKey      String    @default("") // طبع (sunny|shadow|noble|sly|gentle|prickly|storm|mind)
+  talentKey       String    @default("") // استعدادِ شخصی (دامنه‌ی واقعیِ gameplay)
+  flawKey         String    @default("") // ضعفِ شخصی (دامنه‌ی واقعی، منصفانه و دیده‌شونده)
+  trust           Int       @default(0) // اعتماد 0..100 — از انتخاب‌های داستان/اولینِ تعاملِ روز/پیروزی
+  storyJson       String    @default("{}") // { ch, choices: {i: c}, lastStoryAt } — داستانِ شخصی
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 

@@ -768,6 +768,64 @@ export interface SoulCardDTO {
   createdAt: string
   interactCooldownMin: number
   renameCooldownMin: number
+  // ── V19: شخصیتِ عمیق — طبع/استعداد/ضعف/داستان/ماتریس/هزینه‌ی شارژ ──
+  persona?: BotPersonaCardDTO | null
+  talent?: BotTalentCardDTO | null
+  flaw?: BotTalentCardDTO | null
+  story?: BotStoryCardDTO | null
+  affinityRows?: BotAffinityRowDTO[]
+  rechargeCostPer?: number
+}
+
+// ─── V19: آینه‌هایِ شخصیتِ عمیق (contract موتور — تک‌منبع) ─────────────────────
+
+export interface BotPersonaCardDTO {
+  key: string
+  emoji: string
+  name: string
+  tagline: string
+  traits: string[]
+  voiceSample: string | null
+}
+
+export interface BotTalentCardDTO {
+  key: string
+  emoji: string
+  name: string
+  desc: string
+  domain: string
+  domainLabel: string
+  pct: number
+}
+
+export interface BotAffinityRowDTO {
+  domain: string
+  label: string
+  icon: string
+  pct: number
+  kind: "talent" | "flaw"
+}
+
+export interface BotStoryChoiceDTO {
+  idx: number
+  label: string
+  hint: string
+}
+
+export interface BotStoryCardDTO {
+  arcKey: string
+  arcTitle: string
+  arcEmoji: string
+  chaptersTotal: number
+  chaptersDone: number
+  status: "available" | "locked" | "complete"
+  requirement: string | null
+  current: { index: number; title: string; icon: string; text: string[]; choices: BotStoryChoiceDTO[] } | null
+  trust: number
+  trustPct: number
+  trustTier: { label: string; emoji: string }
+  nextTrustTier: { label: string; emoji: string; at: number } | null
+  memories: SoulLogDTO[]
 }
 
 export interface SoulLogDTO {
@@ -855,6 +913,8 @@ export interface SoulDuelDTO {
 export interface SoulGetData {
   exists: boolean
   classes?: SoulClassDTO[]
+  /** V19 — بسته‌ی طبع‌ها برای مرحله‌ی پیمان */
+  personas?: BotPersonaCardDTO[]
   interactions: SoulInteractDTO[]
   card?: SoulCardDTO
   logs?: SoulLogDTO[]
@@ -883,6 +943,15 @@ export interface SoulActionData {
   unlock?: { threshold: number; text: string }
   /** شمارِ خاطره‌های ذخیره‌شده */
   memory?: { count: number }
+  /** V19 — داستانِ شخصی: مسیرِ story فصل/انتخاب را برمی‌گرداند */
+  story?: BotStoryCardDTO
+}
+
+/** V19 — POST /api/game/character action=story {op:read|choose} — نتیجه‌ی داستان */
+export interface SoulStoryActionData {
+  message: string
+  story?: BotStoryCardDTO
+  card?: SoulCardDTO | null
 }
 
 /** POST /api/game/character action=evolutionChoice — پیش‌نمایشِ بی‌حالتِ هر دو شاخه */
@@ -1025,6 +1094,9 @@ export interface PublicFemboyCardDTO {
     mastery?: { level: number; emoji: string; label: string }
     accessoryEmoji?: string | null
     evolutionPathName?: string | null
+    // ── V19: هویتِ عمومیِ طبع/استعداد ──
+    persona?: { key: string; emoji: string; name: string; tagline: string } | null
+    talent?: { key: string; emoji: string; name: string } | null
   } | null
 }
 
@@ -1238,9 +1310,17 @@ export const api = {
     ),
 
   /** اکشن‌های فمبوی: create | rename | interact | recharge | potion | skillup |
-   *  evolve (payload.choice = 0|1) | appearance (payload.slot+key) | logs */
+   *  evolve (payload.choice = 0|1) | appearance (payload.slot+key) | logs | story (V19) */
   soulAction: (telegramId: string, action: string, payload: Record<string, unknown> = {}) =>
     post<SoulActionData>("/api/game/character", { telegramId, action, payload }),
+
+  /** V19 — داستانِ شخصی: خواندنِ فصلِ جاری یا انتخابِ پیامد (op: read|choose) */
+  soulStory: (telegramId: string, op: "read" | "choose", choice?: number) =>
+    post<SoulStoryActionData>("/api/game/character", {
+      telegramId,
+      action: "story",
+      payload: op === "choose" ? { op, choice } : { op },
+    }),
 
   /** V10 — پیش‌نمایشِ تصمیمِ فرگشت: هر دو شاخه + شرط‌ها + پیش‌نمایش‌ها (بی‌حالت) */
   soulEvolutionChoice: (telegramId: string) =>

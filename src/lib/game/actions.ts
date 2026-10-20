@@ -8,15 +8,25 @@ import { getWorld } from "./world"
 import { mulberry32, seedFrom, weightedPick, clamp, chance, randInt, pickOne } from "./rng"
 import type { ActionResponse, DeltaLineDTO } from "./contract"
 import { claimOpportunity } from "./opportunities"
-import { awardXpTx, masteryPayoutBonus, workPayoutBonus, restGainBonus, marketBargainBonus } from "./character"
+import { awardXpTx, masteryPayoutBonus, workPayoutBonus, restGainBonus, marketBargainBonus, affinityOf, resolvePersonaChain } from "./character"
 import { applyPlayerXp, levelUpBody } from "./xp"
 import { masteryLevelOf as _mlo } from "./content/classes"
 
-/** V10 — درصدِ چانه‌زنیِ فمبوی بازیکن (فروش به دلال) */
-async function femboyBargainPct(playerId: string): Promise<number> {
+/** V10 — درصدِ چانه‌زنیِ فمبوی بازیکن (فروش به دلال) + V19 استعداد/ضعفِ «چانه‌زنی» */
+async function femboyBargainPct(playerId: string): Promise<{ pct: number; talentLine: string }> {
   const soul = await db.soulCharacter.findUnique({ where: { playerId } })
-  if (!soul) return 0
-  return marketBargainBonus(soul) + masteryPayoutBonus(_mlo(soul.masteryXp))
+  if (!soul) return { pct: 0, talentLine: "" }
+  const aff = affinityOf(soul)
+  const pct = marketBargainBonus(soul) + masteryPayoutBonus(_mlo(soul.masteryXp)) + aff.market
+  let talentLine = ""
+  if (aff.market !== 0) {
+    const chain = resolvePersonaChain(soul)
+    talentLine =
+      aff.market > 0
+        ? `🗣️ استعدادِ ${chain.talent.emoji} «${chain.talent.name}» چانه را ${faDigits(aff.market)}% بهتر بست.`
+        : `💸 ضعفِ ${chain.flaw.emoji} «${chain.flaw.name}» چانه را ${faDigits(Math.abs(aff.market))}% سست کرد.`
+  }
+  return { pct, talentLine }
 }
 import { masteryLevelOf } from "./content/classes"
 
@@ -93,16 +103,29 @@ export async function runAction(player: Player, action: string, payload: Record<
             const workLine = pickOne(job.workLines, rng)
             let femboyWorkLine = "" // V10 — خطِ پاداشِ دستمزد (اگر مهارت/تسلط اثر کرد)
             let levelLine = "" // V17 — اگر شیفت سطح آورد، خبرش در flavor می‌آید
-            // V10 — هویتِ کلاس در زندگی: مهارتِ «% حقوقِ شیفت» (شاخه‌ی زندگی) + پاداشِ کلاس-تسلط
+            // V10 — هویتِ کلاس در زندگی: مهارتِ «% حقوقِ شیفت» (شاخه‌ی زندگی) + پاداشِ کلاس-تسلط + V19 استعداد/ضعفِ «دستمزد»
             const soulForWork = await tx.soulCharacter.findUnique({ where: { playerId: player.id } })
             let payoutPct = 0
+            let workTalentLine = ""
             if (soulForWork) {
-              payoutPct = workPayoutBonus(soulForWork) + masteryPayoutBonus(masteryLevelOf(soulForWork.masteryXp))
+              const affWork = affinityOf(soulForWork)
+              payoutPct = workPayoutBonus(soulForWork) + masteryPayoutBonus(masteryLevelOf(soulForWork.masteryXp)) + affWork.work
+              if (affWork.work !== 0) {
+                const chain = resolvePersonaChain(soulForWork)
+                workTalentLine =
+                  affWork.work > 0
+                    ? `🦉 استعدادِ ${chain.talent.emoji} «${chain.talent.name}» شیفت را ${faDigits(affWork.work)}% پربارتر کرد.`
+                    : `😴 ضعفِ ${chain.flaw.emoji} «${chain.flaw.name}» شیفت را ${faDigits(Math.abs(affWork.work))}% سبک کرد.`
+              }
             }
-            if (payoutPct > 0) {
+            if (payoutPct !== 0) {
               const before = income
-              income = Math.round(income * (1 + payoutPct / 100))
-              femboyWorkLine = `${soulForWork?.name ?? "فمبویت"} دستِ کار را رساند — ${faDigits(payoutPct)}% دستمزدِ بیشتر (+${faDigits(income - before)} سکه)`
+              income = Math.max(5, Math.round(income * (1 + payoutPct / 100)))
+              femboyWorkLine = payoutPct > 0
+                ? `${soulForWork?.name ?? "فمبویت"} دستِ کار را رساند — ${faDigits(payoutPct)}% دستمزدِ بیشتر (+${faDigits(income - before)} سکه)${workTalentLine ? `\n${workTalentLine}` : ""}`
+                : `${workTalentLine} (${faDigits(payoutPct)}% دستمزد: ${faDigits(before - income)}−)`
+            } else if (workTalentLine) {
+              femboyWorkLine = workTalentLine
             }
             const xpGain = 8 + Math.floor(income / 120)
             await applyMoney(tx, p, income, "job", job.name)
@@ -193,14 +216,23 @@ export async function runAction(player: Player, action: string, payload: Record<
         })
         const soul = await tx.soulCharacter.findUnique({ where: { playerId: player.id } })
         if (soul && soul.spirit < 100) {
-          // V10 — مهارتِ «% جلای استراحتِ توأمان» (شاخه‌ی زندگی): خوابِ عمیق‌تر
-          const restPct = restGainBonus(soul)
-          const gain = Math.min(Math.round(6 * (1 + restPct / 100)), 100 - soul.spirit)
+          // V10 — مهارتِ «% جلای استراحتِ توأمان» (شاخه‌ی زندگی): خوابِ عمیق‌تر + V19 استعداد/ضعفِ «خوابِ توأمان»
+          const affRest = affinityOf(soul)
+          const restPct = restGainBonus(soul) + affRest.rest
+          const gain = Math.min(Math.max(1, Math.round(6 * (1 + restPct / 100))), 100 - soul.spirit)
           const updated = await tx.soulCharacter.update({
             where: { id: soul.id },
             data: { spirit: clamp(soul.spirit + gain, 0, 100) },
           })
-          femboyLine = `${updated.name} هم کنارِ تو خوابید — روحیه‌اش ${restPct > 0 ? `عمیق‌ (${faDigits(gain)}+) ` : ""}جلا افتاد.`
+          let restTalentLine = ""
+          if (affRest.rest !== 0) {
+            const chain = resolvePersonaChain(soul)
+            restTalentLine =
+              affRest.rest > 0
+                ? `💤 استعدادِ ${chain.talent.emoji} «${chain.talent.name}» خوابش را عمیق‌تر کرد.`
+                : `🌀 ضعفِ ${chain.flaw.emoji} «${chain.flaw.name}» خوابش را سبک کرد.`
+          }
+          femboyLine = `${updated.name} هم کنارِ تو خوابید — روحیه‌اش ${restPct > 0 ? `عمیق‌ (${faDigits(gain)}+) ` : ""}جلا افتاد.${restTalentLine ? `\n${restTalentLine}` : ""}`
         }
         await history(tx, player.id, "😴", "خوابیدی. شهر هم یه لحظه ساکت شد.", "world", player.day)
       })
@@ -453,8 +485,9 @@ export async function runAction(player: Player, action: string, payload: Record<
       const inv = await db.inventoryItem.findFirst({ where: { playerId: player.id, itemKey } })
       if (!inv || inv.quantity < quantity) return { error: "به این تعداد نداریش." }
       if (inv.locked || inv.favorite) return { error: "این را قفل کرده‌ای/دوستش داری. اول از علاقه‌مندی‌ها دربیاورش." }
-      // V10 — مهارتِ «% فروشِ گران‌تر» (شاخه‌ی زندگی: چانه‌زنی) — فروشِ تیزتر از بازار
-      const bargainPct = await femboyBargainPct(player.id)
+      // V10 — مهارتِ «% فروشِ گران‌تر» (شاخه‌ی زندگی: چانه‌زنی) — فروشِ تیزتر از بازار + V19 استعداد/ضعف
+      const bargain = await femboyBargainPct(player.id)
+      const bargainPct = bargain.pct
       const price = Math.round(sellPriceFor(await currentPrice(db, itemKey, world.economyIndex)) * quantity * (1 + bargainPct / 100))
       const deltas: DeltaLineDTO[] = [delta("money", price)]
       try {
@@ -476,7 +509,7 @@ export async function runAction(player: Player, action: string, payload: Record<
       return {
         ok: {
           message: `فروختی. ${faDigits(price)} سکه اومد تو جیبت.`,
-          flavor: bargainPct > 0 ? `فمبویت چانه را تا ${faDigits(bargainPct)}% بالا برد — بازار سخت گیر کرد، ولی نشد.` : "بازار امروز منصف بود. تقریباً.",
+          flavor: bargainPct > 0 ? `فمبویت چانه را تا ${faDigits(bargainPct)}% بالا برد — بازار سخت گیر کرد، ولی نشد.${bargain.talentLine ? `\n${bargain.talentLine}` : ""}` : bargain.talentLine ? bargain.talentLine : "بازار امروز منصف بود. تقریباً.",
           deltas,
         },
       }

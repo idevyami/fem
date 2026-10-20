@@ -26,9 +26,13 @@ import { MasterySection } from "./soul/MasterySection"
 import { HistorySection } from "./soul/HistorySection"
 import { CombatSection } from "./soul/CombatSection"
 import { HallSection } from "./soul/HallSection"
+import { PersonaSection } from "./soul/PersonaSection"
+import { StorySection } from "./soul/StorySection"
 
 type Section =
   | "profile"
+  | "persona"
+  | "story"
   | "actions"
   | "skills"
   | "evolution"
@@ -40,6 +44,8 @@ type Section =
 
 const SECTIONS: { key: Section; emoji: string; label: string }[] = [
   { key: "profile", emoji: "👤", label: "پروفایل" },
+  { key: "persona", emoji: "🎭", label: "شخصیت" },
+  { key: "story", emoji: "📖", label: "داستان" },
   { key: "actions", emoji: "💗", label: "اقدامات" },
   { key: "skills", emoji: "🌟", label: "مهارت‌ها" },
   { key: "evolution", emoji: "🧬", label: "فرگشت" },
@@ -66,10 +72,16 @@ export function SoulScreen() {
   const [section, setSection] = React.useState<Section>("profile")
   // V17-W2 (F2): پاسخِ کاملِ آخرین تعامل — بلوکِ نتیجه‌ی درون‌صفحه‌ای؛ null = بلوکی نیست
   const [interactOutcome, setInteractOutcome] = React.useState<CharacterActionData | null>(null)
+  // V19 — پیامِ آخرین انتخابِ داستان (نتیجه‌ی روایی) + حالتِ ارسال
+  const [storyOutcome, setStoryOutcome] = React.useState<string | null>(null)
+  const [storyBusy, setStoryBusy] = React.useState(false)
 
   // بلوکِ نتیجه‌ی تعامل مثلِ توست رفتار می‌کند — با ترکِ تبِ فمبوی جمع می‌شود
   React.useEffect(() => {
-    if (!active) setInteractOutcome(null)
+    if (!active) {
+      setInteractOutcome(null)
+      setStoryOutcome(null)
+    }
   }, [active])
 
   // V17-W3 (F5) — مصرفِ deep-link: با ورودِ تب، سکشنِ گفته‌شده فعال می‌شود؛ مقدارِ
@@ -194,19 +206,42 @@ export function SoulScreen() {
     void reload()
   }, [reload])
 
-  /** ساختِ فمبوی — true یعنی عهد بسته شد */
+  /** ساختِ فمبوی — true یعنی عهد بسته شد (V19: طبع هم از جریانِ پیمان می‌آید) */
   const handleCreate = React.useCallback(
-    async (name: string, classKey: string): Promise<{ ok: boolean; error?: string }> => {
-      const res = await api.characterAction("create", { name, classKey })
+    async (name: string, classKey: string, personaKey?: string): Promise<{ ok: boolean; error?: string }> => {
+      const res = await api.characterAction("create", personaKey ? { name, classKey, personaKey } : { name, classKey })
       if (!res.ok) return { ok: false, error: res.error }
       if (res.data.message) toast("success", res.data.message)
-      setSection("profile")
+      setSection("story")
       await reload()
       // V9 — snapshot باید فوراً فمبوی را حمل کند تا کارتِ هویتِ پیشخوان (و راهنما) عوض شود
       await refresh()
       return { ok: true }
     },
     [toast, reload, refresh],
+  )
+
+  /** V19 — انتخابِ فصلِ داستان: نتیجه در بلوکِ روایی + کارت از پاسخ */
+  const chooseStory = React.useCallback(
+    async (choice: number): Promise<void> => {
+      if (storyBusy) return
+      setStoryBusy(true)
+      const res = await api.characterAction("story", { op: "choose", choice })
+      if (!res.ok) {
+        toast("error", res.error)
+        setStoryBusy(false)
+        return
+      }
+      if (res.data.message) setStoryOutcome(res.data.message)
+      // کارتِ تازه از خودِ پاسخ — و خاطره‌های داستان از لاگِ تازه (واکشیِ کامل)
+      if (res.data.card) {
+        setData((d) => (d && d.exists ? { ...d, card: res.data.card ?? d.card } : d))
+      }
+      await reload()
+      void refresh()
+      setStoryBusy(false)
+    },
+    [storyBusy, toast, reload, refresh],
   )
 
   // ─── رندر ─────────────────────────────────────────────────────────────
@@ -256,7 +291,7 @@ export function SoulScreen() {
   if (!data.exists) {
     return (
       <div className="flex flex-col gap-4">
-        <CreateFlow classes={data.classes} onCreate={handleCreate} />
+        <CreateFlow classes={data.classes} personas={data.personas} onCreate={handleCreate} />
         <p className="px-2 text-center text-[11px] leading-4 text-muted-foreground">
           🎀 فمبوی — یک بار انتخاب، همیشه همراه. نبرد او را نمی‌کشد.
         </p>
@@ -341,7 +376,18 @@ export function SoulScreen() {
           exit={{ opacity: 0, y: -6 }}
           transition={{ duration: 0.18, ease: "easeOut" }}
         >
-          {section === "profile" ? <OverviewSection card={card} femboy={snapshot.femboy} /> : null}
+          {section === "profile" ? <OverviewSection card={card} femboy={snapshot.femboy} onGoStory={() => setSection("story")} onGoPersona={() => setSection("persona")} /> : null}
+          {section === "persona" ? <PersonaSection card={card} /> : null}
+          {section === "story" ? (
+            <StorySection
+              card={card}
+              outcome={storyOutcome}
+              onChoose={chooseStory}
+              onBuildTrust={() => setSection("actions")}
+              choosing={storyBusy}
+              onDismissOutcome={() => setStoryOutcome(null)}
+            />
+          ) : null}
           {section === "actions" ? (
             <ActionsSection
               card={card}

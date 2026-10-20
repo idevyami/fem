@@ -145,6 +145,8 @@ export const TITLES: TitleDef[] = [
   { key: "only_legend", name: "فقط افسانه", emoji: "🌟", description: "به آخرِ راهِ فرگشت رسیدی. از این‌جا فقط افسانه می‌شود." },
   { key: "mastery_legend", name: "افسانه‌ی کلاس", emoji: "👑", description: "کلاس-تسلط در پله‌ی 10 نشست. شاگردی تمام شد؛ معلم شدی." },
   { key: "duel_champion", name: "قهرمانِ دوئل", emoji: "⚔️", description: "10 دوئل بردی. میدان، اسمِ فمبویت را قاب کرده." },
+  // ── V19: عنوانِ پایانِ داستانِ شخصی ──
+  { key: "story_weaver", name: "راویِ پیمان", emoji: "📖", description: "قصه‌ی شخصیِ فمبویت را تا آخرِ فصلِ پنجم همراهی کردی — پایانش را دو نفر نوشتید." },
 ]
 
 export const GLOBAL_EVENT_MAP: Record<string, GlobalEventDef> = Object.fromEntries(GLOBAL_EVENTS.map((g) => [g.key, g]))

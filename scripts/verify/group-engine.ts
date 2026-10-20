@@ -745,11 +745,21 @@ async function main(): Promise<void> {
       await post("/api/auth", { telegramId: uXp, name: "روح‌بندِ ۲" })
       await post<{ card: { name: string } }>("/api/game/character", { telegramId: uW, action: "create", payload: { name: "فمبوی دوبل", classKey: "shinobi" } })
       await post<{ card: { name: string } }>("/api/game/character", { telegramId: uXp, action: "create", payload: { name: "فمبوی سکه", classKey: "wizard" } })
+      // V19 — شخصیتِ قطعی برای اعدادِ ثابتِ این سناریو: طبع/استعداد/ضعفِ بی‌اثرِ
+      // روی XP/گروه (duel/market) — وگرنه طبعِ قطعیِ بازیکن XP را ±می‌کند
       await member(cV, "شهرِ روح", uW, "روح‌بندِ ۱")
       await member(cV, "شهرِ روح", uXp, "روح‌بندِ ۲")
       const gV = await gidOf(cV)
       const pW = await pidOf(uW)
       const pX = await pidOf(uXp)
+      // V19 — شخصیتِ قطعی برای اعدادِ ثابتِ این سناریو: طبع/استعداد/ضعفِ بی‌اثرِ
+      // روی XP/گروه (duel/market) — وگرنه طبعِ قطعیِ بازیکن XP را ±می‌کند
+      await fixture(async () => {
+        await db.soulCharacter.updateMany({
+          where: { playerId: { in: [pW, pX] } },
+          data: { personaKey: "noble", talentKey: "duelist_heart", flawKey: "big_spender" },
+        })
+      })
       const soulW0 = await db.soulCharacter.findUniqueOrThrow({ where: { playerId: pW } })
       const soulX0 = await db.soulCharacter.findUniqueOrThrow({ where: { playerId: pX } })
 
@@ -1455,6 +1465,291 @@ async function main(): Promise<void> {
     ok(fuFinal?.deliveredAt !== null, "V18: armed follow-up consumed by the drain (roll decides spawn)")
     const fuEv = await db.groupEvent.findFirst({ where: { groupId: gV, status: "open" } })
     if (fuEv) ok(fuEv.templateId === "frog_remembers", "V18: follow-up (when rolled) spawned the chained template", `templateId=${fuEv.templateId}`)
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  section("§V19 persona + talents + personal story (V19 characters reborn)")
+  {
+    // V19-1 — محتوای شخصیت: بارگذاریِ سالم (validatorها در import می‌پرند)، تناسبِ ارجاع‌ها
+    {
+      const { PERSONAS, getPersona } = await import("../../src/lib/game/content/personas")
+      const { TALENTS, FLAWS, getTalent, getFlaw, DOMAIN_LABELS } = await import("../../src/lib/game/content/talents")
+      const { STORIES, getStory, STORY_TOTAL_CHAPTERS, trustTierOf, nextTrustTier } = await import("../../src/lib/game/content/stories")
+      ok(PERSONAS.length === 8, "V19-1: 8 personas loaded (validators passed)")
+      ok(TALENTS.length === 10 && FLAWS.length === 8, "V19-1: 10 talents + 8 flaws loaded")
+      ok(STORIES.length === 8 && STORIES.every((st) => st.chapters.length === STORY_TOTAL_CHAPTERS), "V19-1: 8 story arcs x 5 chapters")
+      let refErr = 0
+      for (const p of PERSONAS) {
+        for (const t of p.talents) if (!getTalent(t)) refErr++
+        for (const f of p.flaws) if (!getFlaw(f)) refErr++
+        if (!getStory(p.key)) refErr++
+      }
+      ok(refErr === 0, "V19-1: every persona talent/flaw/story reference resolves (cross-validated)")
+      ok(Boolean(getPersona("sunny")?.voice.talk.includes("{name}")) && getTalent("night_owl")?.domain === "work" && DOMAIN_LABELS.recharge.label.length > 0, "V19-1: persona voice templates + domain registry sane")
+      ok(trustTierOf(0).label === "غریبه" && trustTierOf(70).label === "جانِ جان" && nextTrustTier(29)?.min === 30, "V19-1: trust tiers 0/70 + next-at-30")
+    }
+
+    // V19-2 — حلِ قطعیِ میراث: بدونِ personaKey، همان نتیجه هر بار (no re-roll)
+    {
+      const { personaOf, resolvePersonaChain, affinityOf } = await import("../../src/lib/game/character")
+      const ghost = { id: "ghost-char-id-v19", personaKey: "", talentKey: "", flawKey: "" }
+      const p1 = personaOf(ghost)
+      const p2 = personaOf(ghost)
+      ok(p1.key === p2.key, "V19-2: legacy persona resolve is deterministic across calls", `${p1.key} vs ${p2.key}`)
+      const chain = resolvePersonaChain(ghost)
+      ok(chain.persona.key === p1.key && Boolean(chain.talent) && Boolean(chain.flaw), "V19-2: full chain resolves (persona+talent+flaw)")
+      ok(chain.flaw.domain !== chain.talent.domain, "V19-2: flaw domain never overlaps talent domain")
+      const aff = affinityOf(ghost)
+      const vals = Object.values(aff)
+      ok(vals.every((v) => v >= -12 && v <= 12), "V19-2: affinity clamped to [-12,+12] on every domain")
+      ok(vals.filter((v) => v !== 0).length >= 1, "V19-2: affinity has at least one non-zero domain (talent applies)")
+    }
+
+    // V19-3 — ساخت با طبعِ انتخابی: رکورد + DTO کامل + دامنه‌های هم‌خانواده
+    {
+      const uP = tid(70)
+      await post("/api/auth", { telegramId: uP, name: "شخصیت‌سنج" })
+      const created = await post<{ message: string; card: { persona: { key: string } | null; talent: { key: string; pct: number } | null; flaw: { key: string } | null; story: { status: string; chaptersTotal: number } | null; affinityRows: unknown[]; rechargeCostPer: number } }>(
+        "/api/game/character",
+        { telegramId: uP, action: "create", payload: { name: "فمبوی طبع", classKey: "ranger", personaKey: "sunny" } },
+      )
+      ok(created.body.ok === true, "V19-3: create with personaKey accepted")
+      const pidP = await pidOf(uP)
+      const row = await db.soulCharacter.findUniqueOrThrow({ where: { playerId: pidP } })
+      ok(row.personaKey === "sunny" && row.talentKey !== "" && row.flawKey !== "", "V19-3: record carries persona/talent/flaw keys", `p=${row.personaKey} t=${row.talentKey} f=${row.flawKey}`)
+      const { getPersona } = await import("../../src/lib/game/content/personas")
+      const sunny = getPersona("sunny")!
+      ok(sunny.talents.includes(row.talentKey) && sunny.flaws.includes(row.flawKey), "V19-3: talent/flaw rolled from the sunny pools")
+      const card = created.body.data?.card
+      ok(card?.persona?.key === "sunny" && (card?.affinityRows?.length ?? 0) === 2, "V19-3: SoulCardDTO carries persona + 2 affinity rows")
+      ok(card?.story?.status === "available" && card?.story?.chaptersTotal === 5, "V19-3: story slot available at birth (ch1, 5 chapters)")
+      ok(typeof card?.rechargeCostPer === "number" && card.rechargeCostPer >= 60, "V19-3: rechargeCostPer surfaced (>=60 floor)")
+      ok((created.body.data?.message ?? "").includes("طبعِ"), "V19-3: create message announces the persona")
+
+      // طبعِ نامعتبر → خطای فارسیِ صریح
+      const uBad = tid(71)
+      await post("/api/auth", { telegramId: uBad, name: "طبع‌بطل" })
+      const bad = await post("/api/game/character", { telegramId: uBad, action: "create", payload: { name: "فمبوی بطل", classKey: "ranger", personaKey: "grumpy" } })
+      ok(bad.body.ok === false && (bad.body.error ?? "").includes("طبع"), "V19-3: invalid personaKey rejected in Persian")
+    }
+
+    // V19-4 — چرخه‌ی داستان: خواندن → انتخاب → ایدمپوتنت → قفلِ صادق → گشایش با اعتماد
+    {
+      const uS = tid(72)
+      await post("/api/auth", { telegramId: uS, name: "قصه‌خوان" })
+      const createS = await post<{ card: { persona: { key: string } | null } | null }>("/api/game/character", { telegramId: uS, action: "create", payload: { name: "فمبوی قصه", classKey: "wizard", personaKey: "shadow" } })
+      const pidS = await pidOf(uS)
+      {
+        const rowC = await db.soulCharacter.findUnique({ where: { playerId: pidS } })
+        ok(rowC?.personaKey === "shadow" && createS.body.data?.card?.persona?.key === "shadow", "V19-4diag: create persisted personaKey shadow", `row=${rowC?.personaKey} card=${createS.body.data?.card?.persona?.key} err=${createS.body.error ?? "-"}`)
+      }
+      const read1 = await post<{ message: string; story: { status: string; current: { title: string; text: string[]; choices: { idx: number }[] } | null } }>(
+        "/api/game/character", { telegramId: uS, action: "story", payload: { op: "read" } },
+      )
+      ok(read1.body.ok === true && read1.body.data?.story.status === "available", "V19-4: story read → ch1 available")
+      ok((read1.body.data?.story.current?.text?.length ?? 0) >= 2 && (read1.body.data?.story.current?.choices?.length ?? 0) >= 2, "V19-4: chapter text (2+ paras) + choices (2+) delivered")
+      {
+        const rowS0 = await db.soulCharacter.findUnique({ where: { playerId: pidS } })
+        const msg1 = read1.body.data?.message ?? ""
+        ok(
+          msg1.includes("پرونده‌های کهنه"),
+          "V19-4: read message opens with the persona's memory voice",
+          `personaKey=${rowS0?.personaKey ?? "?"} msg=${JSON.stringify(msg1.slice(0, 60))}`,
+        )
+      }
+
+      const choose1 = await post<{ message: string; story: { chaptersDone: number; status: string; trust: number; memories: unknown[]; requirement: string | null }; card: { story: { trust: number } | null } }>(
+        "/api/game/character", { telegramId: uS, action: "story", payload: { op: "choose", choice: 0 } },
+      )
+      const ch = choose1.body.data
+      ok(choose1.body.ok === true && (ch?.story.chaptersDone ?? 0) === 1, "V19-4: choose → chaptersDone = 1")
+      ok((ch?.story.trust ?? 0) >= 3, "V19-4: choice granted trust (>=3)", `trust=${ch?.story.trust}`)
+      ok((ch?.story.memories?.length ?? 0) >= 1, "V19-4: outcome persisted as a story memory")
+      const rowS = await db.soulCharacter.findUniqueOrThrow({ where: { playerId: pidS } })
+      const stJ = JSON.parse(rowS.storyJson) as { ch: number; choices: Record<string, number> }
+      ok(stJ.ch === 1 && Object.keys(stJ.choices).length === 1, "V19-4: storyJson advanced (ch=1, choice recorded)")
+      const logRow = await db.characterLog.findFirst({ where: { characterId: rowS.id, type: "story" } })
+      ok(Boolean(logRow) && (logRow?.text ?? "").length > 10, "V19-4: CharacterLog(type=story) written")
+
+      const repeat = await post("/api/game/character", { telegramId: uS, action: "story", payload: { op: "choose", choice: 0 } })
+      ok(repeat.body.ok === false, "V19-4: re-choosing the same chapter is refused (idempotent)")
+      const read2 = await post<{ story: { status: string; requirement: string | null } }>("/api/game/character", { telegramId: uS, action: "story", payload: { op: "read" } })
+      ok(read2.body.ok === false && (read2.body.error ?? "").includes("قفل") && (read2.body.error ?? "").includes("اعتماد"), "V19-4: ch2 honestly locked with trust requirement", read2.body.error ?? "-")
+
+      // fixture: اعتماد تا ۲۵ + سطح تا ۴ → فصلِ ۳... نه — فصلِ ۲ باز می‌شود (req 10/2)
+      await fixture(async () => {
+        await db.soulCharacter.update({ where: { id: rowS.id }, data: { trust: 25, level: 4 } })
+      })
+      const read3 = await post<{ story: { status: string; current: { index: number } | null } }>("/api/game/character", { telegramId: uS, action: "story", payload: { op: "read" } })
+      ok(read3.body.data?.story.status === "available" && read3.body.data?.story.current?.index === 1, "V19-4: after trust/level fixture → ch2 (index 1) available")
+    }
+
+    // V19-5 — اعتماد از زندگی: اولینِ تعاملِ روز +۱، دومی نه
+    {
+      const uT = tid(73)
+      await post("/api/auth", { telegramId: uT, name: "اعتمادسنج" })
+      await post("/api/game/character", { telegramId: uT, action: "create", payload: { name: "فمبوی اعتماد", classKey: "paladin", personaKey: "gentle" } })
+      const pidT = await pidOf(uT)
+      const r1 = await interactWithCharacter((await db.player.findUniqueOrThrow({ where: { id: pidT } })), await db.soulCharacter.findUniqueOrThrow({ where: { playerId: pidT } }), "talk")
+      ok(r1.ok !== undefined, "V19-5: first interact of day succeeds")
+      const row1 = await db.soulCharacter.findUniqueOrThrow({ where: { playerId: pidT } })
+      ok(row1.trust === 1, "V19-5: first interact of day → trust +1", `trust=${row1.trust}`)
+      // کول‌داونِ ۱۰ دقیقه — fixture: lastInteractAt را عقب ببر تا دومی بگذرد
+      await fixture(async () => {
+        await db.soulCharacter.update({ where: { id: row1.id }, data: { lastInteractAt: new Date(Date.now() - 11 * 60_000) } })
+      })
+      await interactWithCharacter((await db.player.findUniqueOrThrow({ where: { id: pidT } })), await db.soulCharacter.findUniqueOrThrow({ where: { playerId: pidT } }), "talk")
+      const row2 = await db.soulCharacter.findUniqueOrThrow({ where: { playerId: pidT } })
+      ok(row2.trust === 1, "V19-5: second interact same day → NO extra trust (anti-spam)", `trust=${row2.trust}`)
+    }
+
+    // V19-6 — صدای طبع: دو فمبویِ هم‌کلاس، دو لهجه (goleshe diabetic = قابل‌تمایز)
+    {
+      const uV1 = tid(74), uV2 = tid(75)
+      await post("/api/auth", { telegramId: uV1, name: "صداسنج ۱" })
+      await post("/api/auth", { telegramId: uV2, name: "صداسنج ۲" })
+      await post("/api/game/character", { telegramId: uV1, action: "create", payload: { name: "خورشیدی", classKey: "duelist", personaKey: "sunny" } })
+      await post("/api/game/character", { telegramId: uV2, action: "create", payload: { name: "مهتابی", classKey: "duelist", personaKey: "shadow" } })
+      const pidV1 = await pidOf(uV1), pidV2 = await pidOf(uV2)
+      const rSun = await interactWithCharacter((await db.player.findUniqueOrThrow({ where: { id: pidV1 } })), await db.soulCharacter.findUniqueOrThrow({ where: { playerId: pidV1 } }), "talk")
+      await fixture(async () => {
+        await db.soulCharacter.updateMany({ where: { playerId: { in: [pidV1, pidV2] } }, data: { lastInteractAt: new Date(Date.now() - 11 * 60_000) } })
+      })
+      const rShd = await interactWithCharacter((await db.player.findUniqueOrThrow({ where: { id: pidV2 } })), await db.soulCharacter.findUniqueOrThrow({ where: { playerId: pidV2 } }), "talk")
+      const sunLine = rSun.ok?.message ?? ""
+      const shdLine = rShd.ok?.message ?? ""
+      ok(sunLine.includes("از هر سه جمله‌اش"), "V19-6: sunny talk line uses the sunny voice", sunLine.slice(0, 60))
+      ok(shdLine.includes("جواب‌های کوتاه"), "V19-6: shadow talk line uses the shadow voice", shdLine.slice(0, 60))
+      ok(sunLine !== shdLine, "V19-6: same class + same kind → two distinguishable voices")
+    }
+
+    // V19-7 — قلاب‌های واقعیِ استعداد: xp/group (awardSoulProgress) + duel + recharge + هر ۱۰ دامنه
+    {
+      // 7a — دامنه‌ها: هر ۱۰ استعداد روی دامنه‌ی خودش در affinityOf دیده می‌شود
+      const { affinityOf, rechargeCostPer } = await import("../../src/lib/game/character")
+      const { TALENTS } = await import("../../src/lib/game/content/talents")
+      const uAff = tid(76)
+      await post("/api/auth", { telegramId: uAff, name: "دامنه‌سنج" })
+      await post("/api/game/character", { telegramId: uAff, action: "create", payload: { name: "فمبوی دامنه", classKey: "ranger", personaKey: "mind" } })
+      const pidAff = await pidOf(uAff)
+      // استعدادِ خارج از استخرِ طبع، ری‌رول می‌شود (by design) — برای هر استعداد، طبعِ
+      // سازگار می‌گذاریم تا قلابِ دامنه را مستقیم بسنجیم
+      const TALENT_PERSONA: Record<string, string> = {
+        night_owl: "shadow", silver_tongue: "noble", morning_breeze: "sunny", deep_sleeper: "gentle",
+        iron_will: "noble", sharp_eye: "shadow", quick_study: "mind", duelist_heart: "prickly",
+        thrifty: "sly", crowd_charmer: "sunny",
+      }
+      let domainErr = 0
+      for (const t of TALENTS) {
+        const personaKey = TALENT_PERSONA[t.key] ?? "mind"
+        await fixture(async () => {
+          await db.soulCharacter.update({ where: { playerId: pidAff }, data: { personaKey, talentKey: t.key, flawKey: "" } })
+        })
+        const aff = affinityOf(await db.soulCharacter.findUniqueOrThrow({ where: { playerId: pidAff } }))
+        if (aff[t.domain] !== t.pct) domainErr++
+      }
+      ok(domainErr === 0, "V19-7a: every talent's pct lands on its own domain via affinityOf (10/10)")
+
+      // 7b — قلابِ XP (quick_study +6%) و گروه (crowd_charmer +10%): awardSoulProgress از affinityOf می‌گذرد
+      // fixture تمیز: طبعِ shadow (استخرش quick_study دارد) + ضعفِ بی‌اثر (butterfingers)
+      const total0 = (await db.soulCharacter.findUniqueOrThrow({ where: { playerId: pidAff } })).totalXp
+      await fixture(async () => {
+        await db.soulCharacter.update({ where: { playerId: pidAff }, data: { personaKey: "shadow", talentKey: "quick_study", flawKey: "restless" } })
+      })
+      const rXp = await awardSoulProgress(db, uAff, { soulXp: 20, reason: "probe" })
+      const total1 = (await db.soulCharacter.findUniqueOrThrow({ where: { playerId: pidAff } })).totalXp
+      ok(rXp?.appliedXp === 20 && total1 - total0 === 21, "V19-7b: quick_study +6% → applied 20, track +21 (xp hook live)", `applied=${rXp?.appliedXp} delta=${total1 - total0}`)
+      // crowd_charmer روی فمبویِ تازه‌ی sunny (استخرِ سازگار) — زیرِ سقف
+      const uGrp = tid(82)
+      await post("/api/auth", { telegramId: uGrp, name: "جمع‌سنج" })
+      await post("/api/game/character", { telegramId: uGrp, action: "create", payload: { name: "فمبوی جمع", classKey: "ranger", personaKey: "sunny" } })
+      const pidGrp = await pidOf(uGrp)
+      await fixture(async () => {
+        await db.soulCharacter.update({ where: { playerId: pidGrp }, data: { talentKey: "crowd_charmer", flawKey: "" } })
+      })
+      const rGrp = await awardSoulProgress(db, uGrp, { soulXp: 20, reason: "probe" })
+      ok(rGrp?.appliedXp === 22, "V19-7b: crowd_charmer +10% → 20 group XP applied as 22 (group hook live)", `applied=${rGrp?.appliedXp}`)
+      ok((rGrp?.talentLine ?? "").includes("عشقه‌ی جمع"), "V19-7b: crowd_charmer surfaces its talent line on the result")
+      // سقفِ روزانه مرجع می‌ماند: پمپِ پنجم روی همان بازیکن → کلمپ
+      let capped = 0
+      for (let i = 0; i < 4; i++) {
+        const rP = await awardSoulProgress(db, uGrp, { soulXp: 20, reason: "pump" })
+        capped += rP?.appliedXp ?? 0
+      }
+      ok(22 + capped === 40, "V19-7b: daily cap still authoritative after talent bonus (no cap bypass)", `22+${capped}`)
+
+      // 7c — قلابِ دوئل (duelist_heart +8%): جایزه با خطِ استعداد
+      const uD1 = tid(77), uD2 = tid(78)
+      await post("/api/auth", { telegramId: uD1, name: "دوئل‌سنج ۱" })
+      await post("/api/auth", { telegramId: uD2, name: "دوئل‌سنج ۲" })
+      const cD1res = await post("/api/game/character", { telegramId: uD1, action: "create", payload: { name: "قلب دوئل", classKey: "reaper", personaKey: "storm" } })
+      const cD2res = await post("/api/game/character", { telegramId: uD2, action: "create", payload: { name: "حریف دوئل", classKey: "wizard", personaKey: "sly" } })
+      ok(cD1res.body.ok === true, "V19-7c: duel char A created", cD1res.body.error ?? "-")
+      ok(cD2res.body.ok === true, "V19-7c: duel char B created", cD2res.body.error ?? "-")
+      const pidD1 = await pidOf(uD1), pidD2 = await pidOf(uD2)
+      // برنده را قطعی کنیم: حریف را ضعیف (سطح ۱، بدون اسکیل) و قلبِ دوئل را قوی
+      await fixture(async () => {
+        await db.soulCharacter.update({ where: { playerId: pidD1 }, data: { level: 12, talentKey: "duelist_heart", flawKey: "" } })
+        await db.soulCharacter.update({ where: { playerId: pidD2 }, data: { level: 1 } })
+      })
+      const pD1 = await db.player.findUniqueOrThrow({ where: { id: pidD1 } })
+      const pD2 = await db.player.findUniqueOrThrow({ where: { id: pidD2 } })
+      const cD1 = await db.soulCharacter.findUniqueOrThrow({ where: { playerId: pidD1 } })
+      const cD2 = await db.soulCharacter.findUniqueOrThrow({ where: { playerId: pidD2 } })
+      const duelRes = await duelCharacters(pD1, pD2)
+      const duelLog = (duelRes.duel?.log ?? []).join("\n")
+      const winnerIsD1 = duelRes.duel?.winnerName === "قلب دوئل"
+      if (winnerIsD1) {
+        ok(duelLog.includes("قلبِ دوئل‌باز") && duelLog.includes("سنگین‌تر"), "V19-7c: duelist_heart +8% surfaced on the duel prize line", duelLog.slice(-160))
+      } else {
+        // سطح ۱۲ باید تقریباً همیشه ببرد؛ اگر شانس خلاف کرد، فقط حلِ تمیز را ثابت کن
+        ok(duelRes.duel !== undefined, "V19-7c: duel resolved cleanly (underdog won — reroll-safety)")
+      }
+
+      // 7d — قلابِ شارژ (thrifty −10%): هزینه‌ی هر واحد ۱۰۸ (کف ۶۰)
+      const uR = tid(79)
+      await post("/api/auth", { telegramId: uR, name: "شارژسنج" })
+      await post("/api/game/character", { telegramId: uR, action: "create", payload: { name: "فمبوی صرفه", classKey: "shinobi", personaKey: "mind" } })
+      const pidR = await pidOf(uR)
+      await fixture(async () => {
+        await db.soulCharacter.update({ where: { playerId: pidR }, data: { talentKey: "thrifty", flawKey: "", stamina: 1 } })
+      })
+      const charR = await db.soulCharacter.findUniqueOrThrow({ where: { playerId: pidR } })
+      ok(rechargeCostPer(charR) === 108, "V19-7d: thrifty → per-unit cost 108 (120 × 0.9)")
+      const money0 = (await db.player.findUniqueOrThrow({ where: { id: pidR } })).money
+      const { rechargeStamina } = await import("../../src/lib/game/character")
+      const pR = await db.player.findUniqueOrThrow({ where: { id: pidR } })
+      const rc = await rechargeStamina(pR, charR, 1)
+      const money1 = (await db.player.findUniqueOrThrow({ where: { id: pidR } })).money
+      ok(rc.ok !== undefined && money0 - money1 === 108, "V19-7d: recharge actually charged 108 (hook live)", `delta=${money0 - money1}`)
+    }
+
+    // V19-8 — خلاصه‌ی سبک + کارتِ عمومی: طبع و تراشه‌ی داستان همه‌جا
+    {
+      const uPub = tid(80)
+      await post("/api/auth", { telegramId: uPub, name: "عمومی‌سنج" })
+      await post("/api/game/character", { telegramId: uPub, action: "create", payload: { name: "فمبوی عمومی", classKey: "summoner", personaKey: "prickly" } })
+      const pidPub = await pidOf(uPub)
+      const { femboySummaryDTO } = await import("../../src/lib/game/character")
+      const sum = femboySummaryDTO(await db.soulCharacter.findUniqueOrThrow({ where: { playerId: pidPub } }))
+      ok(sum.persona?.key === "prickly" && (sum.storyChip ?? "").includes("فصلِ"), "V19-8: FemboySummaryDTO carries persona + storyChip", sum.storyChip ?? "-")
+      const pubCard = await get<{ card: { persona: { key: string } | null; talent: { key: string } | null } | null }>(`/api/game/character?targetTelegramId=${uPub}`)
+      ok(pubCard.body.data?.card?.persona?.key === "prickly" && Boolean(pubCard.body.data?.card?.talent), "V19-8: public card exposes persona + talent (identity is public)")
+    }
+
+    // V19-9 — «مرورِ خاطره» داستان را زنده نگه می‌دارد
+    {
+      const uM = tid(81)
+      await post("/api/auth", { telegramId: uM, name: "خاطره‌سنج" })
+      await post("/api/game/character", { telegramId: uM, action: "create", payload: { name: "فمبوی خاطره", classKey: "trickster", personaKey: "noble" } })
+      await post("/api/game/character", { telegramId: uM, action: "story", payload: { op: "choose", choice: 0 } })
+      const mem = await post<{ message: string }>("/api/game/character", { telegramId: uM, action: "interact", payload: { kind: "memory" } })
+      ok((mem.body.data?.message ?? "").length > 40, "V19-9: memory interact returns narrative")
+      // خاطره‌ی story در پنجره‌ی ۵تایی ظاهر می‌شود (outcome واقعی)
+      const pidM = await pidOf(uM)
+      const logsM = await db.characterLog.findMany({ where: { characterId: (await db.soulCharacter.findUniqueOrThrow({ where: { playerId: pidM } })).id }, orderBy: { createdAt: "desc" }, take: 5 })
+      ok(logsM.some((l) => l.type === "story"), "V19-9: story memory lands inside the 5-slot memory window")
+    }
   }
 }
 

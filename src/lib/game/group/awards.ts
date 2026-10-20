@@ -18,9 +18,9 @@
 import type { Player, Prisma } from "@prisma/client"
 import { clamp } from "../rng"
 import { applyMoney } from "../economy"
-import { parseFlags, serializeFlags } from "../helpers"
+import { parseFlags, serializeFlags, faDigits } from "../helpers"
 import { getClass } from "../content/classes"
-import { awardXpTx, awardMasteryTx } from "../character"
+import { awardXpTx, awardMasteryTx, affinityOf, resolvePersonaChain } from "../character"
 
 /** دستگیره‌ی دیتابیس — تراکنش یا کلاینتِ عادی (ساختاریاً هر دو پذیرفته می‌شوند) */
 export type AwardDb = Prisma.TransactionClient
@@ -77,6 +77,8 @@ export interface SoulProgressResult {
   /** مسیرِ XP که روی آن نوشتیم (xpBias.secondary کلاس) — برای خطِ کارت */
   track: string
   trackLabel: string
+  /** V19 — خطِ استعداد/ضعفِ «XPِ شهرِ گروه» برای کارتِ نتیجه (خالی = بی‌اثر) */
+  talentLine: string
 }
 
 /** اهدای پیشرفتِ فمبوی از زندگیِ گروه — XP رویِ مسیرِ ثانویه‌ی کلاس (+ تسلطِ رویدادی).
@@ -101,7 +103,18 @@ export async function awardSoulProgress(
   const raw = (flags as Record<string, unknown>)["soulGroupXp"]
   const cur = raw && typeof raw === "object" && typeof (raw as SoulGroupXpFlag).day === "string" ? (raw as SoulGroupXpFlag) : null
   const used = cur && cur.day === today && typeof cur.xp === "number" && cur.xp > 0 ? cur.xp : 0
-  const applied = Math.max(0, Math.min(Math.round(opts.soulXp), SOUL_GROUP_XP_DAY_CAP - used))
+  // V19 — استعداد/ضعفِ «XPِ شهرِ گروه»: بونوس قبل از سقف اعمال می‌شود — سقف مرجع می‌ماند
+  const aff = affinityOf(char)
+  let talentLine = ""
+  const groupXp = Math.round(opts.soulXp * (1 + aff.group / 100))
+  if (aff.group !== 0 && groupXp > 0) {
+    const chain = resolvePersonaChain(char)
+    talentLine =
+      aff.group > 0
+        ? `🎪 استعدادِ ${chain.talent.emoji} «${chain.talent.name}» XPِ شهرِ گروه را ${faDigits(aff.group)}% بیشتر کرد.`
+        : `🙈 ضعفِ ${chain.flaw.emoji} «${chain.flaw.name}» XPِ شهرِ گروه را ${faDigits(Math.abs(aff.group))}% کمتر کرد.`
+  }
+  const applied = Math.max(0, Math.min(groupXp, SOUL_GROUP_XP_DAY_CAP - used))
   if (applied > 0) {
     ;(flags as Record<string, unknown>)["soulGroupXp"] = { day: today, xp: used + applied } satisfies SoulGroupXpFlag
     await tx.player.update({ where: { id: player.id }, data: { flags: serializeFlags(flags) } })
@@ -128,6 +141,7 @@ export async function awardSoulProgress(
     masteryApplied,
     track,
     trackLabel: TRACK_LABELS_FA[track] ?? track,
+    talentLine,
   }
 }
 
