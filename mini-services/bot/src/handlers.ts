@@ -46,6 +46,7 @@ import {
   titlesKeyboard,
   withMiniApp,
   type Callback,
+  type HomeTab,
 } from "./keyboards"
 import {
   countGroupPulse,
@@ -122,7 +123,7 @@ import {
   goalsText,
   guideText,
   historyText,
-  homeText,
+  homeTabText,
   jobsText,
   livingConfirmText,
   livingText,
@@ -240,7 +241,10 @@ async function artFile(name: string): Promise<InputFile | null> {
 /** سقفِ کپشنِ تلگرام — ۱۰۲۴؛ با حاشیه ۱۰۰۰ و برشِ امنِ تگ + رقم‌های انگلیسی */
 const cap = (text: string): string => safeCut(toLatinDigits(text), 1000)
 
-/** کارتِ عکسی با fallbackِ متنی — بدونِ عکس (یا اگر ارسال شکست خورد) همان show() */
+/** کارتِ عکسی با fallbackِ متنی — V26: در بافتِ کال‌بک ابتدا ویرایشِ درجا
+ *  (کپشنِ پیامِ عکسی، بعد متنِ پیامِ متنی) و در آخر پیامِ تازه. یعنی تب‌ها
+ *  روی کارتِ عکسیِ /start هم «همان پیام» را عوض می‌کنند — نه رساندنِ کارتِ تازه.
+ *  بدونِ عکس (یا شکستِ ارسال) همان show(). */
 async function sendPhotoCard(
   ctx: Context,
   file: InputFile | null,
@@ -250,6 +254,30 @@ async function sendPhotoCard(
   if (!file) {
     await show(ctx, caption, kb)
     return
+  }
+  if (ctx.callbackQuery) {
+    // پیامِ فعلی عکسی است؟ کپشنش ویرایش می‌شود؛ متنی است؟ متنش (بدونِ آرت)
+    // (امضایِ Bot API در grammy: caption داخلِ other می‌نشیند — رشته‌ی موقعیتی نه)
+    const capChatId = ctx.chat?.id
+    const capMsgId = ctx.callbackQuery.message?.message_id
+    if (capChatId !== undefined && capMsgId !== undefined) {
+      try {
+        await ctx.api.editMessageCaption(capChatId, capMsgId, {
+          caption: cap(caption),
+          parse_mode: "HTML",
+          reply_markup: kb,
+        })
+        return
+      } catch {
+        /* پیامِ متنی است یا ویرایشِ کپتن ممکن نیست — مسیرِ متن */
+      }
+    }
+    try {
+      await ctx.editMessageText(safeCut(toLatinDigits(caption), 4000), { parse_mode: "HTML", reply_markup: kb })
+      return
+    } catch {
+      /* پیام عوض نشد — پیامِ تازه می‌فرستیم */
+    }
   }
   try {
     await ctx.replyWithPhoto(file, { caption: cap(caption), parse_mode: "HTML", reply_markup: kb })
@@ -267,7 +295,7 @@ async function sendPhotoCard(
  *  اهداف/اپ هیچ‌وقت میان‌برهای ثابت را نمی‌دیدند (ممیزی V20-ب: مسیرِ یتیم). */
 async function sendReplyKeyboard(ctx: Context): Promise<void> {
   try {
-    await ctx.reply("🎛 <b>میان‌برهای ثابَتت</b>\nهمیشه پیشِ روی‌ات‌اند — لمسشان کن، یا برای شهر چیزی بنویس…", {
+    await ctx.reply("🎛 <b>میان‌برهای ثابَتت</b>\nدو ردیفِ همیشه‌حاضر — هویت و امروز، کنش و مقصد. برای شهرِ گروه چیزی بنویس…", {
       parse_mode: "HTML",
       reply_markup: replyKeyboard(),
     })
@@ -355,9 +383,10 @@ export async function handleStart(ctx: Context): Promise<void> {
       prefix += `🕰 <b>چه خبر شده؟</b>\n${expand(`در نبودت…\n${body}`)}\n\n`
     }
     const guide = await fetchGuide(tgId(ctx))
-    const caption = prefix + homeText({ name: name ?? "غریبه", snapshot: res.snapshot, guide })
+    // V26 — بازیکنِ برگشته: تبِ «امروز» (داشبوردِ فشرده) + آرتِ کلاسِ فمبوی‌اش
+    const caption = prefix + homeTabText("dash", { name: name ?? "غریبه", snapshot: res.snapshot, guide })
     const file = (await classArt(res.snapshot.femboy.classKey)) ?? (await artFile("hero-banner.jpg"))
-    await sendPhotoCard(ctx, file, withHint(caption, "home"), homeKeyboard())
+    await sendPhotoCard(ctx, file, withHint(caption, "home"), homeKeyboard("dash"))
   }
 
   // کیبوردِ ثابتِ خصوصی — جدا از پیامِ پیشخوان (کارتِ عکس، کیبوردِ inline دارد؛
@@ -368,24 +397,24 @@ export async function handleStart(ctx: Context): Promise<void> {
 
 // ─── پیشخوان / «زندگیِ من» ──────────────────────────────────────────────────────
 
-export async function sendHome(ctx: Context, seedSnapshot?: GameSnapshot): Promise<void> {
+// V26 — هابِ اصلی حالا کنترل‌پنلِ سه‌تبی است (امروز/فمبوی/شهر): محتوای همان
+// پیام با تب عوض می‌شود (show() روی callback ویرایشِ درجاست) — بدونِ پیامِ تازه.
+export async function sendHome(ctx: Context, tab: HomeTab = "dash", seedSnapshot?: GameSnapshot): Promise<void> {
   const id = tgId(ctx)
-  const guide = await fetchGuide(id)
-  const snapshot = seedSnapshot ?? (await fetchSnapshot(id))
+  const [guide, fetched] = await Promise.all([fetchGuide(id), seedSnapshot ? null : fetchSnapshot(id)])
+  const snapshot = seedSnapshot ?? fetched
   if (!guide && !snapshot) {
     await show(ctx, `⚠️ ${CITY_UNREACHABLE}`, errorKeyboard())
     return
   }
   const name = ctx.from?.first_name || ctx.from?.username || "غریبه"
-  // V12 — پیشخوانِ عکسی (الگویِ هابِ /femboy): آرتِ کلاسِ فمبویِ بازیکن + کپشنِ داشبورد؛
-  // بدونِ فمبوی (یا بدونِ عکس) همان کارتِ متنی می‌ماند.
-  const caption = homeText({ name, snapshot, guide })
-  // V24 — آرتِ پیمان مالِ لحظه‌ی خوش‌آمدِ /start است؛ منو کارتِ متنیِ داشبورد می‌ماند
-  // (بدونِ فمبوی تصویری نمی‌آید — همان متنِ صادقانه).
-  const file = snapshot?.femboy?.classKey
-    ? ((await classArt(snapshot.femboy.classKey)) ?? (await artFile("hero-banner.jpg")))
-    : null
-  await sendPhotoCard(ctx, file, withHint(caption, "home"), homeKeyboard())
+  const caption = homeTabText(tab, { name, snapshot, guide })
+  // تبِ فمبوی کارتِ عکسیِ خودش را دارد (آرتِ کلاسِ فمبوی) — بقیه‌ی تب‌ها متنی
+  const file =
+    tab === "fem" && snapshot?.femboy?.classKey
+      ? ((await classArt(snapshot.femboy.classKey)) ?? (await artFile("hero-banner.jpg")))
+      : null
+  await sendPhotoCard(ctx, file, withHint(caption, "home"), homeKeyboard(tab))
 }
 
 // ─── 🎯 قدمِ بعدی ────────────────────────────────────────────────────────────
@@ -643,7 +672,7 @@ async function outcomeShow(ctx: Context, text: string, extras?: { label: string;
   if (!na) {
     const kb0 = new InlineKeyboard()
     for (const b of extras ?? []) kb0.text(clampText(b.label, 30), b.data).primary().row()
-    kb0.text("↩ خانه", CB.menu)
+    kb0.text("🏠 خانه", CB.menu)
     await showOutcome(ctx, text, kb0)
     return
   }
@@ -651,7 +680,7 @@ async function outcomeShow(ctx: Context, text: string, extras?: { label: string;
   const kb = new InlineKeyboard()
   kb.text(`🧭 ${clampText(na.actionLabel || na.title, 30)}`, CB.nextGo).primary().row()
   for (const b of extras ?? []) kb.text(clampText(b.label, 30), b.data).primary().row()
-  kb.text("↩ خانه", CB.menu)
+  kb.text("🏠 خانه", CB.menu)
   await showOutcome(ctx, full, kb)
 }
 
@@ -1066,7 +1095,7 @@ async function showGambleConfirm(ctx: Context, stake: number): Promise<void> {
         "",
         `🚫 جیب دیگر نمی‌کشد — سقفِ الان ${chip(bingoCap(p.money))} سکه است. ${chip("کار")} کن، بعد بیا.`,
       )
-      kb = new InlineKeyboard().text("🎲 بینگو", CB.bingo).danger().row().text("↩ خانه", CB.menu).primary()
+      kb = new InlineKeyboard().text("🎲 بینگو", CB.bingo).danger().row().text("🏠 خانه", CB.menu).primary()
     }
     await show(ctx, lines.join("\n"), kb)
   } catch (e) {
@@ -1185,7 +1214,7 @@ async function cityCommandsInPrivate(ctx: Context): Promise<void> {
   if (MINIAPP_URL) kb.url("📱 Femboy War", MINIAPP_URL).primary()
   // V20 (ممیزی V20-ف: دو «شهر» یک مقصد) — سفرِ محلی از همین کارت هم باز می‌شود
   kb.text("🗺 سفرِ بین محله‌ها", CB.city).primary()
-  kb.text("↩ خانه", CB.menu)
+  kb.text("🏠 خانه", CB.menu)
   await show(ctx, lines.join("\n"), kb)
 }
 
@@ -1237,7 +1266,7 @@ export async function showSettings(ctx: Context): Promise<void> {
     kb.text("💼 شغل‌ها", CB.jobs).row()
     if (MINIAPP_URL) kb.webApp("✏️ ویرایش نام و آواتار", MINIAPP_URL).primary().row()
     kb.text("👤 من", CB.me)
-    kb.text("↩ خانه", CB.menu)
+    kb.text("🏠 خانه", CB.menu)
     await show(ctx, lines.join("\n"), kb)
   } catch (e) {
     await fail(ctx, e)
@@ -1250,6 +1279,8 @@ async function dispatch(ctx: Context, cb: Callback): Promise<void> {
   switch (cb.kind) {
     case "menu":
       return sendHome(ctx)
+    case "tab":
+      return sendHome(ctx, cb.tab)
     case "event":
       return showEvent(ctx)
     case "me":
@@ -1561,7 +1592,7 @@ async function privateFallback(ctx: Context): Promise<void> {
   kb.text("🎯 قدمِ بعدی", CB.guide).primary()
   kb.text("🎲 اتفاقِ امروز", CB.event).primary().row()
   kb.text("📖 راهنما", CB.help).primary()
-  kb.text("↩ خانه", CB.menu)
+  kb.text("🏠 خانه", CB.menu)
   await show(ctx, fallbackCardText(`${key}:${Math.floor(Date.now() / 60_000)}`, guideHeadline), kb)
 }
 

@@ -197,109 +197,161 @@ export function deltaLines(deltas: DeltaLine[]): string[] {
     })
 }
 
-// ─── پیشخوان / «زندگیِ من» ─────────────────────────────────────────────────────
+// ─── پیشخوان / «زندگیِ من» — V26: کنترل‌پنلِ سه‌تبی (امروز/فمبوی/شهر) ───────────
 
-/** پیام پیشخوانِ V11 — فمبوی اول، بعد بازیکن/جهان، بعد راهنما.
- *  خطِ هویتِ فمبوی از snapshot.femboy می‌آید و در /start و /menu و 🔙 پیشخوان یکسان است. */
-export function homeText(opts: {
-  name: string
-  snapshot: GameSnapshot | null
-  guide: GuideResponse | null
-}): string {
+/** تبِ فعالِ هاب — کپیِ محلیِ HomeTab (keyboards.ts هم همین اجتماع را دارد؛
+ *  import نکردیم تا چرخه‌ی ماژول نشود — keyboards از format می‌خواند). */
+export type HomeTabId = "dash" | "fem" | "city"
+
+/** گزینه‌های تب — برچسبِ دکمه + نامِ فارسی برای زیرعنوانِ کارت */
+const HOME_TABS: { id: HomeTabId; label: string }[] = [
+  { id: "dash", label: "امروز" },
+  { id: "fem", label: "فمبوی" },
+  { id: "city", label: "شهر" },
+]
+
+/** نوارِ تب — بالای هر کارتِ هاب؛ تبِ فعال با ● نشان می‌شود */
+export function homeTabBar(tab: HomeTabId): string {
+  return HOME_TABS.map((t) => (t.id === tab ? `● ${t.label}` : t.label)).join("  ·  ")
+}
+
+/** هدرِ مشترکِ کارت‌های هاب: نوارِ تب + نشان */
+function homeHeader(tab: HomeTabId): string[] {
+  const t = HOME_TABS.find((x) => x.id === tab) ?? HOME_TABS[0]!
+  return ["🎀 <b>FEMBOY WAR</b>", `<i>کنترل‌پنلِ زندگی — تبِ ${t.label}</i>`, homeTabBar(tab), emblem("🎀"), ""]
+}
+
+/** تبِ «امروز» — داشبوردِ فشرده: یک خطِ فمبوی، دو نوارِ حیاتی، «الان» زیرِ quote.
+ *  V26: از پیشخوانِ بلندِ دیروز (۱۸+ خط) به داشبوردِ اسکن‌پذیر — چهار پرسشِ
+ *  هاب (کجایم/چه می‌گذرد/الان چه کنم/کجا بروم) هرکدام یک بلوکِ کوتاه. */
+export function homeDashText(opts: { name: string; snapshot: GameSnapshot | null; guide: GuideResponse | null }): string {
   const { snapshot, guide } = opts
   const p = snapshot?.player ?? null
-  const w = snapshot?.world ?? null
   const f = snapshot?.femboy ?? null
   const name = p?.name ?? opts.name
+  const lines: string[] = homeHeader("dash")
 
-  const lines: string[] = ["🎀 <b>FEMBOY WAR</b>", "<i>خانه‌ی زندگی</i>", emblem("🎀"), ""]
-
-  // V17-W2 (§4/§6، آینه‌ی پنلِ متمرکزِ مینی‌اپ): بازیکنِ پیش از پیمان یک صدایِ اصلی
-  // می‌خواهد، نه یازده دکمه‌ی هم‌وزن. یک خطِ «قدمِ بعدی» بالای کارت — همان الگویِ
-  // بنرِ هابِ فمبوی (V17-3) — فقط دکمه‌ای را تبلیغ می‌کند که همین کارت دارد (§16).
   const journeyStage = snapshot?.journey?.stage
   const preBound = journeyStage ? journeyStage === "new" || journeyStage === "awakened" : !f
   if (preBound) {
-    lines.push(`🌱 <b>قدمِ بعدیِ تو:</b> پیمانِ فمبوی را ببند — دکمه‌ی «🎀 فمبویِ من» همین کارت است.`)
+    lines.push(`🌱 <b>قدمِ بعدیِ تو:</b> پیمانِ فمبوی را ببند — دکمه‌ی «🎀 فمبوی» همین کارت است.`)
     lines.push("")
   }
 
-  // فمبوی — هویتِ مرکزیِ بازیکن، اول از همه
+  // فمبوی — یک خطِ هویت + دو نوارِ حیاتی (اسکنِ نیم‌ثانیه‌ای)
   if (f) {
     const accPart = f.accessoryEmoji ? ` ${f.accessoryEmoji}` : ""
-    lines.push(`👑 <b>فمبویِ تو: ${esc(f.name)}${accPart}</b>`)
-    lines.push(
-      `${f.classEmoji} ${esc(f.className)} · ${f.rank.emoji} ${esc(f.rank.name)} · سطح ${chip(f.level)}`,
-    )
-    if (f.mastery) {
-      lines.push(`🎓 ${f.mastery.emoji} ${esc(f.mastery.label)} — تسلطِ سطحِ ${chip(f.mastery.level)}`)
-    }
-    lines.push("")
+    lines.push(`👑 <b>${esc(f.name)}${accPart}</b> · ${f.classEmoji} ${esc(f.className)} · سطح ${chip(f.level)}`)
     lines.push(`${barRow("❤️", "روحیه", f.spirit, 100)} · ${f.condition.emoji} ${esc(f.condition.label)}`)
     lines.push(barRow("⚡", "استقامت", f.stamina, f.staminaMax, `${faNum(f.stamina)}/${faNum(f.staminaMax)}`))
-    lines.push(`🤝 جنگ ${chip(`${faNum(f.wins)}W/${faNum(f.losses)}L`)}`)
-    if (f.nextMilestone) {
-      lines.push(`🎯 ${esc(clampText(f.nextMilestone, 90))}`)
-    }
     if (f.skillPoints > 0) {
       lines.push(`✨ ${chip(f.skillPoints)} نقطه‌مهارتِ بی‌استفاده — با ${chip("پیمان فمبوی")} خرجشان کن`)
     }
   } else if (p) {
-    lines.push(`👑 فمبوی نداری — ${chip("پیمان فمبوی")} را بگو و ببندش.`)
-    lines.push("<i>شهر بدونِ او زندگی‌ات را جدی نمی‌گیرد.</i>")
+    lines.push(`👑 فمبوی نداری — دکمه‌ی «🎀 فمبوی» همین کارت پیمان را باز می‌کند.`)
   }
 
   lines.push("", DOTS, "")
 
-  // بازیکن و جهان — V24: انرژی نوارِ خودش را می‌گیرد (تصمیمِ روزانه دیده می‌شود)
+  // بازیکن — وضعیتِ روز در دو خط
   const stage = guide?.stage ?? p?.stageBadge ?? null
   lines.push(`👤 <b>${esc(name)}</b>${stage ? ` · ${stage.emoji} ${esc(stage.name)}` : ""}`)
   if (p) {
     lines.push(
-      `📍 ${p.districtEmoji} ${esc(p.districtName)} · روز ${chip(p.day)}${w ? ` · ${w.weatherEmoji} ${esc(w.weatherLabel)}` : ""}`,
+      `📍 ${p.districtEmoji} ${esc(p.districtName)} · 💰 ${chip(p.money)} سکه${p.debt > 0 ? ` · 💳 ${chip(p.debt)} بدهی` : ""}`,
     )
-    lines.push(
-      `💰 ${chip(p.money)} سکه${p.debt > 0 ? ` · 💳 ${chip(p.debt)} بدهی` : ""}`,
-    )
-    lines.push(`${barRow("⚡", "انرژی", p.energy, 100)} · 🌀 ${chip(p.chaos)} · ⭐ ${chip(p.fame)}`)
+    lines.push(`${barRow("⚡", "انرژی", p.energy, 100)} · 🤝 جنگ ${chip(`${faNum(f?.wins ?? 0)}W/${faNum(f?.losses ?? 0)}L`)}`)
   }
 
-  // راهنما — «الان چه کنم؟» زیرِ پرده‌ی نقل‌قول: صدایِ شهر با حاشیه‌ی خودش (V24)
+  // «الان» — صدایِ راهنما زیرِ پرده‌ی نقل‌قول (فشرده‌تر از دیروز)
   lines.push("", emblem("📌"), "")
   const guideLines: string[] = []
   if (guide) {
     guideLines.push(`📌 <b>الان:</b> ${esc(clampText(guide.headline, 120))}`)
-    const dir = guide.direction
-    if (dir) {
-      guideLines.push(`🎯 <b>مسیرِ فعلی:</b> ${dir.emoji} ${esc(dir.name)}`)
-      guideLines.push(`<i>${esc(clampText(dir.description, 80))}</i>`)
-    } else {
-      const g0 = guide.goals.find((g) => g.category === "immediate") ?? guide.goals[0]
-      guideLines.push(
-        g0
-          ? `🎯 <b>مسیرِ فعلی:</b> ${g0.icon} ${esc(clampText(g0.title, 48))}`
-          : `🎯 <b>مسیرِ فعلی:</b> هنوز مسیر نساخته‌ای — ${chip("قدمِ بعدی")}`,
-      )
-    }
     const top = guide.opportunities[0]
     guideLines.push(
       top
         ? `⚡ <b>فرصت:</b> ${top.icon} ${esc(clampText(top.title, 48))} · ⏳ ${chip(top.minutesLeft)} دقیقه${riskMark(top.claimStyle)}`
         : `⚡ <b>فرصت:</b> فعلاً ساکت است…`,
     )
-  } else if (p && w) {
-    // موتور V4 هنوز guide ندارد — نمای ساده‌تر از snapshot
-    const now = snapshot?.activeEvent
+  } else if (p && snapshot?.world) {
+    const w = snapshot.world
+    const now = snapshot.activeEvent
       ? `${snapshot.activeEvent.emoji} ${esc(clampText(snapshot.activeEvent.title, 60))}`
       : w.globalEvent
         ? `${w.globalEvent.emoji} ${esc(w.globalEvent.name)}`
-        : "شهر نفس تازه می‌کند…"
+        : "شهر نفس تازه می‌کشد…"
     guideLines.push(`📌 <b>الان:</b> ${now}`)
-    guideLines.push(`🎯 <b>مسیرِ فعلی:</b> هنوز مسیر نساخته‌ای — ${chip("قدمِ بعدی")} را بپرس.`)
-    guideLines.push(`⚡ <b>فرصت:</b> فعلاً ساکت است…`)
   }
   if (guideLines.length > 0) lines.push(quote(guideLines.join("\n")))
   return lines.join("\n")
+}
+
+/** تبِ «فمبوی» — کارتِ هویتِ کاملِ فمبوی: کلاس/رتبه/تسلط/جنگ/قدمِ بعدیِ رشد.
+ *  V26: نمایِ وضعیتِ فمبوی (مأموریت §3.D «Femboy character and status views»)
+ *  حالا تبِ خودش را دارد — دیروز این داده‌ها فقط در هابِ عمیقِ fw:hub بودند. */
+export function homeFemText(opts: { snapshot: GameSnapshot | null }): string {
+  const f = opts.snapshot?.femboy ?? null
+  const lines: string[] = homeHeader("fem")
+  if (!f) {
+    lines.push("👑 هنوز فمبوی نداری.")
+    lines.push("", quote("<i>در این جهان یعنی هنوز شروع نکردی. دکمه‌ی «🎀 هابِ کاملِ فمبوی» پیمان را باز می‌کند.</i>"))
+    return lines.join("\n")
+  }
+  const accPart = f.accessoryEmoji ? ` ${f.accessoryEmoji}` : ""
+  lines.push(`👑 <b>${esc(f.name)}${accPart}</b>`)
+  lines.push(`${f.classEmoji} ${esc(f.className)} · ${f.rank.emoji} ${esc(f.rank.name)} · سطح ${chip(f.level)}`)
+  if (f.mastery) {
+    lines.push(`🎓 ${f.mastery.emoji} ${esc(f.mastery.label)} — تسلطِ سطحِ ${chip(f.mastery.level)}`)
+  }
+  lines.push("")
+  lines.push(`${barRow("❤️", "روحیه", f.spirit, 100)} · ${f.condition.emoji} ${esc(f.condition.label)}`)
+  lines.push(barRow("⚡", "استقامت", f.stamina, f.staminaMax, `${faNum(f.stamina)}/${faNum(f.staminaMax)}`))
+  lines.push(`🤝 جنگ ${chip(`${faNum(f.wins)}W/${faNum(f.losses)}L`)}`)
+  lines.push("", DOTS, "")
+  if (f.nextMilestone) {
+    lines.push(`🎯 <b>قدمِ بعدیِ رشد:</b> ${esc(clampText(f.nextMilestone, 90))}`)
+  }
+  if (f.skillPoints > 0) {
+    lines.push(`✨ ${chip(f.skillPoints)} نقطه‌مهارتِ بی‌استفاده — با ${chip("پیمان فمبوی")} خرجشان کن`)
+  }
+  lines.push("", quote("<i>مهارت‌ها، تعامل، شکار و داستانِ شخصی — همه در هابِ کاملِ فمبوی.</i>"))
+  return lines.join("\n")
+}
+
+/** تبِ «شهر» — وضعیتِ محله/هوا/آشوب + پلِ سفر و شهرِ گروه.
+ *  V26: «کجا بروم» حالا تبِ خودش را دارد؛ دیروز این داده‌ها فقط در کارتِ شهرِ جدا بود. */
+export function homeCityText(opts: { snapshot: GameSnapshot | null }): string {
+  const s = opts.snapshot
+  const lines: string[] = homeHeader("city")
+  if (!s?.player) {
+    lines.push("🌍 شهر هنوز برایت باز نشده — با «شروع» شروع کن.")
+    return lines.join("\n")
+  }
+  const p = s.player
+  const w = s.world
+  lines.push(`📍 الان اینجایی: ${p.districtEmoji} <b>${esc(p.districtName)}</b>`)
+  if (w) {
+    lines.push(`${w.weatherEmoji} ${esc(w.weatherLabel)} · روز ${chip(p.day)}`)
+    lines.push(barRow("🌀", "آشوبِ شهر", w.chaosLevel, 100))
+    if (w.globalEvent) {
+      lines.push(`${w.globalEvent.emoji} <b>${esc(clampText(w.globalEvent.name, 60))}</b>`)
+    }
+  }
+  lines.push("", DOTS, "")
+  lines.push(
+    `🗺 ${chip("سفرِ بین محله‌ها")} — هر محله اتفاقاتِ خودش را دارد`,
+    `👥 ${chip("شهرِ گروه")} — ربات را به گروه دعوت کن؛ شهرِ مشترک زنده می‌شود`,
+  )
+  lines.push("", quote("<i>مقصد را از دکمه‌های پایین انتخاب کن.</i>"))
+  return lines.join("\n")
+}
+
+/** رابطِ کارتِ هاب — تب را به سازنده‌ی خودش می‌رساند (handlers.sendHome) */
+export function homeTabText(tab: HomeTabId, opts: { name: string; snapshot: GameSnapshot | null; guide: GuideResponse | null }): string {
+  if (tab === "fem") return homeFemText({ snapshot: opts.snapshot })
+  if (tab === "city") return homeCityText({ snapshot: opts.snapshot })
+  return homeDashText(opts)
 }
 
 // ─── ⚡ فعالیت‌ها (V20 — مقصدِ «انجامِ کارِ مفید»: کار/استراحت/سفر/شغل) ───────────
@@ -502,6 +554,8 @@ export function profileText(p: ProfileResponse, g: GuideResponse | null): string
   }
   lines.push(emblem("👤"), "")
 
+  // V26 — برچسب‌های بخش: کارنامه از این‌جا با عنوانِ بخش خوانده می‌شود
+  lines.push("🪪 <b>جایگاه</b>", "")
   if (g) {
     const st = g.stage
     const nextPart = st.nextName
@@ -526,7 +580,7 @@ export function profileText(p: ProfileResponse, g: GuideResponse | null): string
     }
   }
 
-  lines.push("", SEP, "")
+  lines.push("", SUB, "", "🏠 <b>دارایی</b>", "")
   const assets = [
     pl.house ? `${pl.house.emoji} ${esc(pl.house.name)}` : "🏠 بی‌خانمان",
     pl.job ? `${pl.job.emoji} ${esc(pl.job.name)}` : "💼 بیکار",
@@ -680,11 +734,12 @@ export function outcomeText(o: OutcomeDTO): string {
   return lines.join("\n")
 }
 
-/** پیام کار/سفر/استراحت/فرصت: «✅ {message}\n{flavor}\n{deltas}» */
+/** پیام نتیجه‌ی کنش — V26 (بازسازی §3.D): قالبِ «کارتِ نتیجه» با هدرِ صریح:
+ *  عنوانِ «نتیجه» + نشان → پیامِ اصلی زیرِ بلوکِ نقل‌قول (از روایت جدا) →
+ *  طعمِ شهر ایتالیک → دلتاها. دیروز پیامِ خامِ بی‌هدر اولِ کارت بود. */
 export function actionText(res: ActionResponse): string {
-  // V24 — کارتِ لحظه هم نشانِ خودش را دارد؛ طعمِ کار در نقل‌قول
-  const lines: string[] = [`✅ <b>${esc(res.message)}</b>`, emblem("✅")]
-  if (res.flavor) lines.push("", quote(`<i>${esc(clampText(res.flavor, 200))}</i>`))
+  const lines: string[] = ["✅ <b>نتیجه</b>", emblem("✅"), "", quote(`<b>${esc(res.message)}</b>`)]
+  if (res.flavor) lines.push("", `<i>${esc(clampText(res.flavor, 200))}</i>`)
   if (res.deltas.some((d) => d.amount !== 0)) lines.push("", ...deltaLines(res.deltas))
   return lines.join("\n")
 }
@@ -1088,8 +1143,8 @@ export function marketSellText(
 ): string {
   // V24 — نشانِ 🛍؛ جمله‌ی راهنما ایتالیک و بالای نشان نشست
   const lines: string[] = [
-    "🛍 <b>چه چیزی را به فروش بگذاری؟</b>",
-    "<i>چیزی از کیفت را برای فروش بگذار — آگهی‌ات بینِ آگهی‌های مردم می‌نشیند.</i>",
+    "🛍 <b>به فروش بگذار</b>",
+    "<i>گام ۱ از ۳ — انتخابِ جنس؛ بعد قیمت، بعد آگهی</i>",
     emblem("🛍"),
     "",
   ]
@@ -1118,7 +1173,7 @@ export function marketPriceText(
   // V24 — نشانِ 🏷 (برچسبِ قیمت)؛ همان اعدادِ صادقانه، چیدمانِ تازه
   const lines: string[] = [
     "🏷 <b>قیمتِ آگهی</b>",
-    "<i>قیمتِ خودت را انتخاب کن — یا پیشنهادِ شهر را</i>",
+    "<i>گام ۲ از ۳ — قیمت‌گذاری؛ لمسِ قیمت = ثبتِ آگهی</i>",
     emblem("🏷"),
     "",
     `${item.emoji} <b>${esc(item.name)}</b> ${chip(`x${faNum(1)}`)} — از ${chip(faNum(item.quantity))} عددِ کیفت`,

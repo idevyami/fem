@@ -109,25 +109,29 @@ function sideInfoOf(player: Player, char: SoulCharacter): DuelSideInfo {
  *  طرف + مهلتِ جواب زیرِ بلوکِ نقل‌قولی (چشم را می‌گیرد). */
 export function invitationCardText(a: DuelSideInfo, b: DuelSideInfo, minutes: number): string {
   const mm = String(minutes).padStart(2, "0")
+  // V26 (بازسازی §4.D — کیبورد/کارتِ تعاملِ اشتراکیِ گروه): کارتِ دعوت حالا
+  // «اسکورکارتِ دو ستونه» است — هر طرف یک بلوکِ یکسانِ ۳خطی (فمبوی/کلاس/سطح)
+  // با نشانگرِ 🔴 آغازگر / 🔵 مدعو؛ خطِ VS وسط؛ مالکیتِ دکمه‌ها (§4.C) و هزینه
+  // آخرِ کارت. دیروز دو بلوکِ ناهم‌اندازه با تکرارِ سطحِ جدا بود.
   return [
     "⚔️ <b>دعوتِ دوئل</b>",
     emblem("⚔️"),
     "",
-    `${a.classEmoji} <b>${esc(a.femboyName)}</b> · ${esc(a.className)}`,
-    `سطح ${chip(a.level)}`,
+    `🔴 ${a.classEmoji} <b>${esc(a.femboyName)}</b> — آغازگر`,
+    `${esc(a.className)} · سطح ${chip(a.level)}`,
     "",
-    `${a.classEmoji} در برابرِ ${b.classEmoji}`,
+    "⚡ <b>در برابرِ</b> ⚡",
     "",
-    `${b.classEmoji} <b>${esc(b.femboyName)}</b> · ${esc(b.className)}`,
-    `سطح ${chip(b.level)}`,
+    `🔵 ${b.classEmoji} <b>${esc(b.femboyName)}</b> — مدعو`,
+    `${esc(b.className)} · سطح ${chip(b.level)}`,
     "",
     DOTS,
     "",
     quote(`⏳ مهلتِ جواب: ${chip(`${mm}:00`)}`),
     spoiler(`جایزه‌ی شهر: ${chip(250)}–${chip(420)} سکه به برنده — به انتخابِ شانس`),
     "",
-    `<i>قبول/رد فقط از ${esc(b.playerName)}؛ پس‌گرفتن فقط از ${esc(a.playerName)}.</i>`,
-    `<i>هر دو فمبوی ${chip(SOUL.DUEL_COST)} استقامت می‌دهند.</i>`,
+    `↩️ قبول/رد فقط از ${esc(b.playerName)} · پس‌گرفتن فقط از ${esc(a.playerName)}.`,
+    `هر دو فمبوی ${chip(SOUL.DUEL_COST)} استقامت می‌دهند.`,
   ].join("\n")
 }
 

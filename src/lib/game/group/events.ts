@@ -168,18 +168,38 @@ export function eventCardText(
 ): string {
   // title/body/label ذخیره‌شده از render() می‌آیند (HTML-safe در نوشتن) — بدون esc دوباره؛
   // نامِ بازیکن خام است → esc در همین‌جا (لایه‌ی امنیت: domain.ts)
-  // V24 «ظاهرِ شهر»: نشانِ رویداد در مرکزِ جداکننده + ردیف‌های ▪ + مهلت زیرِ quote
-  const lines = participants.map((p) => `▪ <b>${esc(p.name)}</b> ← ${p.choiceLabel}`)
-  // کارتِ باز: هدر + نشانِ خودِ رویداد + بدنه‌ی هوادار؛ رسترِ انتخاب‌ها با DOTS از متن جدا می‌شود
-  const who = lines.length
-    ? `\n\n${DOTS}\n\n👥 انتخاب‌ها:\n${lines.join("\n")}`
-    : ""
-  // V18 — خطِ مهلتِ هوشمند: پنجره‌ی ۴۵ تا ۱۲۰ دقیقه‌ای روی خود کارت اعلام می‌شود
-  // (هر رندرِ تازه — تولد یا انتخابِ شهروند — زمانِ مانده را تازه می‌کند)؛
-  // V24 — مهلت حالا بلوکِ وضعیتِ نقل‌قولی است: چشم را می‌گیرد و از روایت جدا می‌شود
+  //
+  // V26 (بازسازی §4.A/§4.B — کارتِ رویدادِ گروهی): ساختارِ معناییِ صریح به‌جای
+  // دیوارِ متن — روایتِ بلند زیرِ پرده‌ی expand جمع می‌شود (نویزِ چتِ پرحرف)؛
+  // رستری از انتخاب‌ها با سقفِ ۵ + شمارنده؛ خطِ «یک انتخاب» قاعده‌ی مشارکت را
+  // از همان کارت می‌گوید (eligible بودن / دوبله‌کردن)؛ مهلت زیرِ quote.
+  const bodyBlock = event.body.length > 280 ? expand(event.body) : event.body
+  const shown = participants.slice(0, 5)
+  const rest = participants.length - shown.length
+  const roster =
+    participants.length > 0
+      ? `\n\n${DOTS}\n\n👥 <b>که انتخاب کرده‌اند</b> (${chip(participants.length)}):\n${shown.map((p) => `▪ <b>${esc(p.name)}</b> ← ${p.choiceLabel}`).join("\n")}${rest > 0 ? `\n<i>… و ${chip(rest)} نفرِ دیگر</i>` : ""}`
+      : ""
   const windowLine = eventWindowLine(event.expiresAt, now)
   const windowBlock = windowLine ? `\n\n${quote(windowLine)}` : ""
-  return `<b>${event.emoji} ${event.title}</b>\n${emblem(event.emoji)}\n\n${event.body}${who}${windowBlock}\n\n<i>هر کس دکمه‌ی خودش را بزند؛ نتیجه برای خودش است. شهر نتیجه‌ی جمعی را هم خواهد دید.</i>`
+  // فشرده‌سازیِ سطرهای خالیِ پشت‌سرهم (الگوی challengeResultCardText) — ریتمِ
+  // «شیشه» حفظ می‌شود ولی دیوارِ خالی نمی‌افتد وقتی roster/window خالی‌اند
+  const parts = [
+    `<b>${event.emoji} ${event.title}</b>`,
+    emblem(event.emoji),
+    "",
+    bodyBlock,
+    roster,
+    windowBlock,
+    "",
+    "<i>هر شهروندِ این شهر یک انتخاب دارد — نتیجه برای خودش؛ شهر نتیجه‌ی جمعی را هم خواهد دید.</i>",
+  ]
+  const lines: string[] = []
+  for (const s of parts) {
+    if (s === "" && lines[lines.length - 1] === "") continue
+    lines.push(s)
+  }
+  return lines.join("\n")
 }
 
 export function eventCardButtons(event: GroupEvent): OutboxButton[] {

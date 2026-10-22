@@ -19,6 +19,9 @@ import type {
 } from "./api"
 import { affordableStakes, clampText, faNum, type LivingWhich } from "./format"
 
+/** V26 — تبِ فعالِ هابِ اصلی (سه تب: امروز/فمبوی/شهر) */
+export type HomeTab = "dash" | "fem" | "city"
+
 // فقط وقتی URL عمومیِ https واقعی باشد دکمه‌ی Mini App نمایش داده می‌شود
 export const MINIAPP_URL = /^https:\/\//.test(process.env.MINIAPP_URL || "") ? (process.env.MINIAPP_URL as string) : ""
 
@@ -69,6 +72,10 @@ export const CB = {
   bingo: "m:bingo",
   // V20 — مقصدهای اولیه‌ی ناوبری (مأموریت §3.2: بازی/فمبوی/فعالیت/وسایل/شهر/راهنما)
   acts: "m:acts",
+  // V26 — تب‌های هابِ اصلی (کنترل‌پنلِ سه‌تبی: امروز/فمبوی/شهر)
+  tabDash: "m:tab:dash",
+  tabFem: "m:tab:fem",
+  tabCity: "m:tab:city",
   // V15-2 — خانه‌ی راهنما (کدکسِ تعاملیِ خصوصی) · حساب و تنظیمات · شهرِ گروهی
   help: "m:help",
   settings: "m:settings",
@@ -120,6 +127,7 @@ export const cbLivingGo = (which: LivingWhich, key: string): string =>
 
 export type Callback =
   | { kind: "menu" }
+  | { kind: "tab"; tab: HomeTab }
   | { kind: "event" }
   | { kind: "me" }
   | { kind: "city" }
@@ -182,6 +190,12 @@ export function parseCallback(data: string | undefined): Callback | null {
   switch (data) {
     case CB.menu:
       return { kind: "menu" }
+    case CB.tabDash:
+      return { kind: "tab", tab: "dash" }
+    case CB.tabFem:
+      return { kind: "tab", tab: "fem" }
+    case CB.tabCity:
+      return { kind: "tab", tab: "city" }
     case CB.event:
       return { kind: "event" }
     case CB.me:
@@ -350,42 +364,89 @@ export function withMiniApp(kb: InlineKeyboard): InlineKeyboard {
 
 // ─── کیبورد ثابتِ خصوصی (Reply) ─────────────────────────────────────────────
 
-/** کیبورد ریسپانسیِ همیشه‌حاضرِ چتِ خصوصی — V20 (مأموریت §3.3: ناوبریِ قابل‌پیش‌بینی):
- *  همان مقصدهای اصلیِ منویِ خانه + میان‌برهای روزانه — هر برچسب پس از نرمال‌سازی
- *  نیتِ زنده است (مسیریابِ intent.ts می‌گیردشان؛ تضمینِ ایستا در verify:bot).
- *  «⚙ منو» حذف شد — آیکنِ ⚙ مالِ تنظیمات است؛ «منو» همچنان عبارتِ زنده است. */
+/** کیبورد ریسپانسیِ همیشه‌حاضرِ چتِ خصوصی — V26 (بازسازی §3.C): دو ردیفِ ۴تایی
+ *  با گروه‌بندیِ روشن — ردیفِ اول «هویت و امروز»، ردیفِ دوم «کنش و مقصد».
+ *  دیروز ۳×۳ بود؛ حالا ۲×۴ — هم‌عرضِ ردیف‌های هاب، هم‌خوانِ انگشتِ روی موبایل.
+ *  هر برچسب پس از نرمال‌سازی نیتِ زنده است (مسیریابِ intent.ts می‌گیردشان). */
 export function replyKeyboard(): Keyboard {
   const kb = new Keyboard()
   kb.text("🎀 فمبوی", "primary")
   kb.text("🎲 اتفاق", "primary")
-  kb.text("🎯 قدمِ بعدی", "primary").row()
-  kb.text("👤 من", "primary")
+  kb.text("🎯 قدمِ بعدی", "primary")
+  kb.text("👤 من", "primary").row()
   kb.text("⚡ فعالیت‌ها", "primary")
-  kb.text("🎒 کیف", "primary").row()
+  kb.text("🎒 کیف", "primary")
   kb.text("🌍 شهر", "primary")
   kb.text("💼 کار", "success")
-  kb.text("📖 راهنما", "primary")
   return kb.persistent().resized().placeholder("برای شهر چیزی بنویس…")
+}
+
+// ─── V26 — ستونِ فقراتِ پنل: دکمه‌های بازگشتِ یکدست ────────────────────────
+
+/** دکمه‌ی خانه — همه‌ی کارت‌ها با همین یک برچسب به هاب برمی‌گردند */
+export function homeBtn(): ReturnType<InlineKeyboard["text"]> {
+  return new InlineKeyboard().text("🏠 خانه", CB.menu).primary()
+}
+
+/** ردیفِ پایانیِ هر پنل — V26 (بازسازی §3.B): بازگشتِ والد + خانه، همیشه آخرین
+ *  ردیف، همیشه هم‌برچسب. parent = داده‌ی callback والد، parentLabel = نامش.
+ *  بدونِ والد → فقط خانه (کارت‌های فرزندِ مستقیمِ هاب). */
+export function panelFooterRows(kb: InlineKeyboard, parent?: { data: string; label: string }): InlineKeyboard {
+  kb.row()
+  if (parent) {
+    kb.text(`↩ ${parent.label}`, parent.data).primary()
+    kb.text("🏠 خانه", CB.menu).primary()
+  } else {
+    kb.text("🏠 خانه", CB.menu).primary()
+  }
+  return kb
+}
+
+/** کیبوردِ کاملِ پنل با footer — سازنده‌ی مشترکِ همه‌ی کارت‌های ویژگی */
+export function panelKeyboard(parent?: { data: string; label: string }): InlineKeyboard {
+  return panelFooterRows(new InlineKeyboard(), parent)
 }
 
 // ─── کیبوردهای Inline (نماهای پویا) ─────────────────────────────────────────
 
-/** خانه — هابِ مرکزیِ V20 (مأموریت §3.1: چهار پرسش — کجایم/چه می‌گذرد/الان چه کنم/
- *  کجا بروم). متنِ کارت وضعیت + «الان» را می‌سازد (format.ts homeText)؛ کیبورد
- *  فقط دو ردیفِ زمینه‌ای (قدمِ بعدی + اتفاق) + شش مقصدِ اصلی + مینی‌اپ — ۸ دکمه
- *  (دیروز ۱۲). بازار پایشِ کیف است؛ کار پایشِ فعالیت‌ها؛ شهرِ گروه و تنظیمات
- *  از شهر/پروفایل باز می‌شوند — دیگر دکمه‌ی سطحِ خانه نیستند.
- *  V24 — سلسله‌مراتبِ رنگ: فقط فعل‌های اصلی رنگ‌اند (آبی=قدم، سبز=اتفاقِ امروز،
- *  فمبوی=آبی)؛ مقاصدِ ثانویه خاکستری‌اند — چشمِ کاربر اول به فعل می‌افتد. */
-export function homeKeyboard(): InlineKeyboard {
+/** خانه — V26 (بازسازی §3.A): کنترل‌پنلِ سه‌تبی. ردیفِ اول = سه تبِ هاب
+ *  (محتوای همان پیام عوض می‌شود — ویرایشِ درجا، بدونِ پیامِ تازه)؛ تبِ فعال
+ *  با ● و رنگِ سبز نشان می‌شود. ردیفِ دوم = دو فعلِ اصلیِ روز. ردیفِ سوم =
+ *  مقصدهای تب (فمبوی/شهر تب‌های خودشان را دارند). ردیفِ چهارم = بازار (اکنون
+ *  سطحِ هاب — §3.2 اقتصاد) + راهنما. مینی‌اپ همیشه تهِ کارت. */
+export function homeKeyboard(tab: HomeTab = "dash"): InlineKeyboard {
   const kb = new InlineKeyboard()
-  kb.text("🎯 قدمِ بعدی", CB.guide).primary()
+  // تب‌ها — فعال: ● + success؛ غیرفعال: بی‌رنگ (چشم اول به تبِ فعال می‌افتد)
+  const tabs: { label: string; active: boolean; data: string }[] = [
+    { label: "امروز", active: tab === "dash", data: CB.tabDash },
+    { label: "فمبوی", active: tab === "fem", data: CB.tabFem },
+    { label: "شهر", active: tab === "city", data: CB.tabCity },
+  ]
+  for (const t of tabs) {
+    const btn = kb.text(t.active ? `● ${t.label}` : t.label, t.data)
+    if (t.active) btn.style("success")
+  }
+  kb.row()
+  // فعل‌های اصلی — رنگ‌دار (آبی = قدمِ بعدی، سبز = اتفاقِ امروز)
+  kb.text("🧭 قدمِ بعدی", CB.guide).primary()
   kb.text("🎲 اتفاقِ امروز", CB.event).success().row()
-  kb.text("🎀 فمبویِ من", "fw:hub").primary()
-  kb.text("👤 من", CB.me).row()
-  kb.text("⚡ فعالیت‌ها", CB.acts)
-  kb.text("🎒 کیف و بازار", CB.items).row()
-  kb.text("🌍 شهر", CB.city)
+  // مقصدهای تب — هر تب سهمِ خودش را دارد
+  if (tab === "fem") {
+    kb.text("🎀 هابِ کاملِ فمبوی", "fw:hub").primary().row()
+    kb.text("👤 من", CB.me)
+    kb.text("🎒 کیف و بازار", CB.items).row()
+  } else if (tab === "city") {
+    kb.text("🗺 سفرِ بین محله‌ها", CB.city).primary()
+    kb.text("👥 شهرِ گروه", CB.groupCity).row()
+    kb.text("👤 من", CB.me)
+    kb.text("🎒 کیف و بازار", CB.items).row()
+  } else {
+    kb.text("👤 من", CB.me)
+    kb.text("⚡ فعالیت‌ها", CB.acts)
+    kb.text("🎒 کیف و بازار", CB.items).row()
+  }
+  // بازارِ سطحِ هاب + راهنما (§5.4 برچسب‌های صریح)
+  kb.text("🏪 بازار", CB.market)
   kb.text("📖 راهنما", CB.help)
   return withMiniApp(kb)
 }
@@ -400,7 +461,7 @@ export function activitiesKeyboard(player: PlayerDTO): InlineKeyboard {
   kb.text("😴 استراحت", CB.rest).success().row()
   kb.text("🗺 سفرِ بین محله‌ها", CB.city).primary()
   kb.text("💼 شغل‌ها", CB.jobs).primary().row()
-  kb.text("↩ خانه", CB.menu)
+  kb.text("🏠 خانه", CB.menu)
   return kb
 }
 
@@ -412,24 +473,21 @@ export function guideKeyboard(): InlineKeyboard {
   kb.text("🎯 اهداف", CB.goals)
   kb.text("⚡ فرصت‌ها", CB.ops).row()
   kb.text("✨ آرزوها", CB.dreams)
-  kb.text("↩ خانه", CB.menu)
-  return withMiniApp(kb)
+  return panelFooterRows(kb)
 }
 
 export function goalsKeyboard(): InlineKeyboard {
   const kb = new InlineKeyboard()
   kb.text("🎯 قدمِ بعدی", CB.guide).primary()
-  kb.text("⚡ فرصت‌ها", CB.ops).row()
-  kb.text("↩ خانه", CB.menu)
-  return kb
+  kb.text("⚡ فرصت‌ها", CB.ops)
+  return panelFooterRows(kb)
 }
 
 export function dreamsKeyboard(): InlineKeyboard {
   const kb = new InlineKeyboard()
   kb.text("🎯 قدمِ بعدی", CB.guide).primary()
-  kb.text("🎯 اهداف", CB.goals).row()
-  kb.text("↩ خانه", CB.menu)
-  return kb
+  kb.text("🎯 اهداف", CB.goals)
+  return panelFooterRows(kb)
 }
 
 /** فرصت‌ها — دکمه‌ی claim هر فرصت با رنگِ ریسکش */
@@ -441,8 +499,7 @@ export function opsKeyboard(g: GuideResponse): InlineKeyboard {
   if (g.opportunities.length === 0) {
     kb.text("🎲 اتفاق امروز", CB.event).primary().row()
   }
-  kb.text("↩ خانه", CB.menu).primary()
-  return kb
+  return panelFooterRows(kb)
 }
 
 /** دکمه‌های یک اتفاق — هر گزینه یک ردیف؛ قفل‌ها 🔒 بی‌رنگ، ریسک از hint.
@@ -457,20 +514,20 @@ export function eventKeyboard(e: ActiveEventDTO): InlineKeyboard {
     if (st) btn.style(st)
     btn.row()
   })
-  kb.text("↩ خانه", CB.menu)
-  return kb
+  return panelFooterRows(kb)
 }
 
-/** بازگشتِ یک‌دکمه‌ای به خانه — برای کارت‌های بدونِ ناوبریِ خاص */
+/** بازگشتِ یک‌دکمه‌ای به خانه — برای کارت‌های بدونِ ناوبریِ خاص (V26: برچسبِ
+ *  یکدستِ «🏠 خانه» — همان واژه‌نامه‌ی همه‌ی پنل‌ها) */
 export function backKeyboard(): InlineKeyboard {
-  return new InlineKeyboard().text("↩ خانه", CB.menu)
+  return new InlineKeyboard().text("🏠 خانه", CB.menu).primary()
 }
 
 /** کارتِ بومیِ باز کردنِ مینی‌اپ — لینکِ عمیقِ /start app از کارت‌های گروه این‌جا فرود می‌آید */
 export function miniAppCardKeyboard(): InlineKeyboard {
   const kb = new InlineKeyboard()
   if (MINIAPP_URL) kb.webApp("📱 Femboy War", MINIAPP_URL).primary().row()
-  kb.text("↩ خانه", CB.menu)
+  kb.text("🏠 خانه", CB.menu)
   return kb
 }
 
@@ -489,24 +546,17 @@ export function profileKeyboard(player: PlayerDTO): InlineKeyboard {
   kb.text("🏠 خانه و وسیله", CB.livingHome).row()
   kb.text("🔔 خبرها", CB.notify)
   kb.text("⚙ حساب", CB.settings).row()
-  kb.text("↩ خانه", CB.menu)
-  return kb
+  return panelFooterRows(kb)
 }
 
-/** 🏆 دستاوردها — کارتِ عمیقِ پروفایل (V16-4)؛ بازگشت به «من» و خانه */
+/** 🏆 دستاوردها — کارتِ عمیقِ پروفایل (V16-4)؛ V26: بازگشتِ والدآگاه — «من» صاحبِ بخش است */
 export function achievementsKeyboard(): InlineKeyboard {
-  const kb = new InlineKeyboard()
-  kb.text("👤 من", CB.me)
-  kb.text("↩ خانه", CB.menu)
-  return kb
+  return panelKeyboard({ data: CB.me, label: "من" })
 }
 
-/** 📜 تاریخچه‌ی شخصی — V20 (مأموریت §4.3: حذفِ بن‌بست): «👤 من» صاحبِ بخش است */
+/** 📜 تاریخچه‌ی شخصی — V26: «من» صاحبِ بخش است (بازگشتِ والدآگاه) */
 export function historyKeyboard(): InlineKeyboard {
-  const kb = new InlineKeyboard()
-  kb.text("👤 من", CB.me)
-  kb.text("↩ خانه", CB.menu)
-  return kb
+  return panelKeyboard({ data: CB.me, label: "من" })
 }
 
 /** شهر — همه‌ی محله‌ها (به‌جزِ محله‌ی فعلی) در گریدِ دو‌ستونه (V16-3، ممیزی ④:
@@ -537,8 +587,7 @@ export function cityKeyboard(currentDistrict: string): InlineKeyboard {
   }
   // V20 — دو «شهر» یک مقصدند (ممیزی V20-ف): سفرِ محلی + شهرِ گروه از همین کارت
   kb.text("👥 شهرِ گروه", CB.groupCity).primary()
-  kb.text("↩ خانه", CB.menu)
-  return kb
+  return panelFooterRows(kb)
 }
 
 /** 🎒 کیف (V6) — V20: بازار پایشِ کیف است (مأموریت §3.2: «وسایل و بازار» یک
@@ -572,14 +621,17 @@ export function bagKeyboard(p: {
   const items = live.slice(page * 8, page * 8 + 8)
   for (const it of items) {
     if (budget <= 0) break
+    // V26 — هر ردیفِ عملیات با ایموجیِ خودِ آیتم شروع می‌شود: دکمه‌ها از این
+    // پس به آیتمِ خودشان گره می‌خورند (دیروز «استفاده»ی خالی برای چند آیتم
+    // هم‌زمان رام‌های گمراه‌کننده داشت — §3.C برچسب‌هایی که کارِ خودشان را بگویند)
     const row: { label: string; data: string; style?: "primary" | "success" }[] = []
-    if (it.usable) row.push({ label: "استفاده", data: cbItemUse(it.itemKey), style: "success" })
-    if (it.category === "gear") row.push({ label: "پوشیدن", data: cbItemEquip(it.itemKey), style: "success" })
+    if (it.usable) row.push({ label: `${it.emoji} استفاده`, data: cbItemUse(it.itemKey), style: "success" })
+    if (it.category === "gear") row.push({ label: `${it.emoji} پوشیدن`, data: cbItemEquip(it.itemKey), style: "success" })
     // ⭐ خنثی — بدون استایل (برایِ علاقه‌مندی، «برداشتن» لازم است تا فروش باز شود)
-    row.push({ label: it.favorite ? "برداشتن ⭐" : "⭐", data: cbItemFav(it.itemKey) })
+    row.push({ label: it.favorite ? `${it.emoji} ♡ بردار` : `${it.emoji} ⭐`, data: cbItemFav(it.itemKey) })
     const price = p.prices.get(it.itemKey)
     if (it.tradable && !it.favorite && !it.locked && price) {
-      row.push({ label: `فروش ${faNum(price)}`, data: cbItemSell(it.itemKey), style: "primary" })
+      row.push({ label: `💰 ${faNum(price)}`, data: cbItemSell(it.itemKey), style: "primary" })
     }
     // آیتمِ بی‌عملیات (نه مصرفی، نه لوازم، نه علاقه‌مندی) — ارزشِ یک ردیف ندارد
     if (row.length === 1 && !it.favorite) continue
@@ -595,8 +647,8 @@ export function bagKeyboard(p: {
   if (kb.inline_keyboard.length === 0 && pageCount <= 1) {
     return new InlineKeyboard()
       .text("🎲 اتفاقِ امروز", CB.event).primary().row()
-      .text("🏪 بازار", CB.market).primary().row()
-      .text("↩ خانه", CB.menu).primary()
+      .text("🏪 بازار", CB.market).primary()
+      .text("🏠 خانه", CB.menu).primary()
   }
   // V16-4 — ناوبریِ صفحه‌ها: جفتِ قبلی/بعدی + شمار‌صفحه (رقمِ انگلیسی)
   if (pageCount > 1) {
@@ -610,8 +662,7 @@ export function bagKeyboard(p: {
   }
   // V20 — «وسایل و بازار» یک مقصد: بازار همیشه پایشِ کیف است
   kb.text("🏪 بازار", CB.market).primary()
-  kb.text("↩ خانه", CB.menu).primary()
-  return kb
+  return panelFooterRows(kb)
 }
 
 /** 💳 بدهی — پرداختِ پله‌ای + همه (سبز: کارِ مطمئنِ مالی) */
@@ -620,8 +671,7 @@ export function debtKeyboard(): InlineKeyboard {
   kb.text("💳 100", cbPayDebt(100)).success()
   kb.text("💳 500", cbPayDebt(500)).success()
   kb.text("💸 همه‌اش", cbPayDebt("all")).success().row()
-  kb.text("↩ خانه", CB.menu).primary()
-  return kb
+  return panelFooterRows(kb)
 }
 
 /** 🏷 عنوان‌ها — فعال ✅ سبز؛ بقیه آبی */
@@ -632,8 +682,7 @@ export function titlesKeyboard(player: PlayerDTO): InlineKeyboard {
     kb.text(`${t.emoji} ${clampText(t.name, 20)}${active ? " ✅" : ""}`, cbTitle(t.key)).style(active ? "success" : "primary").row()
   }
   if (kb.inline_keyboard.length === 0) return backKeyboard()
-  kb.text("↩ خانه", CB.menu).primary()
-  return kb
+  return panelFooterRows(kb)
 }
 
 /** 💼 شغل‌ها — شغلِ فعلی ✅ · سطحِ کافی نداری 🔒 (بی‌رنگ) · بقیه آبی · بی‌کاری قرمز */
@@ -647,8 +696,7 @@ export function jobsKeyboard(jobs: CatalogJobDTO[], player: PlayerDTO): InlineKe
     kb.text(label, cbJob(j.key)).style(mine ? "success" : locked ? undefined : "primary").row()
   }
   if (current) kb.text("📄 بی‌کار شو", cbJobQuit()).danger().row()
-  kb.text("↩ خانه", CB.menu).primary()
-  return kb
+  return panelFooterRows(kb)
 }
 
 /** 🏪 بازار — خریدِ مغازه‌ی محله و آگهی‌های مردم (سبز) · فروشِ خودت (V16-4) ·
@@ -678,8 +726,7 @@ export function marketKeyboard(m: MarketSnapshot): InlineKeyboard {
   // قفسه‌ها خالی‌اند، فروشِ خودت شروعِ بازار است
   kb.text("🛍 به فروش بگذار", CB.marketSell).success().row()
   kb.text("🎒 کیف", CB.items).primary()
-  kb.text("↩ خانه", CB.menu).primary()
-  return kb
+  return panelFooterRows(kb)
 }
 
 /** 🛍 گامِ ۱ — جنس‌های قابلِ‌فروشِ کیف (تا ۸ دکمه) + بازگشت به بازار (V16-4) */
@@ -691,11 +738,10 @@ export function marketSellKeyboard(
     kb.text(`${it.emoji} ${clampText(it.name, 18)}`, cbMarketPrice(it.itemKey)).primary().row()
   }
   if (kb.inline_keyboard.length === 0) {
-    return new InlineKeyboard().text("🏪 بازار", CB.market).primary().row().text("↩ خانه", CB.menu).primary()
+    return new InlineKeyboard().text("🏪 بازار", CB.market).primary().row().text("🏠 خانه", CB.menu).primary()
   }
   kb.text("🏪 بازار", CB.market).primary()
-  kb.text("↩ خانه", CB.menu).primary()
-  return kb
+  return panelFooterRows(kb)
 }
 
 /** 🏷 گامِ ۲ — کارتِ قیمت: هر دکمه = یک قیمتِ پیشنهادی (تأییدِ تک‌ضربی،
@@ -707,16 +753,14 @@ export function marketPriceKeyboard(itemKey: string, suggestions: number[]): Inl
   }
   kb.text("🛍 جنسِ دیگر", CB.marketSell).primary()
   kb.text("🎒 کیف", CB.items).primary().row()
-  kb.text("↩ خانه", CB.menu).primary()
-  return kb
+  return panelFooterRows(kb, { data: CB.market, label: "بازار" })
 }
 
 /** 🔔 خبرها — «خواندم» (سبز) + خانه */
 export function notifyKeyboard(): InlineKeyboard {
   const kb = new InlineKeyboard()
-  kb.text("✅ همه را خواندم", "nt:read").success().row()
-  kb.text("↩ خانه", CB.menu).primary()
-  return kb
+  kb.text("✅ همه را خواندم", "nt:read").success()
+  return panelFooterRows(kb)
 }
 
 // ─── 🏠 خانه و وسیله (V17-3 — ممیزی ⑨) ──────────────────────────────────────
@@ -738,11 +782,9 @@ export function livingKeyboard(opts: {
     kb.text(`${it.emoji} ${clampText(it.name, 16)} · ${faNum(it.price)}`, cbLivingBuy(which, it.key)).success().row()
     budget--
   }
-  // سوییچِ دو لیستِ همین کارت + بازگشت به «من» (مالکِ این بخش) و خانه
-  kb.text(which === "house" ? "🚗 وسایل نقلیه ▶" : "◀ 🏠 خانه‌ها", which === "house" ? CB.livingVeh : CB.livingHome).primary()
-  kb.text("↩ خانه", CB.menu).primary().row()
-  kb.text("👤 من", CB.me).primary()
-  return kb
+  // سوییچِ دو لیستِ همین کارت + بازگشتِ والدآگاه («من» صاحبِ بخش) و خانه
+  kb.text(which === "house" ? "🚗 وسایل نقلیه ▶" : "◀ 🏠 خانه‌ها", which === "house" ? CB.livingVeh : CB.livingHome).primary().row()
+  return panelFooterRows(kb, { data: CB.me, label: "من" })
 }
 
 /** کارتِ تأیید — «🤝 می‌خرم» فقط این‌جا (lv:go)، مثلِ «💥 بفرست» بینگو؛
@@ -752,10 +794,8 @@ export function livingConfirmKeyboard(which: LivingWhich, key: string, affordabl
   if (affordable) {
     kb.text("🤝 می‌خرم", cbLivingGo(which, key)).success().row()
   }
-  kb.text(which === "house" ? "◀ 🏠 خانه‌ها" : "◀ 🚗 وسایل", which === "house" ? CB.livingHome : CB.livingVeh).primary()
-  kb.text("↩ خانه", CB.menu).primary().row()
-  kb.text("👤 من", CB.me).primary()
-  return kb
+  kb.text(which === "house" ? "◀ 🏠 خانه‌ها" : "◀ 🚗 وسایل", which === "house" ? CB.livingHome : CB.livingVeh).primary().row()
+  return panelFooterRows(kb, { data: CB.me, label: "من" })
 }
 
 /** 🎲 بینگو — فقط شرط‌هایی که جیب واقعاً می‌کشد (V16-3، ممیزی ⑩: شرطِ گران
@@ -778,27 +818,26 @@ export function bingoKeyboard(money: number): InlineKeyboard {
   if (open) kb.row()
   if (stakes.length === 0) {
     // جیب هیچ‌کدام را نمی‌کشد — مسیرِ پولِ صادقانه همان است که متن می‌گوید
-    kb.text("💼 کار", CB.work).success().row()
-    kb.text("↩ خانه", CB.menu).primary()
-    return kb
+    kb.text("💼 کار", CB.work).success()
+    return panelFooterRows(kb)
   }
-  kb.text("↩ خانه", CB.menu).primary()
-  return kb
+  return panelFooterRows(kb)
 }
 
 /** کارتِ تأییدِ شرطِ بزرگ — «💥 بفرست» فقط این‌جا است (b:go:{stake}) */
 export function bingoConfirmKeyboard(stake: number): InlineKeyboard {
   const kb = new InlineKeyboard()
   kb.text("💥 بفرست", cbGambleGo(stake)).danger().row()
-  kb.text("↩ خانه", CB.menu).primary()
+  kb.text("↩ بینگو", CB.bingo).primary()
+  kb.text("🏠 خانه", CB.menu).primary()
   return kb
 }
 
-/** خطا — دوباره (قرمز) + خانه (آبی) — V20: برچسبِ بازگشت یکدست «↩ خانه» */
+/** خطا — دوباره (قرمز) + خانه (آبی) — V26: برچسبِ بازگشتِ یکدستِ «🏠 خانه» */
 export function errorKeyboard(): InlineKeyboard {
   const kb = new InlineKeyboard()
   kb.text("🔄 دوباره", CB.retry).danger()
-  kb.text("↩ خانه", CB.menu).primary()
+  kb.text("🏠 خانه", CB.menu).primary()
   return kb
 }
 

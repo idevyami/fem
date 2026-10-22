@@ -96,6 +96,25 @@ export function navGridButtons(): OutboxButton[] {
   return out
 }
 
+/** V26 — نقشه‌ی شهر (gm:more): لایه‌ی دومِ ناوبریِ گروه. کارتِ خانه فقط ششِ
+ *  اصلی را دارد؛ این کارت همه‌ی ۱۲ بخش را با گریدِ جفتی باز می‌کند. بازگشت
+ *  به خانه تهِ کارت. pure — فقط از جدولِ NAV_SECTIONS می‌خواند. */
+export function cityMapCard(): CallbackResult {
+  const lines: string[] = [
+    "",
+    "🗺 <b>نقشه‌ی شهر</b>",
+    emblem("🗺"),
+    "",
+    quote(`همه‌ی ${chip(NAV_SECTIONS.length)} بخشِ شهر — هر کدام مقصد و کارتِ خودشان را دارند.`),
+    "",
+  ]
+  return {
+    ok: true,
+    ackText: "نقشه‌ی شهر",
+    editCard: { text: lines.join("\n"), buttons: navGridButtons() },
+  }
+}
+
 // ─── helperهای رندر ────────────────────────────────────────────────────────────
 
 /** رقم‌های یک برچسبِ آماده (بدونِ تگ) را esc+chip می‌کند — «سطح 12» → «سطح <code>12</code>» */

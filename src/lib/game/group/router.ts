@@ -99,7 +99,7 @@ import {
   gameHomeCardText, gameHomeButtons, cityCardText, playCardText, voteCardText,
   projectsCardText, membersCardText, historyCardText, helpCardText, MINIAPP_URL,
 } from "./presentation"
-import { navSection, duelsCommandCard, economyCommandCard, fameCommandCard, topCommandCard } from "./hub"
+import { navSection, duelsCommandCard, economyCommandCard, fameCommandCard, topCommandCard, cityMapCard } from "./hub"
 
 // ─── بافتِ فراخوانی (یک‌بار در facade حل می‌شود) ───────────────────────────────
 
@@ -567,6 +567,10 @@ async function groupMenuCallback(ctx: GroupCallCtx, arg: string): Promise<Callba
     case "game": {
       const r = await dispatchCommand(ctx, "game")
       return { ok: true, ackText: "خانه‌ی شهر", editCard: { text: r.text, buttons: r.buttons } }
+    }
+    // V26 — لایه‌ی دومِ ناوبری: نقشه‌ی کاملِ ۱۲ بخش از کارتِ خانه
+    case "more": {
+      return cityMapCard()
     }
     case "elect": {
       const r = await openElection(group, "mayor")

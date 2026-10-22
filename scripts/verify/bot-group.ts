@@ -1256,24 +1256,36 @@ console.log("⑯ V20: home hub · activities · reply keyboard · card hints · 
   const flatOf = (payload: any) => (payload?.reply_markup?.inline_keyboard ?? []).flat()
   const cbsOf = (payload: any) => flatOf(payload).map((b: any) => b.callback_data ?? "")
 
-  // ── A) منویِ خانه‌ی V20: ۸ دکمه — ۲ زمینه‌ای (قدم/اتفاق) + ۶ مقصد ────────────────
-  console.log("  ── A home keyboard: 8 buttons (2 contextual + 6 destinations) ──")
+  // ── A) هابِ خانه‌ی V26: کنترل‌پنلِ سه‌تبی — ۳ تب + ۲ فعل + ۳ مقصد + بازار/راهنما ────
+  console.log("  ── A home keyboard: V26 tabbed control panel (3 tabs + 2 verbs + 3 destinations + market/help) ──")
   {
-    const home = kbMod.homeKeyboard()
+    const home = kbMod.homeKeyboard("dash")
     const rows = home.inline_keyboard.filter((r: any) => r.length > 0)
     const textBtns = flatBtns(home).filter((b: any) => b.callback_data !== undefined)
     const miniBtns = flatBtns(home).filter((b: any) => b.web_app !== undefined)
-    ok(textBtns.length === 8, `A: home keyboard carries exactly 8 text buttons (got ${textBtns.length})`)
-    ok(rows.length === 4 + (kbMod.MINIAPP_URL ? 1 : 0), `A: 4 navigation rows${kbMod.MINIAPP_URL ? " + Mini App row" : ""}`)
+    ok(textBtns.length === 10, `A: home keyboard carries exactly 10 text buttons (got ${textBtns.length})`)
+    ok(rows.length === 4 + (kbMod.MINIAPP_URL ? 1 : 0), `A: 4 rows (tabs/verbs/destinations/market-help)${kbMod.MINIAPP_URL ? " + Mini App row" : ""}`)
     const labels = textBtns.map((b: any) => b.text)
-    const expected = [
-      "🎯 قدمِ بعدی", "🎲 اتفاقِ امروز",
-      "🎀 فمبویِ من", "👤 من",
-      "⚡ فعالیت‌ها", "🎒 کیف و بازار",
-      "🌍 شهر", "📖 راهنما",
-    ]
-    ok(expected.every((l) => labels.includes(l)), "A: all 8 V20 hub labels present (contextual/identity/activities/things/world/help)")
-    ok(!labels.includes("🏪 بازار") && !labels.includes("💼 کار") && !labels.includes("👥 شهرِ گروه") && !labels.includes("⚙ حساب"), "A: market/work/group-city/settings are NOT home-level buttons anymore")
+    const cbs = textBtns.map((b: any) => b.callback_data)
+    // ردیفِ اول = سه تبِ هاب (m:tab:*)؛ تبِ فعال با ●
+    ok(cbs.includes("m:tab:dash") && cbs.includes("m:tab:fem") && cbs.includes("m:tab:city"), "A/V26: first row carries the 3 hub tabs (dash/fem/city)")
+    ok(labels.includes("● امروز"), "A/V26: the active tab is marked with ●")
+    ok(labels.includes("🧭 قدمِ بعدی") && labels.includes("🎲 اتفاقِ امروز"), "A/V26: the two primary verbs sit in row 2")
+    ok(labels.includes("👤 من") && labels.includes("⚡ فعالیت‌ها") && labels.includes("🎒 کیف و بازار"), "A/V26: dash destinations in row 3")
+    // V26 — بازار حالا دکمه‌ی سطحِ هاب است (§3.2 اقتصاد)؛ کار و شهرِ گروه همچنان نیستند
+    ok(labels.includes("🏪 بازار") && labels.includes("📖 راهنما"), "A/V26: market + help close the home keyboard")
+    ok(!labels.includes("💼 کار") && !labels.includes("👥 شهرِ گروه") && !labels.includes("⚙ حساب"), "A/V26: work/group-city/settings stay off the home level")
+    // تبِ فمبوی — دکمه‌ی هابِ کامل + بدونِ فعالیت‌ها (تبِ فمبوی سهمِ خودش را دارد)
+    const femHome = kbMod.homeKeyboard("fem")
+    const femCbs = flatBtns(femHome).map((b: any) => b.callback_data)
+    ok(femCbs.includes("fw:hub") && !femCbs.includes("m:acts"), "A/V26: fem tab carries the full femboy hub and drops activities")
+    ok(femHome.inline_keyboard[0]?.some((b: any) => b.text === "● فمبوی"), "A/V26: fem tab marks itself active when selected")
+    // تبِ شهر — سفر + شهرِ گروه
+    const cityHome = kbMod.homeKeyboard("city")
+    const cityCbs = flatBtns(cityHome).map((b: any) => b.callback_data)
+    ok(cityCbs.includes("m:city") && cityCbs.includes("m:groupcity"), "A/V26: city tab carries travel + group-city")
+    // پیوستِ کال‌بکِ تب — گرامرِ m:tab:*
+    ok(kbMod.parseCallback("m:tab:fem")?.kind === "tab", "A/V26: m:tab:fem parses to the tab callback")
     const bagKb = kbMod.bagKeyboard({ pets: [], inventory: [], prices: new Map() })
     ok(flatBtns(bagKb).some((b: any) => b.callback_data === "m:market"), "A: market reachable from the bag footer (کیف و بازار = one destination)")
     const actsKb = kbMod.activitiesKeyboard({ debt: 0 } as any)
@@ -1283,22 +1295,24 @@ console.log("⑯ V20: home hub · activities · reply keyboard · card hints · 
     const profileKb = kbMod.profileKeyboard({ debt: 0 } as any)
     ok(flatBtns(profileKb).some((b: any) => b.callback_data === "m:settings"), "A: settings reachable from the profile card")
     ok(kbMod.MINIAPP_URL ? miniBtns.length === 1 : miniBtns.length === 0, "A: Mini App row only with a real https URL")
-    ok(labels.includes("🎯 قدمِ بعدی"), "A: «راهنمای من» → «قدمِ بعدی» (TERM.nextStep — audit ②)")
+    ok(labels.includes("🧭 قدمِ بعدی"), "A: «قدمِ بعدی» stays the canonical next-step label (V26 🧭 icon)")
   }
 
   // ── B) کیبوردِ ثابتِ خصوصیِ V20: ۹ دکمه، همه نیتِ واقعی ────────────────────────
-  console.log("  ── B reply keyboard: 9 buttons, each normalizes to a real intent ──")
+  console.log("  ── B reply keyboard: V26 8 buttons (2 rows × 4), each a real intent ──")
   {
     const u = 16001
     await bot.handleUpdate(privMsgUpdate(u, "/start"))
     const kbMsg = sendPayloads(u).find((c: any) => (c.payload?.text ?? "").includes("میان‌برهای ثابَتت"))
     const replyRows: any[][] = kbMsg?.payload?.reply_markup?.keyboard ?? []
     const replyBtns = replyRows.flat()
-    ok(replyBtns.length === 9, `B: persistent reply keyboard = 9 buttons (got ${replyBtns.length})`)
+    ok(replyBtns.length === 8, `B: persistent reply keyboard = 8 buttons (got ${replyBtns.length})`)
+    ok(replyRows.length === 2 && replyRows.every((r: any[]) => r.length === 4), "B/V26: two balanced rows of 4 (identity+today / action+destination)")
     const intents = replyBtns.map((b: any) => intentMod.resolveIntent(b.text)?.id ?? null)
     ok(intents.every((id: any) => id !== null), `B: every reply button normalizes to a real intent (got ${JSON.stringify(intents)})`)
     ok(intents.includes("femboy") && intents.includes("events") && intents.includes("guide"), "B: femboy/event/guide intents reachable from the reply keyboard")
-    ok(intents.includes("inventory") && intents.includes("work") && intents.includes("help"), "B: bag/work/help intents reachable from the reply keyboard")
+    ok(intents.includes("inventory") && intents.includes("work"), "B: bag/work intents reachable from the reply keyboard")
+    ok(!intents.includes("help"), "B/V26: help left the reply keyboard (home hub owns it — 8 slots, no duplicates)")
     ok(intents.includes("activities") && intents.includes("city") && intents.includes("profile"), "B: V20 — activities/city/profile are reply-keyboard destinations now")
     ok(replyBtns.every((b: any) => b.text !== "⚙ منو"), "B: V20 — «⚙ منو» removed (icon belongs to settings; «منو» phrase still live)")
     ok(intentMod.resolveIntent("فعالیت‌ها")?.id === "activities", "B: V20 — new canonical phrase activities-fa resolves to the activities intent")
@@ -1522,7 +1536,7 @@ console.log("⑯ V20: home hub · activities · reply keyboard · card hints · 
   }
 
   // ── I) برچسب‌های قاعده‌مند: بازگشتِ همه‌جا «↩ خانه» — بدونِ «پیشخوان» ────────
-  console.log("  ── I canonical back labels («↩ خانه» everywhere) ──")
+  console.log("  ── I canonical back labels («🏠 خانه» everywhere — V26 relabel) ──")
   {
     const backCbs = ["m:menu"]
     const builders: (() => any)[] = [
@@ -1537,11 +1551,11 @@ console.log("⑯ V20: home hub · activities · reply keyboard · card hints · 
     for (const builder of builders) {
       const kbBtns = flatBtns(builder())
       const back = kbBtns.find((b: any) => backCbs.includes(b.callback_data))
-      ok(back !== undefined && back.text === "↩ خانه", `I: back button label is «↩ خانه» (${back?.text ?? "missing"})`)
+      ok(back !== undefined && back.text === "🏠 خانه", `I: back button label is «🏠 خانه» (${back?.text ?? "missing"})`)
     }
     const cityKb = flatBtns(kbMod.cityKeyboard("bazaar"))
     const cityBack = cityKb.find((b: any) => b.callback_data === "m:menu")
-    ok(cityBack?.text === "↩ خانه", "I: city card back is «↩ خانه»")
+    ok(cityBack?.text === "🏠 خانه", "I: city card back is «🏠 خانه»")
   }
 }
 
@@ -1677,7 +1691,7 @@ console.log("⑱ V16-4: market listing flow (sell picker → price card → crea
     await bot.handleUpdate(privCb(u, "m:mk", 960))
     const picker = tg("editMessageText").at(-1)?.payload
     const ptext = picker?.text ?? ""
-    ok(ptext.includes("به فروش بگذاری"), "A: V20 — sell picker card renders with the explicit verb")
+    ok(ptext.includes("به فروش بگذار"), "A: sell picker card renders with the explicit verb (گام ۱ از ۳ journey)")
     ok(ptext.includes("آب") && cbsOf(picker).includes("ms:water"), "A: tradable bag item offered as a picker button (ms:water)")
     ok(ptext.includes("کارمزدی ندارد") && ptext.includes("3 روز"), "A: honesty line on the picker (no fee · escrow · 3-day TTL)")
     // فیلترِ قابلِ‌فروش: قفل/علاقه‌مندی/پوشیده/غیرقابلِ‌معامله نمی‌آیند
@@ -2179,13 +2193,16 @@ console.log("㉑ V20 player journeys: hub · discovery · gameplay · NL · reco
     }
     try {
       await bot.handleUpdate(privMsgUpdate(u, "/start"))
-      const home = allCards(u).find((p: any) => cardText(p).includes("فمبویِ تو: شبنم"))
-      ok(Boolean(home), "J2: returning player sees their femboy identity at the top of the hub")
+      const home = allCards(u).find((p: any) => cardText(p).includes("👑 <b>شبنم"))
+      ok(Boolean(home), "J2: returning player sees their femboy identity at the top of the dash tab")
       const text = cardText(home)
       ok(text.includes("📌 <b>الان:</b>"), "J2: the hub answers «what is happening» (guide headline strip)")
       ok(text.includes("💰"), "J2: the hub answers «where am I» (money/district/day strip)")
       ok(cbsOf(home).includes("m:guide") && cbsOf(home).includes("m:event"), "J2: the hub answers «what can I do now» (قدم بعدی + اتفاق buttons)")
-      ok(cbsOf(home).includes("fw:hub") && cbsOf(home).includes("m:acts") && cbsOf(home).includes("m:items") && cbsOf(home).includes("m:city") && cbsOf(home).includes("m:me") && cbsOf(home).includes("m:help"), "J2: the hub answers «where do I go» (6 destinations)")
+      // V26 — «کجا بروم» روی تب‌ها سوار است: سه تب + مقصدهای تبِ فعلی
+      ok(cbsOf(home).includes("m:tab:dash") && cbsOf(home).includes("m:tab:fem") && cbsOf(home).includes("m:tab:city"), "J2/V26: the hub answers «where do I go» via 3 inline tabs")
+      ok(cbsOf(home).includes("m:acts") && cbsOf(home).includes("m:items") && cbsOf(home).includes("m:me") && cbsOf(home).includes("m:market") && cbsOf(home).includes("m:help"), "J2/V26: dash tab carries its destination set (acts/items/me/market/help)")
+      ok(text.includes("● امروز"), "J2/V26: the tab strip is rendered in the card text")
       ok(sendPayloads(u).some((c: any) => (c.payload?.text ?? "").includes("میان‌برهای ثابَتت")), "J2: reply keyboard re-delivered on return")
     } finally {
       mockStateFemboy = null
@@ -2227,7 +2244,7 @@ console.log("㉑ V20 player journeys: hub · discovery · gameplay · NL · reco
       ok((hub?.caption ?? "").includes("شخصیت: ☀️"), "J3: the femboy hub names the persona with the V20 label «شخصیت» (was «طبع»)")
       const hubBtns = (hub?.reply_markup?.inline_keyboard ?? []).flat()
       const hubLabels = hubBtns.map((b: any) => b.text)
-      ok(hubLabels.includes("⚔️ شکار") && hubLabels.includes("💗 تعامل") && hubLabels.includes("🎭 شخصیت") && hubLabels.includes("📖 داستانِ شخصی") && hubLabels.includes("✨ مهارت‌ها") && hubLabels.includes("🎨 استایل") && hubLabels.includes("🌌 فرگشت") && hubLabels.includes("🏆 تالار") && hubLabels.includes("⚡ شارژِ استقامت") && hubLabels.includes("🧪 شربتِ روح") && hubLabels.includes("🕰 سابقه") && hubLabels.includes("↩ خانه"), "J3: hub keyboard = 11 grouped buttons (actions/identity/development/status — was 14 flat)")
+      ok(hubLabels.includes("⚔️ شکار") && hubLabels.includes("💗 تعامل") && hubLabels.includes("🎭 شخصیت") && hubLabels.includes("📖 داستانِ شخصی") && hubLabels.includes("✨ مهارت‌ها") && hubLabels.includes("🎨 استایل") && hubLabels.includes("🌌 فرگشت") && hubLabels.includes("🏆 تالار") && hubLabels.includes("⚡ شارژِ استقامت") && hubLabels.includes("🧪 شربتِ روح") && hubLabels.includes("🕰 سابقه") && hubLabels.includes("🏠 خانه"), "J3: hub keyboard = 11 grouped buttons (actions/identity/development/status — was 14 flat)")
       ok(!hubLabels.includes("✏️ تغییرِ نام") && !hubLabels.includes("🎓 تسلط"), "J3: rename/mastery moved OUT of the hub into their owning screens")
       await sleep(350)
       await bot.handleUpdate(privCb(u, "fw:about", 2101))
@@ -2263,13 +2280,13 @@ console.log("㉑ V20 player journeys: hub · discovery · gameplay · NL · reco
     await bot.handleUpdate(privCb(u, "a:work", workMsgId ?? 2110))
     await sleep(50)
     const outcome = lastRender(u)
-    ok((outcome?.text ?? "").includes("انجام شد"), "J5: work outcome rendered from the engine message")
-    ok(cbsOf(outcome).includes("m:menu"), "J5: outcome card carries «↩ خانه» (know what comes next)")
+    ok((outcome?.text ?? "").includes("نتیجه"), "J5: work outcome renders the V26 result-card header («نتیجه»)")
+    ok(cbsOf(outcome).includes("m:menu"), "J5: outcome card carries «🏠 خانه» (know what comes next)")
     await sleep(350)
     await bot.handleUpdate(privCb(u, "m:menu", workMsgId ?? 2111))
     await sleep(50)
     const home5 = lastRender(u)
-    ok((home5?.text ?? "").includes("FEMBOY WAR") && cbsOf(home5).includes("m:guide") && cbsOf(home5).includes("fw:hub"), "J5: after the outcome, home is one tap away and fully functional")
+    ok((home5?.text ?? "").includes("FEMBOY WAR") && cbsOf(home5).includes("m:guide") && cbsOf(home5).includes("m:tab:fem"), "J5: after the outcome, home is one tap away and fully functional")
   }
 
   // ── J6) کنشِ ناموجود: بینگوی بی‌جیب → مسیرِ صادقانه (کار) نه بن‌بست ──────────
@@ -2484,6 +2501,105 @@ console.log("⑳③ V23 social layer: 7 social intents · state-aware private ch
     const beforeG = sendPayloads(gc).length
     await bot.handleUpdate({ update_id: nextUpdateId(), message: { message_id: nextMsgId(), date: 1, chat: chat(gc), from: user(23009), sticker: { emoji: "🎀" } } })
     ok(sendPayloads(gc).length === beforeG, "V23: group sticker stays silent (honest — presence engine sees no media)")
+  }
+}
+
+// ═══ ⑳④ V26 — کنترل‌پنلِ سه‌تبی: سفرِ واقعیِ تب‌ها + مسیرِ سه‌گامیِ فروش ══════
+console.log("⑳④ V26 tabbed hub: live tab switching (edit-in-place) + market 3-step journey + result banner")
+{
+  // همان بسترِ ماکِ V23 (رباتِ زنده + موتورِ ماک‌شده) — بازیکنِ ۲۶۰۰۱
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  const privCb = (userId: number, data: string, msgId: number) => ({
+    update_id: nextUpdateId(),
+    callback_query: { id: `cq${nextUpdateId()}`, from: user(userId), message: { message_id: msgId, date: 1, chat: privChat(userId) }, data },
+  })
+  const allCards = (userId: number) => [
+    ...tg("sendPhoto").filter((c: any) => String(c.payload.chat_id) === String(userId)).map((c: any) => c.payload),
+    ...sendPayloads(userId).map((c: any) => c.payload),
+  ]
+  const cardText = (p: any) => (p?.caption ?? p?.text ?? "")
+  const cbsOf = (payload: any) => ((payload?.reply_markup?.inline_keyboard ?? []) as any[][]).flat().map((b: any) => b.callback_data ?? "")
+  const lastRender = (userId: number) => {
+    const edits = editPayloads().filter((p: any) => String(p.chat_id) === String(userId))
+    return edits.at(-1) ?? sendPayloads(userId).at(-1)?.payload ?? null
+  }
+  const u = 26001
+  mockStateFemboy = {
+    name: "مهتاب", classKey: "archer", classEmoji: "🏹", className: "کمانگیر", level: 2,
+    rank: { emoji: "⭐", name: "ستاره" }, spirit: 88, condition: { emoji: "😊", label: "سرحال" },
+    stamina: 10, staminaMax: 18, wins: 1, losses: 0, mastery: null, skillPoints: 0,
+    nextMilestone: null, accessoryEmoji: null,
+  }
+  // کیفِ قابلِ‌فروش برای مسیرِ سه‌گامیِ فروش (آبِ قابلِ‌معامله)
+  mockProfileOverrides.set(String(u), {
+    inventory: [
+      { itemKey: "water", name: "آب", emoji: "💧", rarityLabel: "معمولی", category: "consumable", quantity: 2, equipped: false, favorite: false, locked: false, usable: true, tradable: true, effectLabel: null },
+    ],
+  })
+  try {
+    // ── ۱) ورود: /start → کارتِ داشبوردِ تبِ «امروز» ──
+    await bot.handleUpdate(privMsgUpdate(u, "/start"))
+    const home = allCards(u).find((p: any) => cardText(p).includes("● امروز"))
+    ok(Boolean(home), "V26-1: /start opens the dash tab of the tabbed hub")
+    const homeMsgId = sendPayloads(u).find((p: any) => (p.payload?.text ?? "").includes("● امروز"))?.res?.result?.message_id
+      ?? tg("sendPhoto").filter((c: any) => String(c.payload.chat_id) === String(u)).at(-1)?.res?.result?.message_id
+      ?? 26000
+    ok(cbsOf(home).includes("m:tab:fem") && cbsOf(home).includes("m:tab:city"), "V26-1: tab buttons live on the home card")
+
+    // ── ۲) سفرِ تب‌ها: فمبوی → شهر → امروز — هر تب پیامِ تازه نمی‌فرستد، همان پیام ویرایش می‌شود ──
+    const beforeSends = sendPayloads(u).length
+    // (ضدسیلِ ۳۰۰ms کال‌بک‌ها — بینِ هر فشار یک نفس)
+    await sleep(400)
+    await bot.handleUpdate(privCb(u, "m:tab:fem", homeMsgId ?? 26001))
+    // کارتِ خانه عکسی است → تب با ویرایشِ کپتنِ همان پیام عوض می‌شود (edit-in-place)
+    const femCap = tg("editMessageCaption").filter((c: any) => String(c.payload.chat_id) === String(u)).at(-1)?.payload
+    const femEdit = femCap ?? editPayloads().filter((p: any) => String(p.chat_id) === String(u)).at(-1)
+    const femText = femCap?.caption ?? femEdit?.text ?? ""
+    ok(femText.includes("● فمبوی") && femText.includes("مهتاب"), "V26-2: fem tab renders the femboy identity card (marked active)")
+    ok(((femCap?.reply_markup ?? femEdit?.reply_markup)?.inline_keyboard ?? []).flat().some((b: any) => b.callback_data === "fw:hub"), "V26-2: fem tab carries the full-hub button")
+    await sleep(400)
+    await bot.handleUpdate(privCb(u, "m:tab:city", homeMsgId ?? 26002))
+    const cityEdit = editPayloads().filter((p: any) => String(p.chat_id) === String(u)).at(-1)
+    ok((cityEdit?.text ?? "").includes("● شهر") && (cityEdit?.text ?? "").includes("الان اینجایی"), "V26-2: city tab renders the city status card")
+    await sleep(400)
+    await bot.handleUpdate(privCb(u, "m:tab:dash", homeMsgId ?? 26003))
+    const dashEdit = editPayloads().filter((p: any) => String(p.chat_id) === String(u)).at(-1)
+    ok((dashEdit?.text ?? "").includes("● امروز") && (dashEdit?.text ?? "").includes("📌"), "V26-2: dash tab returns with the guide block")
+    ok(sendPayloads(u).length === beforeSends, "V26-2: three tab switches → ZERO new messages (all edit-in-place)")
+
+    // ── ۳) مسیرِ سه‌گامیِ فروش: گام ۱ (جنس) → گام ۲ (قیمت) — نشانگرِ سفر روی کارت ──
+    await sleep(400)
+    await bot.handleUpdate(privCb(u, "m:market", homeMsgId ?? 26004))
+    await sleep(400)
+    await bot.handleUpdate(privCb(u, "m:mk", homeMsgId ?? 26005))
+    const step1 = lastRender(u)
+    ok((step1?.text ?? step1?.caption ?? "").includes("گام 1 از 3"), "V26-3: sell step 1 carries the journey indicator")
+    ok((step1?.text ?? step1?.caption ?? "").includes("به فروش بگذار"), "V26-3: step-1 card titled with the explicit verb")
+    const priceCb = (step1?.reply_markup?.inline_keyboard ?? []).flat().find((b: any) => (b.callback_data ?? "").startsWith("ms:"))?.callback_data
+    if (priceCb) {
+      await sleep(400)
+      await bot.handleUpdate(privCb(u, priceCb, homeMsgId ?? 26006))
+      const step2 = lastRender(u)
+      ok((step2?.text ?? step2?.caption ?? "").includes("گام 2 از 3"), "V26-3: sell step 2 carries the journey indicator")
+      ok(((step2?.reply_markup?.inline_keyboard ?? []).flat().some((b: any) => (b.callback_data ?? "").startsWith("mp:"))), "V26-3: step-2 offers price buttons (single-tap listing)")
+    } else {
+      ok(false, "V26-3: step-1 card exposes a sellable item (ms: button)")
+    }
+
+    // ── ۴) کارتِ نتیجه: هدرِ «نتیجه» + پیامِ زیرِ نقل‌قول ──
+    await sleep(350)
+    await bot.handleUpdate(privCb(u, "a:work", homeMsgId ?? 26007))
+    const outcomeCard = lastRender(u)
+    ok((outcomeCard?.text ?? "").includes("<b>نتیجه</b>"), "V26-4: action result carries the «نتیجه» header banner")
+    ok((outcomeCard?.text ?? "").includes("<blockquote>"), "V26-4: the engine message sits inside the quote block")
+
+    // ── ۵) کیبوردِ ثابتِ ۲×۴ از مسیرِ ورودِ تازه هم می‌رسد ──
+    const rkMsg = sendPayloads(u).find((c: any) => (c.payload?.text ?? "").includes("میان‌برهای ثابَتت"))
+    const rkRows: any[][] = rkMsg?.payload?.reply_markup?.keyboard ?? []
+    ok(rkRows.length === 2 && rkRows.every((r: any[]) => r.length === 4), "V26-5: persistent reply keyboard is the 2×4 V26 grid")
+  } finally {
+    mockStateFemboy = null
+    mockProfileOverrides.delete(String(u))
   }
 }
 

@@ -36,8 +36,10 @@ import { mulberry32, seedFrom, randInt, weightedPick, clamp, chance } from "../.
 import { getEventTemplate, eventCardText } from "../../src/lib/game/group/events"
 import { eventPacingInfo, eventWindowMinutes, EVENT_GAP_MINUTES, EVENT_MSG_QUOTA, pacingCardText } from "../../src/lib/game/group/pacing"
 import { bumpCulture, tehranDayKey } from "../../src/lib/game/group/domain"
-import { voteCardText } from "../../src/lib/game/group/presentation"
+import { voteCardText, gameHomeCardText, gameHomeButtons } from "../../src/lib/game/group/presentation"
+import { cityMapCard, NAV_SECTIONS } from "../../src/lib/game/group/hub"
 import { playableGames } from "../../src/lib/game/group/games"
+import { invitationCardText } from "../../src/lib/game/group/challenges"
 import type { GroupEventTemplate } from "../../src/lib/game/group/types"
 import { CLASSES, validateClasses } from "../../src/lib/game/content/classes"
 import { awardSoulProgress, SOUL_GROUP_XP_DAY_CAP } from "../../src/lib/game/group/awards"
@@ -949,12 +951,18 @@ async function main(): Promise<void> {
     const homeBtns = home.body.data?.buttons ?? []
     const navCbs = homeBtns.map((b) => b.cb ?? "").filter((cb) => cb.startsWith("gm:nav:"))
     ok(home.status === 200 && home.body.ok === true, "H: /game home card renders (hub)")
-    ok(NAV_KEYS.length === 12 && NAV_KEYS.every((k) => navCbs.includes(`gm:nav:${k}`)), `H: home carries all 12 gm:nav:{key} buttons (found ${navCbs.length})`)
-    ok((home.body.data?.text ?? "").includes("منوی شهر"), "H: home text carries the «منوی شهر» hub section")
+    // V26 — ناوبریِ دو‌سطحی: خانه فقط ششِ اصلی؛ نقشه‌ی کامل (gm:more) هر ۱۲ را دارد
+    const MAIN_NAV_KEYS = ["world", "events", "votes", "battle", "players", "help"]
+    ok(
+      MAIN_NAV_KEYS.every((k) => navCbs.includes(`gm:nav:${k}`)) && navCbs.length === 6,
+      `H/V26: home carries exactly the 6 main nav sections (found ${navCbs.length})`,
+    )
+    ok(homeBtns.some((b) => b.cb === "gm:more"), "H/V26: home carries the «⋯ همه‌ی بخش‌ها» second-level nav button")
+    ok((home.body.data?.text ?? "").includes("الان چی می‌گذره؟"), "H/V26: home text carries the live «الان» section (nav list moved to buttons)")
     ok(homeBtns.some((b) => b.cb === "gm:game") && homeBtns.length <= 20, `H: home keeps back/refresh and ≤20 buttons (found ${homeBtns.length})`)
-    // گریدِ ۲ستونه — نشانه‌ی چیدمانِ فشرده روی دکمه‌های فردِ گرید
+    // ششِ اصلی = ۳ جفتِ sameRow (گریدِ ۲ستونه روی خودِ خانه)
     const grid = homeBtns.filter((b) => (b.cb ?? "").startsWith("gm:nav:"))
-    ok(grid.length === 12 && grid.filter((b) => b.sameRow === true).length === 6, "H: nav grid emitted as 6 sameRow pairs (compact 2-column intent)")
+    ok(grid.length === 6 && grid.filter((b) => b.sameRow === true).length === 3, "H/V26: main nav emitted as 3 sameRow pairs (compact 2-column)")
     ok(homeBtns.every((b) => !faReH.test(b.label)), "H: home button labels carry English digits only")
 
     // ── آرامشِ اولیه — قطعیتِ رندر (بدون شمارشِ معکوسِ زنده) ──
@@ -1938,6 +1946,81 @@ async function cleanup(): Promise<void> {
   })
 }
 
+// ─── §V26 — بازسازیِ UI گروهی: ناوبریِ دو‌سطحی · کارتِ رویدادِ معنایی · رأیِ نوار‌دار ──
+async function v26Presentation(): Promise<void> {
+  console.log("── §V26 group UI overhaul: two-level nav · semantic event card · bar votes ──")
+  {
+    // ۱) نقشه‌ی شهر (gm:more) — همه‌ی ۱۲ بخش + بازگشت
+    const map = cityMapCard()
+    const mapBtns = map.editCard?.buttons ?? []
+    const mapNav = mapBtns.map((b) => b.cb ?? "").filter((cb) => cb.startsWith("gm:nav:"))
+    ok(map.ok === true && mapNav.length === NAV_SECTIONS.length, `V26-1: city map carries all ${NAV_SECTIONS.length} sections (found ${mapNav.length})`)
+    ok(mapBtns.some((b) => b.cb === "gm:game"), "V26-1: city map carries back-to-home")
+    ok((map.editCard?.text ?? "").includes("نقشه‌ی شهر"), "V26-1: city map card is titled «نقشه‌ی شهر»")
+    // گریدِ ۶ جفتی روی نقشه (sameRow روی دومیِ هر جفت)
+    const gridPairs = mapBtns.filter((b) => (b.cb ?? "").startsWith("gm:nav:") && b.sameRow === true).length
+    ok(gridPairs === 6, `V26-1: city map nav grid = 6 sameRow pairs (found ${gridPairs})`)
+
+    // ۲) کارتِ خانه — بلوکِ «🟢 الان» + بدونِ فهرستِ متنیِ ۱۲ بخش + «تو»
+    const snap = {
+      districtEmoji: "🏛", districtName: "مرکز", weatherEmoji: "🌤", weatherLabel: "آرام",
+      moodEmoji: "🙂", moodLabel: "روبه‌راه", cultureEmoji: "🎀", cultureLabel: "شیش",
+      stateLabel: "پایدار", chaos: 10, treasury: 1000, reputationLabel: "خوب",
+      challenges: [], currentEvent: null, activeGame: null, openVotes: [], projects: [],
+      whyComeBack: null,
+    } as any
+    const homeText = gameHomeCardText(snap, "شهرِ آزمون", null)
+    ok(homeText.includes("🟢 <b>الان چی می‌گذره؟</b>"), "V26-2: home text opens the live «الان» block")
+    ok(homeText.includes("👤 <b>تو</b>"), "V26-2: home text keeps the «تو» identity block")
+    ok(!homeText.includes("منوی شهر"), "V26-2: the 12-section text list left the home card (buttons carry nav)")
+    ok(homeText.split("\n").length <= 14, `V26-2: home card is compact (≤14 lines; got ${homeText.split("\n").length})`)
+
+    // ۳) دکمه‌های خانه — کنشِ زنده اول، بعد ششِ اصلی جفتی، بعد more+تازه
+    const btns = gameHomeButtons(snap, null)
+    const navBtns = btns.filter((b) => (b.cb ?? "").startsWith("gm:nav:"))
+    ok(navBtns.length === 6, `V26-3: home buttons carry exactly 6 main nav (found ${navBtns.length})`)
+    const moreIdx = btns.findIndex((b) => b.cb === "gm:more")
+    const navIdx = btns.findIndex((b) => (b.cb ?? "").startsWith("gm:nav:"))
+    ok(moreIdx > navIdx && navIdx >= 0, "V26-3: main nav precedes the «⋯ همه‌ی بخش‌ها» second level")
+    ok(btns.some((b) => b.cb === "gm:game" && b.label === "🔄 تازه"), "V26-3: home refresh pairs with the map button")
+
+    // ۴) کارتِ رویداد — روایتِ بلند زیرِ expand + رستر با سقف + خطِ «یک انتخاب»
+    const longBody = "شهر شلوغ است. ".repeat(40)
+    const parts = Array.from({ length: 8 }, (_, i) => ({ playerId: `p${i}`, name: `بازیکنِ ${i + 1}`, choiceLabel: "گزینه", choiceKey: "a" }))
+    const evCard = eventCardText(
+      { emoji: "🎭", title: "تستِ کارت", body: longBody, choicesJson: "[]", expiresAt: new Date(Date.now() + 30 * 60000) } as any,
+      parts,
+    )
+    ok(evCard.includes("<blockquote expandable>"), "V26-4: long event body collapses into an expandable quote")
+    ok(evCard.includes("و <code>3</code> نفرِ دیگر"), "V26-4: participant roster caps at 5 with an overflow counter (8 → «و 3 نفر»)")
+    ok(evCard.includes("یک انتخاب دارد"), "V26-4: the one-choice-per-citizen rule is stated on the card")
+    ok(evCard.includes("⏳"), "V26-4: deadline block survives")
+
+    // ۵) کارتِ رأی — نوارِ سهمِ هر گزینه + مجموع
+    const vCard = voteCardText({
+      subject: "نامِ پارک",
+      options: [
+        { label: "الف", count: 6 },
+        { label: "ب", count: 2 },
+      ],
+      closesAt: new Date(Date.now() + 25 * 60000).toISOString(),
+    })
+    ok(vCard.includes("▓") && vCard.includes("%"), "V26-5: vote options carry live share bars")
+    ok(vCard.includes("75%") && vCard.includes("25%"), "V26-5: share math is honest (6/8 → 75%, 2/8 → 25%)")
+    ok(vCard.includes("مجموع") && vCard.includes("8"), "V26-5: total vote count is stated")
+
+    // ۶) دعوتِ دوئل — اسکورکارتِ 🔴/🔵 با مالکیتِ دکمه‌ها
+    const inv = invitationCardText(
+      { playerName: "آلف", femboyName: "فمآلف", className: "شینوبی", classEmoji: "🥷", level: 3 } as any,
+      { playerName: "بتا", femboyName: "فمبتا", className: "جادوگر", classEmoji: "🧙", level: 4 } as any,
+      45,
+    )
+    ok(inv.includes("🔴") && inv.includes("🔵"), "V26-6: duel invitation is a two-marker scorecard (initiator vs invited)")
+    ok(inv.includes("آغازگر") && inv.includes("مدعو"), "V26-6: roles are named (who must answer)")
+    ok(inv.includes("قبول/رد فقط از") && inv.includes("پس‌گرفتن فقط از"), "V26-6: button ownership is stated on the card (§4.C)")
+  }
+}
+
 async function finalGuards(basePlayerIds: Set<string>, baseGroupIds: Set<string>): Promise<void> {
   section("§Z real-data guard + residue (start==end)")
   const playersNow = await db.player.findMany({ select: { id: true, telegramId: true } })
@@ -1983,6 +2066,15 @@ try {
   try { await cleanup() } catch (e) { fail++; failures.push(`CLEANUP FAILED: ${String(e)}`); console.error("CLEANUP FAILED:", e) }
   try { await finalGuards(basePlayerIds, baseGroupIds) } catch (e) { fail++; failures.push(`FINAL GUARD FAILED: ${String(e)}`); console.error("FINAL GUARD FAILED:", e) }
   await db.$disconnect().catch(() => undefined)
+}
+
+// ═══ §V26 — اجرایِ بخشِ ارائه‌های V26 (pure card builders) ═══════════════════
+try {
+  await v26Presentation()
+} catch (e) {
+  fail++
+  failures.push(`V26 SECTION FAILED: ${e instanceof Error ? e.message : String(e)}`)
+  console.error("V26 SECTION FAILED:", e)
 }
 
 // ═══ §V20 — بازطراحیِ گروه: کارتِ ریتمِ فشرده + خطِ مهلتِ زنده‌ی رأی ═════════

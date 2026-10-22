@@ -842,7 +842,7 @@ function hubKeyboard(): InlineKeyboard {
   kb.text("⚡ شارژِ استقامت", "fw:charge").danger()
   kb.text("🧪 شربتِ روح", "fwsp:go").danger()
   kb.text("🕰 سابقه", "fw:history").primary().row()
-  kb.text("↩ خانه", "m:menu").primary()
+  kb.text("🏠 خانه", "m:menu").primary()
   return withMiniApp(kb)
 }
 

@@ -195,7 +195,7 @@ export async function showHelpHome(ctx: Context): Promise<void> {
     cb: cbHelpCat(c.id),
   }))
   items.push("row")
-  items.push({ label: "↩ خانه", cb: CB.menu })
+  items.push({ label: "🏠 خانه", cb: CB.menu })
   await show(ctx, lines.join("\n"), helpKeyboard(items))
 }
 
@@ -245,7 +245,7 @@ async function showCategory(ctx: Context, catId: string, pageRaw: number): Promi
   }
   items.push("row")
   items.push({ label: "↩ راهنما", cb: CB_HELP_HOME })
-  items.push({ label: "↩ خانه", cb: CB.menu })
+  items.push({ label: "🏠 خانه", cb: CB.menu })
   await show(ctx, lines.join("\n"), helpKeyboard(items))
 }
 

@@ -150,7 +150,10 @@ export function lobbyCardText(def: GameDef, parts: { name: string }[], subject: 
 /** کارتِ اعلامِ بازی — سازنده‌ی خالص (تست‌پذیر؛ V11)؛ مهلتِ ثبت‌نام تراش می‌خورد.
  *  V24: نشانِ خودِ بازی + مهلتِ ثبت‌نام زیرِ بلوکِ نقل‌قولی. */
 export function gameLobbyText(def: GameDef, n: number, groupTitle: string, subject: string, joinWindowMinutes: number): string {
-  return `<b>${def.emoji} ${def.name}</b>\n<i>${def.tagline}</i>\n${emblem(def.emoji)}\n\n${renderGame(def.introText, { game: def.name, n, group: groupTitle, subject })}\n\n${quote(`⏳ ${chip(joinWindowMinutes)} دقیقه مهلتِ ثبت‌نام.`)}`
+  // V26 (§4.B): پنلِ فعالیتِ اشتراکی — «چه خبر / چه می‌توانی بکنی / چه کسی
+  // می‌تواند / تا کِی» هرکدام یک خطِ صریح؛ دیروز فقط روایت + مهلت بود.
+  const need = def.minPlayers > 1 ? ` · حداقل ${chip(def.minPlayers)} نفر` : ""
+  return `<b>${def.emoji} ${def.name}</b>\n<i>${def.tagline}</i>\n${emblem(def.emoji)}\n\n${renderGame(def.introText, { game: def.name, n, group: groupTitle, subject })}\n\n✋ <b>کاری که می‌توانی بکنی:</b> دکمه‌ی «ثبت‌نام» همین کارت${need}.\n\n${quote(`⏳ ${chip(joinWindowMinutes)} دقیقه مهلتِ ثبت‌نام.`)}`
 }
 
 function lobbyButtons(session: GameSession): OutboxButton[] {
