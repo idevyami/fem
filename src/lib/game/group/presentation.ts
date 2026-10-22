@@ -42,7 +42,7 @@ export function gameHomeCardText(snap: GroupSnapshotDTO, groupTitle: string, vie
     "🟢 <b>الان چی می‌گذره؟</b>",
   ]
 
-  // فعالیت‌هایِ باز — اولویت: دعوتِ دوئل > اتفاق > بازی > رأی (حداکثر ۴ خطِ فشرده)
+  // فعالیت‌هایِ باز — اولویت: دعوتِ دوئل > اتفاق > کاروان (V27) > بازی > رأی (حداکثر ۴ خطِ فشرده)
   const acts: string[] = []
   for (const c of snap.challenges ?? []) {
     if (c.status !== "pending") continue
@@ -53,6 +53,22 @@ export function gameHomeCardText(snap: GroupSnapshotDTO, groupTitle: string, vie
     const ev = snap.currentEvent
     const mine = viewer?.joinedEvent ? " · انتخابت ثبت است" : ""
     acts.push(`▪ 💥 ${ev.emoji} ${ev.title} — ${chip(ev.participantsCount)} انتخاب · ⏳ ${remainChip(ev.expiresAt)}${mine}`)
+  }
+  if (snap.activeExpedition) {
+    // V27 — کاروانِ شهر: مأموریتِ تعاونی. خطِ «تو» به جایگاهِ شخصی اشاره می‌کند:
+    // سهمِ آزاد مانده / کنشِ تو مانده — پلِ بینِ «شهر چه دارد» و «تو چه می‌توانی».
+    const ex = snap.activeExpedition
+    const mine = viewer?.expeditionRole
+      ? viewer.expeditionActed
+        ? " · کنشت انجام است"
+        : " · کنشِ تو مانده"
+      : ex.phase === "recruit"
+        ? " · سهم می‌توانی بگیری"
+        : ""
+    const stat = ex.phase === "recruit"
+      ? `${chip(ex.roles.filter((r) => !r.holderName).length)} سهمِ آزاد`
+      : `${chip(ex.roles.filter((r) => r.acted).length)}/${chip(ex.roles.length)} کنش`
+    acts.push(`▪ 🧭 ${ex.emoji} ${ex.title} — ${stat}${mine}`)
   }
   if (snap.activeGame) {
     const g = snap.activeGame
@@ -107,6 +123,18 @@ export function gameHomeButtons(snap: GroupSnapshotDTO, viewer?: HomeViewer | nu
   }
   if (snap.currentEvent && !(viewer?.joinedEvent)) {
     buttons.push({ label: "💥 شرکت در اتفاق", style: "danger", cb: "gm:event" })
+  }
+  // V27 — کنشِ زنده‌ی کاروان: سهم‌گیری در فازِ سهم‌گیری، کنشِ شخصی در فازِ عمل.
+  // برچسب دقیقاً همان کاری است که دکمه برای «این» بیننده می‌کند — نه کلیشه.
+  if (snap.activeExpedition && viewer) {
+    const ex = snap.activeExpedition
+    if (ex.phase === "recruit" && !viewer.expeditionRole) {
+      buttons.push({ label: "🧭 سهمِ تو در کاروان", style: "success", cb: "gm:mission" })
+    } else if (ex.phase === "act" && viewer.expeditionRole && !viewer.expeditionActed) {
+      buttons.push({ label: "🎯 کنشِ سهمِ تو", style: "danger", cb: `gx:${ex.id}:act` })
+    } else if (ex.phase === "act" && !viewer.expeditionRole && !viewer.expeditionCheered) {
+      buttons.push({ label: "📣 تشویقِ کاروان", style: "primary", cb: `gx:${ex.id}:cheer` })
+    }
   }
   if (snap.activeGame && !(viewer?.joinedGame)) {
     buttons.push({ label: "✋ ثبت‌نامِ بازی", style: "success", cb: `gg:${snap.activeGame.id}:j` })
@@ -254,11 +282,12 @@ export function helpCardText(): string {
     "",
     `1️⃣ فمبوی‌ات را در پی‌ویِ ربات بساز — بدونِ او فقط تماشاگری.`,
     `2️⃣ ${chip("رویدادها")} — اتفاقِ شهر را باز کن؛ انتخابِ خودت را روی کارتش بزن.`,
-    `3️⃣ ${chip("رأی‌گیری")} · ${chip("پروژه‌ها")} — رأی بده، کمک کن، شهر را بساز.`,
-    `4️⃣ ${chip("جنگ فمبوی")} — روی پیامِ رقیب reply بزن و دعوتش کن؛ جواب با دکمه‌های دعوت‌نامه.`,
-    `5️⃣ شب‌ها استایل‌شو — فمبوی‌هایِ شهر روی صحنه؛ قضاوت با بیلدِ واقعی است.`,
+    `3️⃣ ${chip("مامموریت")} — کاروانِ شهر: سهم بگیر، کنشت را بزن؛ با هم می‌رود یا با هم می‌ماند.`,
+    `4️⃣ ${chip("رأی‌گیری")} · ${chip("پروژه‌ها")} — رأی بده، کمک کن، شهر را بساز؛ همه‌پرسی وضعیتِ شهر را عوض می‌کند.`,
+    `5️⃣ ${chip("جنگ فمبوی")} — روی پیامِ رقیب reply بزن و دعوتش کن؛ جواب با دکمه‌های دعوت‌نامه.`,
+    `6️⃣ شب‌ها استایل‌شو — فمبوی‌هایِ شهر روی صحنه؛ قضاوت با بیلدِ واقعی است.`,
     "",
-    `بدونِ فرمان هم کار می‌کند: ${chip("منو")} · ${chip("وضعیت شهر")} · ${chip("بازیکن‌ها")} · ${chip("رویدادها")}`,
+    `بدونِ فرمان هم کار می‌کند: ${chip("منو")} · ${chip("وضعیت شهر")} · ${chip("مامموریت")} · ${chip("بازیکن‌ها")} · ${chip("رویدادها")}`,
     "",
     DOTS,
     "",

@@ -76,10 +76,11 @@ function parseIntents(): { ids: string[]; byId: Map<string, ParsedAlias> } {
 // V16-3 — سه‌گانه‌ی V15-2 (duels/economy/fame) اضافه شدند (آینه بودن، یادشان رفته بود).
 // V23 — نیت‌های اجتماعی هم در گروه جواب می‌گیرند (فقط با آدرس‌دهی: یک خطِ کوتاه
 // از social.ts — نه کارتِ موتور)؛ پس «both» می‌مانند تا کدکس صادق بماند.
+// V27 — mission (مامموریت/کاروان) هم در گروه به موتور می‌رود (عبارتِ باز).
 const GROUP_ROUTED = new Set([
   "menu", "start", "back", "help", "city", "status", "events", "players", "games",
   "leaderboard", "champ", "news", "femboy", "myfemboy", "duel", "vote", "court",
-  "projects", "history", "gadmin", "cancel", "duels", "economy", "fame",
+  "projects", "history", "gadmin", "cancel", "duels", "economy", "fame", "mission",
   "greet", "howAreYou", "thanks", "bye", "laugh", "love", "tired",
 ])
 
@@ -111,9 +112,9 @@ const rows: TableRow[] = ids.map((id) => {
   }
 })
 
-// شمارشِ واقعیِ نیت‌ها در intent.ts = 50 (43 تا V20 + V23: هفت نیتِ اجتماعی). اگر
+// شمارشِ واقعیِ نیت‌ها در intent.ts = 51 (50 تا V23 + V27: mission). اگر
 // رجیستری رشد کرد این عدد را به‌روز کن.
-const EXPECTED_INTENT_COUNT = 50
+const EXPECTED_INTENT_COUNT = 51
 if (rows.length !== EXPECTED_INTENT_COUNT) {
   throw new Error(`intent.ts exposes ${rows.length} intents, expected ${EXPECTED_INTENT_COUNT} (update EXPECTED_INTENT_COUNT if the registry grew)`)
 }

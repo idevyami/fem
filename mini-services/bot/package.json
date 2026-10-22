@@ -1,6 +1,6 @@
 {
   "name": "femboy-war-bot",
-  "version": "11.1.0",
+  "version": "12.0.0",
   "private": true,
   "type": "module",
   "description": "FEMBOY WAR 🎀 — Telegram bot client (presentation only, game logic lives in the Next.js engine)",

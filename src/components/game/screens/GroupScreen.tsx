@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils"
 import { WorldHeader } from "./group/WorldHeader"
 import { ChallengesSection } from "./group/ChallengesSection"
 import { ActiveGameCard, CurrentEventCard } from "./group/EventAndGameCards"
+import { ExpeditionCard } from "./group/ExpeditionCard"
 import { VotesSection } from "./group/VotesSection"
 import { GamesSection } from "./group/GamesSection"
 import { ProjectsSection } from "./group/ProjectsSection"
@@ -93,6 +94,19 @@ export function GroupScreen() {
   const handleChallenge = React.useCallback(
     (key: string, challengeId: string, verb: "accept" | "decline" | "cancel") =>
       void act(key, "challenge", { challengeId, verb }),
+    [act],
+  )
+  /** V27 — کاروانِ شهر: سهم‌گیری/کنش/تشویق — همان پل‌هایِ gx: ربات رویِ سیمِ session */
+  const handleExpeditionJoin = React.useCallback(
+    (key: string, expeditionId: string, roleKey: string) => void act(key, "expeditionJoin", { expeditionId, roleKey }),
+    [act],
+  )
+  const handleExpeditionAct = React.useCallback(
+    (key: string, expeditionId: string) => void act(key, "expeditionAct", { expeditionId }),
+    [act],
+  )
+  const handleExpeditionCheer = React.useCallback(
+    (key: string, expeditionId: string) => void act(key, "expeditionCheer", { expeditionId }),
     [act],
   )
 
@@ -208,6 +222,16 @@ export function GroupScreen() {
           {/* V22 — چیدمانِ زنده-اول: اتفاقِ جاری و بازیِ فعال، قبل از بقیه */}
           {snap.currentEvent ? (
             <CurrentEventCard ev={snap.currentEvent} acting={acting} onChoose={handleChooseEvent} />
+          ) : null}
+          {/* V27 — کاروانِ شهر: مأموریتِ تعاونی، در همان ردیفِ «همین حالا» */}
+          {snap.activeExpedition ? (
+            <ExpeditionCard
+              ex={snap.activeExpedition}
+              acting={acting}
+              onJoin={handleExpeditionJoin}
+              onAct={handleExpeditionAct}
+              onCheer={handleExpeditionCheer}
+            />
           ) : null}
           {snap.activeGame ? (
             <ActiveGameCard game={snap.activeGame} myPlayerId={myPlayerId} joining={acting === "joingame"} onJoin={handleJoin} />

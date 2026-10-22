@@ -2,14 +2,16 @@
 
 import { db } from "@/lib/db"
 import type { GroupWorld, GroupVote, Player } from "@prisma/client"
-import { mulberry32, seedFrom, randInt, pickOne } from "../rng"
+import { mulberry32, seedFrom, randInt, pickOne, clamp } from "../rng"
 import { applyMoney } from "../economy"
-import { GROUP_ROLE_MAP, GROUP_PROJECT_MAP, COURT_CHARGES } from "./content"
+import { GROUP_ROLE_MAP, GROUP_PROJECT_MAP, COURT_CHARGES, REFERENDUM_MAP, pickReferendum } from "./content"
+import type { ReferendumEffects } from "./types"
 import type { OutboxButton } from "./types"
-import { esc, parseJson, pushOutbox, pushOutboxTx, addHistoryTx, addNewsTx, activeMembers, bumpCulture, cultureOf, checkAchievementsTx, grantGroupAchievementTx, isGroupMember, NOT_CITIZEN_MSG, toLatinDigits, withSectionLock } from "./domain"
+import { esc, parseJson, pushOutbox, pushOutboxTx, addHistoryTx, addNewsTx, activeMembers, bumpCulture, cultureOf, checkAchievementsTx, grantGroupAchievementTx, isGroupMember, NOT_CITIZEN_MSG, toLatinDigits, tehranDayKey, withSectionLock } from "./domain"
 import { adjustMemberRep, adjustRelationship } from "./social"
 import { awardSoulProgress } from "./awards"
 import { faNum, chip, spoiler, quote, emblem, barRow } from "./text"
+import type { GroupCallCtx, CallbackResult } from "./router"
 
 export type Tx = import("@prisma/client").Prisma.TransactionClient
 
@@ -128,6 +130,75 @@ export async function openCourtAuto(group: GroupWorld, instigator?: Player): Pro
   const accused = pickOne(suspects.length > 0 ? suspects : pool, rng)
   const charge = pickOne(COURT_CHARGES, rng)
   return openCourt(group, accused.playerId, charge)
+}
+
+// ─── همه‌پرسی (V27) — رأیِ جمعی با اثرِ واقعی بر جهان ─────────────────────────
+
+/** کارتِ افتتاحِ همه‌پرسی — سازنده‌ی خالص؛ چیدمانِ هم‌زبانِ پنلِ عمومیِ رأی */
+export function pollOpenCardText(groupTitle: string, question: string, emoji: string, byMayorName: string | null): string {
+  const mayorLine = byMayorName ? `\nفراخوانِ شهردار <b>${esc(byMayorName)}</b>.\n` : "\n"
+  return `🗳 <b>همه‌پرسیِ ${esc(groupTitle)}</b>\n${emblem("🗳")}\n\n${emoji} <b>${question}</b>${mayorLine}${quote("حکمِ اکثریت وضعیتِ شهر را واقعاً عوض می‌کند. تا ساعتِ شمارش، رأیت را می‌توانی عوض کنی.")}`
+}
+
+/** خلاصه‌ی اثرها — خطِ شفافیت: بازیکن می‌داند حکمِ رأیش چه کرد */
+export function pollEffectsSummary(ef: ReferendumEffects): string {
+  const parts: string[] = []
+  if (ef.chaos) parts.push(`🌀 آشوب ${ef.chaos > 0 ? "+" : ""}${faNum(ef.chaos)}`)
+  if (ef.socialTemp) parts.push(`🌡 دمایِ اجتماعی ${ef.socialTemp > 0 ? "+" : ""}${faNum(ef.socialTemp)}`)
+  if (ef.crime) parts.push(`🕶 جرم ${ef.crime > 0 ? "+" : ""}${faNum(ef.crime)}`)
+  if (ef.treasury) parts.push(`💰 صندوق ${ef.treasury > 0 ? "+" : ""}${faNum(ef.treasury)}`)
+  if (ef.tagBoost) parts.push(`🔮 رویدادهایِ «${ef.tagBoost.tag}» تا ${faNum(ef.tagBoost.hours)} ساعت پررنگ‌تر`)
+  if (ef.repAll) parts.push(`🤝 آبرویِ همه: ${ef.repAll.dim} ${ef.repAll.delta > 0 ? "+" : ""}${faNum(ef.repAll.delta)}`)
+  return parts.join(" · ")
+}
+
+/** کارتِ حکمِ همه‌پرسی — سازنده‌ی خالص؛ اثرها صادقانه گفته می‌شوند */
+export function pollResultCardText(question: string, emoji: string, optionLabel: string, line: string, effectsLine: string, votes: number, total: number): string {
+  return `🗳 <b>حکمِ همه‌پرسی</b>\n${emblem("🗳")}\n\n${emoji} ${question}\n«${esc(optionLabel)}» — ${chip(votes)} رأی از ${chip(total)}.\n\n${quote(line)}\n${effectsLine ? `\n${spoiler(effectsLine)}\n` : ""}\n<i>حکم همین حالا اجرا شد.</i>`
+}
+
+/** شروعِ همه‌پرسی — فراخوانِ شهردار یا تیکِ ۷۲ساعته؛ اثرها موقعِ شمارش */
+export async function openCityPoll(group: GroupWorld, byMayorName?: string | null): Promise<OpenVoteResult> {
+  const open = await db.groupVote.findFirst({ where: { groupId: group.id, status: "open" } })
+  if (open) return { ok: false, message: "یه رأی‌گیری در جریانه. شهر با یک سؤالِ باز درست کار نمی‌کنه." }
+  const c = cultureOf(group)
+  const rng = mulberry32(seedFrom("poll", group.id, Date.now()))
+  const tpl = pickReferendum(typeof c.lastPollId === "string" ? c.lastPollId : "", rng)
+  const vote = await db.groupVote.create({
+    data: {
+      groupId: group.id,
+      kind: "poll",
+      subject: `${tpl.emoji} ${tpl.question}`,
+      optionsJson: JSON.stringify(tpl.options.map((o) => ({ key: o.key, label: o.label, style: o.style }))),
+      closesAt: new Date(Date.now() + 60 * 60000),
+      payloadJson: JSON.stringify({ referendumId: tpl.id }),
+    },
+  })
+  await pushOutbox(group, {
+    kind: "vote",
+    text: pollOpenCardText(group.title, tpl.question, tpl.emoji, byMayorName ?? null),
+    buttons: [
+      ...tpl.options.map((o) => ({ label: o.label, style: o.style, cb: `gv:${vote.id}:${o.key}` })),
+      { label: "↩ خانه", style: "primary", cb: "gm:game" },
+    ],
+    refType: "vote",
+    refId: vote.id,
+    priority: 8,
+  })
+  await bumpCulture(db, group.id, { votes: 1, lastPollDay: tehranDayKey(), lastPollId: tpl.id })
+  return { ok: true, message: "همه‌پرسی اعلام شد." }
+}
+
+/** gm:poll — قدرتِ واقعیِ شهردار: فراخوانِ همه‌پرسی (دروازه‌ی نقش در سرور) */
+export async function openCityPollCard(ctx: GroupCallCtx): Promise<CallbackResult> {
+  const member = ctx.player
+    ? await ctx.db.groupMember.findUnique({ where: { groupId_playerId: { groupId: ctx.group.id, playerId: ctx.player.id } } })
+    : null
+  if (!member || member.role !== "mayor") {
+    return { ok: false, ackText: "همه‌پرسی را شهردار فراخوان می‌کند — یا خودِ شهر هر ~۳ روز یکی می‌سازد." }
+  }
+  const r = await openCityPoll(ctx.group, ctx.player?.name ?? null)
+  return { ok: r.ok, ackText: r.message }
 }
 
 // ─── رأی ───────────────────────────────────────────────────────────────────────
@@ -325,6 +396,48 @@ async function resolveVote(vote: GroupVote, now: Date): Promise<void> {
         await addHistoryTx(tx, group.id, "⚖️", `دادگاه «${payload.charge}» — ${verdictText}`, 80)
         await grantGroupAchievementTx(tx, group, "first_court")
         return
+      }
+
+      // همه‌پرسی (V27) — حکمِ اکثریت، اثرِ واقعی دارد: شاخص‌ها/صندوق/آبرو/سوگیریِ
+      // رویدادها. خطِ اثر روی کارت صادقانه گفته می‌شود (شفافیتِ قواعد).
+      if (fresh.kind === "poll") {
+        const payload = parseJson<{ referendumId: string }>(fresh.payloadJson, { referendumId: "" })
+        const tpl = payload.referendumId ? REFERENDUM_MAP[payload.referendumId] : undefined
+        const winning = tpl?.options.find((o) => o.key === best?.key)
+        if (tpl && winning) {
+          const ef = winning.effects
+          const freshGroup = await tx.groupWorld.findUnique({ where: { id: group.id } })
+          if (freshGroup) {
+            await tx.groupWorld.update({
+              where: { id: group.id },
+              data: {
+                ...(ef.chaos ? { chaos: clamp(freshGroup.chaos + ef.chaos, 0, 100) } : {}),
+                ...(ef.socialTemp ? { socialTemp: clamp(freshGroup.socialTemp + ef.socialTemp, 0, 100) } : {}),
+                ...(ef.crime ? { crimeLevel: clamp(freshGroup.crimeLevel + ef.crime, 0, 100) } : {}),
+                ...(ef.treasury ? { treasury: Math.max(0, freshGroup.treasury + ef.treasury) } : {}),
+              },
+            })
+          }
+          if (ef.tagBoost) {
+            await bumpCulture(tx, group.id, {
+              [`pollBias:${ef.tagBoost.tag}`]: new Date(now.getTime() + ef.tagBoost.hours * 3600000).toISOString(),
+            })
+          }
+          if (ef.repAll) {
+            const members = await tx.groupMember.findMany({ where: { groupId: group.id } })
+            for (const m of members) {
+              await adjustMemberRep(tx, m, ef.repAll.dim, ef.repAll.delta)
+            }
+          }
+          await pushOutboxTx(tx, group, {
+            kind: "vote",
+            text: pollResultCardText(tpl.question, tpl.emoji, winning.label, winning.line, pollEffectsSummary(ef), best?.n ?? 0, totalVotes),
+            priority: 8,
+          })
+          await addHistoryTx(tx, group.id, tpl.emoji, `همه‌پرسی «${esc(tpl.question)}» — حکم: «${esc(winning.label)}»`, 70)
+          await addNewsTx(tx, group.id, tpl.emoji, `شهر رأی داد: ${esc(tpl.question)} → ${esc(winning.label)}`)
+          return
+        }
       }
 
       // رأی‌گیریِ عمومی

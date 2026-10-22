@@ -27,6 +27,9 @@
 //     V16-1: gm:contribute:{templateKey} → انتخابگرِ مبلغِ کمک از جیبِ واقعیِ
 //     بازیکن (دکمه‌های gp:{projectId}:{amount} — دیگر 2000ِ ثابت نیست)
 //   gc:{challengeId}:{accept|decline|cancel}   دعوتِ دوئل (موجِ ۲؛ §5.2)
+//   gx:{expeditionId}:join:{roleKey}|act|cheer|begin   کاروانِ شهر (V27) —
+//                                     سهم‌گیری/کنش/تشویق/حرکت؛ همه editCard
+//                                     برمی‌گردانند — پنلِ اشتراکی زنده می‌ماند
 //   gs:{toggle:enabled|set:noise:v|set:eventFreq:v|recover|view}   ادمین (موجِ ۲؛ Part 9)
 //   gh:{m|c:{catId}[:{page}]|t:{topicId}:{page}}   کدکسِ راهنما (V14 Task 15b)
 //   prefix ناشناخته → «دکمه‌ی ناشناخته.» (رفتارِ امروز، بی‌تغییر)
@@ -84,12 +87,13 @@ import { requireGroupMember, NOT_CITIZEN_MSG } from "./safety"
 import { spawnGroupEvent, chooseEventOption, eventCardText, eventCardButtons, participantsOf } from "./events"
 import { pacingAckText, pacingCardText, pacingOf } from "./pacing"
 import { startGame, joinGame, beginGame, gameAction, playableGames } from "./games"
-import { openElection, openCourtAuto, castVote, contribute, startProject, projectMenu, contributePickerCard } from "./politics"
+import { openElection, openCourtAuto, castVote, contribute, startProject, projectMenu, contributePickerCard, openCityPollCard } from "./politics"
 import { parseJson } from "./domain"
 import { rumorAction } from "./world"
 import { citizenVibe } from "./presence"
 import { buildGroupSnapshot, buildHomeViewer } from "./snapshot"
 import { createChallenge, actChallenge } from "./challenges"
+import { joinExpedition, beginExpedition, actExpedition, cheerExpedition, missionCommandCard } from "./expeditions"
 import { gadminCommand, gsCallback } from "./admin"
 import { ghCallback } from "./codex"
 import { getCosmetic } from "../content/appearance"
@@ -311,6 +315,12 @@ export const COMMANDS: Record<string, GroupCommandHandler> = {
     // تا موجِ ۵ ربات /duel خودش را حل می‌کند؛ این فرمان بی‌صدا می‌ماند — بدونِ تضاد.
     return createChallenge(ctx, (arg ?? "").trim())
   },
+  mission: async (ctx) => {
+    // V27 — «مامموریت/کاروان»: مأموریتِ تعاونیِ چندنفره. کارتِ فعلی یا کاروانِ تازه.
+    // کارتِ تازه از طریقِ outbox می‌رود (متنِ خالی = همان رفتارِ فرمانِ event).
+    const r = await missionCommandCard(ctx.group)
+    return { text: r.text, buttons: r.buttons }
+  },
   duels: async (ctx) => {
     // V15-1 — دعوت‌های دوئلِ این شهر: بازها با دکمه‌های نقشی (gc:)، آخرین نتیجه‌ها،
     // راهنمایِ reply. عبارتِ ربات در موجِ V15-2 به همین فرمان وصل می‌شود.
@@ -430,6 +440,35 @@ export const CALLBACKS: Record<string, GroupCallbackHandler> = {
     const verb = rest[1] ?? ""
     if (!challengeId || !verb) return { ok: false, ackText: "دکمه‌ی ناقص." }
     return actChallenge(ctx, challengeId, verb)
+  },
+  gx: async (ctx, data) => {
+    // gx:{expeditionId}:{join:{roleKey}|act|cheer|begin} — کاروانِ شهر (V27).
+    // پنلِ اشتراکی: هر کنشِ موفق کارتِ تازه‌ی همان پیام را برمی‌گرداند؛ سهم‌های
+    // غیرمجاز/تکراری ack صادقانه می‌گیرند و کارتِ فازِ فعلی دوباره سِرو می‌شود
+    // (لمسِ کارتِ کهنه خودش را شفا می‌دهد).
+    const rest = data.split(":").slice(1)
+    const expeditionId = rest[0]
+    const verb = rest[1] ?? ""
+    if (!expeditionId || !verb) return { ok: false, ackText: "دکمه‌ی ناقص." }
+    if (verb === "join") {
+      const roleKey = rest.slice(2).join(":")
+      if (!roleKey) return { ok: false, ackText: "دکمه‌ی ناقص." }
+      const r = await joinExpedition(ctx.group, ctx.player!, expeditionId, roleKey)
+      return { ok: r.ok, ackText: r.ackText, ...(r.cardText ? { editCard: { text: r.cardText, buttons: r.cardButtons } } : {}) }
+    }
+    if (verb === "act") {
+      const r = await actExpedition(ctx.group, ctx.player!, expeditionId)
+      return { ok: r.ok, ackText: r.ackText, ...(r.cardText ? { editCard: { text: r.cardText, buttons: r.cardButtons } } : {}) }
+    }
+    if (verb === "cheer") {
+      const r = await cheerExpedition(ctx.group, ctx.player!, expeditionId)
+      return { ok: r.ok, ackText: r.ackText, ...(r.cardText ? { editCard: { text: r.cardText, buttons: r.cardButtons } } : {}) }
+    }
+    if (verb === "begin") {
+      const r = await beginExpedition(ctx.group, ctx.player!, expeditionId)
+      return { ok: r.ok, ackText: r.ackText, ...(r.cardText ? { editCard: { text: r.cardText, buttons: r.cardButtons } } : {}) }
+    }
+    return { ok: false, ackText: "دکمه‌ی ناشناخته." }
   },
   gs: async (ctx, data) => {
     // gs:{…} — ادمین/تنظیمات (موجِ ۲)؛ دروازه‌ی isAdmin داخلِ gsCallback است
@@ -576,6 +615,18 @@ async function groupMenuCallback(ctx: GroupCallCtx, arg: string): Promise<Callba
       const r = await openElection(group, "mayor")
       return { ok: r.ok, ackText: r.message }
     }
+    case "mission": {
+      // V27 — کاروانِ شهر: کارتِ فعلی یا کاروانِ تازه (کارت از outbox می‌رسد)
+      const r = await missionCommandCard(group)
+      if (r.spawned) return { ok: true, ackText: "کاروان فراخوانده شد." }
+      return { ok: true, ackText: "کاروانِ شهر", editCard: { text: r.text, buttons: r.buttons } }
+    }
+    case "poll": {
+      // V27 — همه‌پرسی: قدرتِ واقعیِ شهردار (یا هر شهروندِ خوش‌عاقبت — موتور
+      // دروازه را دارد: بدونِ شهردار فقط تیکِ ۷۲ساعته باز می‌کند)
+      const r = await openCityPollCard(ctx)
+      return r
+    }
     case "court": {
       // دکمه‌ی «⚖️ دادگاه بساز» از کارتِ رأی — همان مسیرِ فرمانِ court
       const r = await openCourtAuto(group, player)
@@ -674,6 +725,26 @@ export const ACTIONS: Record<string, GroupActionHandler> = {
       return { ok: false, message: "دعوت ناقص است — شهرداری نمی‌داند با کدام دوئل چه کند." }
     }
     const r = await actChallenge(ctx, challengeId, verb)
+    return { ok: r.ok, message: r.ackText }
+  },
+  expeditionJoin: async (ctx, payload) => {
+    // V27 — پلِ gx:join رویِ سیمِ session (مینی‌اپ)
+    const expeditionId = String(payload.expeditionId ?? "")
+    const roleKey = String(payload.roleKey ?? "")
+    if (!expeditionId || !roleKey) return { ok: false, message: "سهم ناقص است." }
+    const r = await joinExpedition(ctx.group, ctx.player!, expeditionId, roleKey)
+    return { ok: r.ok, message: r.ackText }
+  },
+  expeditionAct: async (ctx, payload) => {
+    const expeditionId = String(payload.expeditionId ?? "")
+    if (!expeditionId) return { ok: false, message: "کاروان ناقص است." }
+    const r = await actExpedition(ctx.group, ctx.player!, expeditionId)
+    return { ok: r.ok, message: r.ackText }
+  },
+  expeditionCheer: async (ctx, payload) => {
+    const expeditionId = String(payload.expeditionId ?? "")
+    if (!expeditionId) return { ok: false, message: "کاروان ناقص است." }
+    const r = await cheerExpedition(ctx.group, ctx.player!, expeditionId)
     return { ok: r.ok, message: r.ackText }
   },
 }

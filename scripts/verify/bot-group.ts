@@ -78,6 +78,9 @@ const MOCK_ITEMS: Record<string, { name: string; emoji: string }> = {
 }
 let mockMarketListings: any[] = []
 let mockListingSeq = 0
+// V27 ⑳⑥ — پلِ خصوصی←گروه: گروه‌هایِ من قابل‌تنظیم (null = بدونِ گروه) + پرچم خطای موتور
+let mockMyGroups: any[] | null = null
+let mockMyGroupsFail = false
 
 globalThis.fetch = (async (url: any, init: any) => {
   const u = new URL(String(url))
@@ -284,6 +287,15 @@ function engineResponse(path: string, body: any): any {
     }
   }
   // §15 (V16-1) — راهنمای زنده (اهداف): DTO حداقلی تا کارتِ اهداف رندر شود
+  // V27 ⑳⑥ — خبرنامهِ شهر (کال‌بک نمای شهریِ مجاز در گروه): DTO حداقلیِ معتبر
+  if (path === "/api/game/citynews") {
+    return { dayCount: 4, weatherLabel: "آفتابی", weatherEmoji: "☀️", moodLabel: "سرحال", chaosLevel: 10, economyIndex: 100, globalEvent: null, headlines: [], rumors: [], topPlayers: [], population: 12 }
+  }
+  // V27 ⑳⑥ — پلِ خصوصی←گروه: POST /api/group/snapshot بدونِ chatId — گروه‌هایِ من
+  if (path === "/api/group/snapshot") {
+    if (mockMyGroupsFail) return { __fail: { message: "موتور خواب است", status: 500 } }
+    return { groups: mockMyGroups ?? [], snapshot: null, games: [] }
+  }
   if (path === "/api/game/guide") {
     return {
       stage: { key: "early", name: "قدم‌های اول", emoji: "🌱", description: "شروعِ کار.", nextName: null, progressPct: 10 },
@@ -2600,6 +2612,128 @@ console.log("⑳④ V26 tabbed hub: live tab switching (edit-in-place) + market 
   } finally {
     mockStateFemboy = null
     mockProfileOverrides.delete(String(u))
+  }
+}
+
+// ═══ ⑳⑤ V27 — ترنسپورتِ کاروان: گرامرِ gx: + مامموریت/کاروان + /mission ══════
+// پلِ خصوصی←گروه با کارتِ زنده + کلیدِ per-user دکمه‌ی «دوباره» + دکمه‌ی مرده→هدایت.
+console.log("⑳⑤ V27 caravan transport: gx: grammar · mission phrase/slash · private redirect · lastAction isolation")
+{
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  const privCb = (userId: number, data: string, msgId: number) => ({
+    update_id: nextUpdateId(),
+    callback_query: { id: `cq${nextUpdateId()}`, from: user(userId), message: { message_id: msgId, date: 1, chat: privChat(userId) }, data },
+  })
+
+  // ── ۱) gx: در گروه → دقیقاً یک فراخوانیِ موتور با همان گرامر ──
+  {
+    const c = -1002701, u = user(27001)
+    const before = groupAction("callback").length
+    const editsBefore = tg("editMessageText").length
+    await bot.handleUpdate(cbUpdate(c, u, "gx:exp1:act", 3001))
+    const calls = groupAction("callback").slice(before)
+    ok(calls.length === 1, "V27-1: gx:{id}:act in group → exactly ONE engine callback call")
+    ok(calls[0]?.body?.action === "callback" && calls[0]?.body?.data === "gx:exp1:act", `V27-1: payload {action:"callback", data:"gx:exp1:act"} (got ${JSON.stringify(calls[0]?.body)})`)
+    ok(calls[0]?.body?.chatId === String(c) && calls[0]?.body?.telegramId === "27001", "V27-1: chatId + presser's telegramId forwarded")
+    ok(tg("editMessageText").length > editsBefore, "V27-1: editCard lands as in-place edit (shared caravan panel)")
+  }
+
+  // ── ۲) عبارتِ باز «مامموریت»/«کاروان» (بی‌آدرس در گروه) → فرمانِ mission ──
+  {
+    const c = -1002702, u = user(27002)
+    const before = groupAction("command").length
+    await bot.handleUpdate(msgUpdate(c, u, "مامموریت"))
+    const cmds = groupAction("command").slice(before).filter((x: any) => x.body.chatId === String(c))
+    ok(cmds.length === 1 && cmds[0].body.command === "mission", "V27-2: «مامموریت» (unadressed, open) → engine mission")
+  }
+  {
+    const c = -1002703, u = user(27003)
+    const before = groupAction("command").length
+    await bot.handleUpdate(msgUpdate(c, u, "کاروان"))
+    ok(groupAction("command").slice(before).some((x: any) => x.body.command === "mission" && x.body.chatId === String(c)), "V27-2: «کاروان» → engine mission")
+  }
+
+  // ── ۳) /mission: گروه → mission موتور · پیوی → کارتِ شهرِ گروه، صفر فراخوانیِ گروه ──
+  {
+    const c = -1002704
+    const before = groupAction("command").length
+    await bot.handleUpdate(msgUpdate(c, user(27004), "/mission"))
+    const cmds = groupAction("command").slice(before).filter((x: any) => x.body.chatId === String(c))
+    ok(cmds.length === 1 && cmds[0].body.command === "mission", "V27-3: /mission in group → engine mission")
+    const priv = 27005
+    const beforePriv = groupAction("command").length
+    await bot.handleUpdate(privMsgUpdate(priv, "/mission"))
+    ok(groupAction("command").length === beforePriv, "V27-3: private /mission → zero group engine calls")
+    ok(sendPayloads(priv).some((x: any) => (x.payload?.text ?? "").includes("این بخش مالِ شهرِ گروه است")), "V27-3: private /mission → the group-city navigation card")
+  }
+
+  // ── ۴) دکمه‌ی گرامرِ گروه در پیوی → توستِ هدایت، صفر موتور، بدون پیام ──
+  {
+    const priv = 27006
+    const before = engineCalls.length
+    const toastsBefore = tg("answerCallbackQuery").length
+    const editsBefore = tg("editMessageText").length
+    const sendsBefore = tg("sendMessage").length
+    await bot.handleUpdate(privCb(priv, "gm:game", 3006))
+    const toasts = tg("answerCallbackQuery").slice(toastsBefore).map((c: any) => c.payload?.text ?? "")
+    ok(toasts.includes("این دکمه‌ی شهرِ تو گروه است — همان‌جا کار می‌کند."), `V27-4: gm:game in private → redirect toast (got ${JSON.stringify(toasts)})`)
+    ok(engineCalls.length === before, "V27-4: ZERO engine calls")
+    ok(tg("editMessageText").length === editsBefore && tg("sendMessage").length === sendsBefore, "V27-4: no message sent or edited (dead button became an honest redirect)")
+  }
+
+  // ── ۵) lastAction per-user: A شروع می‌کند؛ B دوباره‌ی A را نمی‌زند ──
+  {
+    const c = -1002707, A = user(27007), B = user(27008)
+    const newsBefore = engineCallsFor((x: any) => x.path === "/api/game/citynews").length
+    // A: کال‌بکِ نمایِ شهریِ مجاز در گروه (m:news) → run() → ثبتِ lastAction با کلیدِ A
+    await bot.handleUpdate(cbUpdate(c, A, "m:news", 3007))
+    const newsAfterA = engineCallsFor((x: any) => x.path === "/api/game/citynews").length
+    ok(newsAfterA === newsBefore + 1, "V27-5: A's city-view press reached the engine (lastAction recorded under A)")
+    // B: «🔄 دوباره» — نه اکشنِ A، نه پنلِ خانه‌ی خصوصی در گروه
+    const sendsBeforeB = tg("sendMessage").length
+    const editsBeforeB = tg("editMessageText").length
+    const toastsBeforeB = tg("answerCallbackQuery").length
+    await bot.handleUpdate(cbUpdate(c, B, "e:retry", 3008))
+    const toastsB = tg("answerCallbackQuery").slice(toastsBeforeB).map((x: any) => x.payload?.text ?? "")
+    ok(toastsB.includes("دوباره‌کردن مالِ کسی است که کار را شروع کرد."), `V27-5: B's retry → owner toast «دوباره‌کردن مالِ کسی است که کار را شروع کرد.» (got ${JSON.stringify(toastsB)})`)
+    ok(engineCallsFor((x: any) => x.path === "/api/game/citynews").length === newsAfterA, "V27-5: B's retry → NO engine call replaying A's action (auth hole closed)")
+    ok(tg("sendMessage").length === sendsBeforeB && tg("editMessageText").length === editsBeforeB, "V27-5: B's retry → no home card / no edit in the group")
+    // A: دوباره → اکشنِ خودش بازپخش می‌شود
+    await sleep(350) // ضدسیلِ ۳۰۰ms کال‌بک‌های خودِ A
+    await bot.handleUpdate(cbUpdate(c, A, "e:retry", 3009))
+    ok(engineCallsFor((x: any) => x.path === "/api/game/citynews").length === newsAfterA + 1, "V27-5: A's own retry → action replays (engine call)")
+  }
+
+  // ── ۶) پلِ خصوصی←گروه: کارتِ «شهرِ گروه» با گروه‌هایِ زندهٔ بازیکن ──
+  {
+    const priv = 27010
+    mockMyGroups = [
+      { chatId: "-1009991", title: "کوهِ سرخ", cultureLabel: "ایرانی", cultureEmoji: "🧿", moodEmoji: "🙂", population: 7, isMember: true, openActivity: "🧭 کاروانِ گنجِ کوه — سهم‌ها باز است" },
+      { chatId: "-1009992", title: "شهرِ <آرام>", cultureLabel: "ایرانی", cultureEmoji: "🧿", moodEmoji: "🙂", population: 3, isMember: true, openActivity: null },
+    ]
+    try {
+      const before = engineCallsFor((x: any) => x.path === "/api/group/snapshot").length
+      await bot.handleUpdate(privCb(priv, "m:groupcity", 3010))
+      // show() در بافتِ کال‌بک اول ویرایش می‌کند — کارت از editPayloads خوانده می‌شود
+      const card = editPayloads().filter((p: any) => String(p.chat_id) === String(priv)).at(-1)?.text
+        ?? sendPayloads(priv).at(-1)?.payload?.text ?? ""
+      ok(engineCallsFor((x: any) => x.path === "/api/group/snapshot").length === before + 1, "V27-6: private group-city card calls POST /api/group/snapshot")
+      ok(card.includes("شهرِ گروه‌هایت:"), "V27-6: live block header «👥 شهرِ گروه‌هایت:» renders")
+      ok(card.includes("کوهِ سرخ") && card.includes("کاروانِ گنجِ کوه — سهم‌ها باز است"), "V27-6: group title + openActivity line render")
+      ok(card.includes("&lt;آرام&gt;") && card.includes("آرام است"), "V27-6: dynamic title HTML-escaped + null activity → «آرام است»")
+      ok(card.includes("· <code>7</code> شهروند"), "V27-6: population chip with latin digits")
+      ok(!card.includes("ربات را به یک گروه دعوت کن"), "V27-6: invite line replaced when the player already has groups")
+      // موتور خواب → همان کارتِ ایستایِ دیروز (fallbackِ بی‌صدا، الگویِ fetchGuide)
+      mockMyGroupsFail = true
+      const priv2 = 27011
+      await bot.handleUpdate(privMsgUpdate(priv2, "/gadmin"))
+      const card2 = sendPayloads(priv2).at(-1)?.payload?.text ?? ""
+      ok(card2.includes("این بخش مالِ شهرِ گروه است") && card2.includes("ربات را به یک گروه دعوت کن"), "V27-6: engine down → static card fallback (invite text intact)")
+      ok(!card2.includes("شهرِ گروه‌هایت:"), "V27-6: engine down → no live block (silent fallback)")
+    } finally {
+      mockMyGroups = null
+      mockMyGroupsFail = false
+    }
   }
 }
 

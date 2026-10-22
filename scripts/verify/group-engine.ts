@@ -47,6 +47,10 @@ import { duelCharacters, simulateDuel, type DuelSheet } from "../../src/lib/game
 import { interactWithCharacter, soulCardDTO } from "../../src/lib/game/character"
 import { rollWeather, tickGroup } from "../../src/lib/game/group/tick"
 import { WEATHER_VOICE, CHAOS_VOICE } from "../../src/lib/game/group/content/misc"
+import { EXPEDITION_MAP, REFERENDUM_MAP } from "../../src/lib/game/group/content"
+import { actSuccessChance, teamSuccessChance } from "../../src/lib/game/group/expeditions"
+import { spawnGroupEvent } from "../../src/lib/game/group/events"
+import { closeVotes } from "../../src/lib/game/group/politics"
 
 const API = process.env.API_BASE || "http://localhost:3000"
 const KEY = getServiceKey()
@@ -1894,6 +1898,271 @@ async function main(): Promise<void> {
       ok(chaosRows2.filter((r) => CHAOS_VOICE.includes(r.text)).length === chaosRows1.filter((r) => CHAOS_VOICE.includes(r.text)).length, "V23: second tick same day → no second chaos voice")
     }
   }
+
+  // ─── §V27 — کاروانِ شهر + همه‌پرسی + پیوندهای واقعی (V27) ───────────────────
+  section("§V27 caravan lifecycle · referendum · bonded pairs (multiplayer)")
+  {
+    // الف) چرخه‌ی کاملِ کاروان با ۴ کاربرِ متمایز — سهم‌گیری → حرکت → کنش → تشویق → حل
+    const cX = chat(97)
+    const u1 = tid(110), u2 = tid(111), u3 = tid(112), u4 = tid(113)
+    await member(cX, "شهرِ کاروان", u1, "کاروانیِ یک")
+    await member(cX, "شهرِ کاروان", u2, "کاروانیِ دو")
+    await member(cX, "شهرِ کاروان", u3, "کاروانیِ سه")
+    await member(cX, "شهرِ کاروان", u4, "کاروانیِ چهار")
+    // شهروندِ بیگانه — عضوِ شهرِ دیگر؛ دروازه‌ی شهروندی را روی کاروان می‌سنجیم
+    const cForeign = chat(98)
+    await member(cForeign, "شهرِ بیگانه", tid(114), "بیگانه")
+    const gX = await gidOf(cX)
+
+    // کارتِ فرمان: کاروانِ تازه از فرمان ساخته می‌شود
+    const m1 = await command(cX, u1, "mission")
+    ok(m1.status === 200 && m1.body.ok === true, "V27-1: «mission» command → 200 ok")
+    let exRow = await db.groupExpedition.findFirst({ where: { groupId: gX, status: "open" } })
+    ok(exRow !== null && exRow!.phase === "recruit", "V27-1: expedition row spawned in recruit phase")
+    const exId = exRow!.id
+    const exCard = await db.groupOutbox.findFirst({ where: { groupId: gX, kind: "expedition", refId: exId }, orderBy: { createdAt: "desc" } })
+    ok(exCard !== null && exCard!.buttonsJson.includes(`gx:${exId}:join:`), "V27-1: recruit card on outbox carries gx:join buttons")
+    ok((exCard?.text ?? "").includes("سهم‌ها") && (exCard?.text ?? "").includes("هم‌افزا"), "V27-1: recruit card shows roles roster + class synergy")
+
+    const tpl = EXPEDITION_MAP[exRow!.templateId]!
+    const rk = tpl.roles.map((r) => r.key)
+
+    // بیگانه (غیرشهروند) سهم نمی‌گیرد
+    const jForeign = await callback(cX, tid(114), `gx:${exId}:join:${rk[0]}`)
+    ok(jForeign.body.data?.ok === false && (jForeign.body.data?.ackText ?? "").includes("شهروند"), "V27-2: non-citizen join rejected at the citizenship gate")
+
+    // سه کاربرِ متمایز، سه سهمِ متفاوت — روی همان پنلِ اشتراکی
+    const j1 = await callback(cX, u1, `gx:${exId}:join:${rk[0]}`)
+    const j2 = await callback(cX, u2, `gx:${exId}:join:${rk[1]}`)
+    const j3 = await callback(cX, u3, `gx:${exId}:join:${rk[2]}`)
+    ok(j1.body.data?.ok === true && j2.body.data?.ok === true && j3.body.data?.ok === true, "V27-2: three distinct users take three distinct roles")
+    ok((j2.body.data?.editCard?.text ?? "").includes("کاروانیِ یک") && (j2.body.data?.editCard?.text ?? "").includes("کاروانیِ دو"), "V27-2: shared panel re-render shows both holders (roster is live)")
+    ok((j3.body.data?.editCard?.buttons ?? []).some((b) => b.cb === `gx:${exId}:join:${rk[3]}`), "V27-2: after 3 joins the remaining role button is still served (panel not closed)")
+    // سهمِ گرفته‌شده و سهمِ تکراری
+    const j4 = await callback(cX, u4, `gx:${exId}:join:${rk[0]}`)
+    const j1b = await callback(cX, u1, `gx:${exId}:join:${rk[3]}`)
+    ok(j4.body.data?.ok === false && (j4.body.data?.ackText ?? "").includes("گرفته شده"), "V27-2: taken role rejected with an honest ack")
+    ok(j1b.body.data?.ok === false && (j1b.body.data?.ackText ?? "").includes("قطعی"), "V27-2: one-role-per-citizen is final")
+
+    // حرکت: فقط سهم‌دارها
+    const b4 = await callback(cX, u4, `gx:${exId}:begin`)
+    ok(b4.body.data?.ok === false && (b4.body.data?.ackText ?? "").includes("سهم‌دارها"), "V27-3: non-holder cannot start the caravan")
+    const b1 = await callback(cX, u1, `gx:${exId}:begin`)
+    ok(b1.body.data?.ok === true, "V27-3: holder starts the caravan")
+    exRow = await db.groupExpedition.findUniqueOrThrow({ where: { id: exId } })
+    ok(exRow.phase === "act" && exRow.actEndsAt !== null, "V27-3: phase flipped to act with a real act window")
+
+    // کنش: بی‌سهم رد؛ سهم‌دار می‌زند؛ پنل برای بقیه باز می‌ماند
+    const a4 = await callback(cX, u4, `gx:${exId}:act`)
+    ok(a4.body.data?.ok === false && (a4.body.data?.ackText ?? "").includes("تشویق"), "V27-4: spectator act → pointed to cheering (distinct verbs)")
+    const moneyBefore: Record<string, number> = {}
+    for (const u of [u1, u2, u3]) {
+      moneyBefore[u] = (await db.player.findUniqueOrThrow({ where: { telegramId: u } })).money
+    }
+    const treasuryBefore = (await db.groupWorld.findUniqueOrThrow({ where: { id: gX } })).treasury
+    const a1 = await callback(cX, u1, `gx:${exId}:act`)
+    ok(a1.body.data?.ok === true && (a1.body.data?.ackText ?? "").includes("🎲"), "V27-4: holder act → immediate roll feedback in toast")
+    ok((a1.body.data?.editCard?.text ?? "").includes("منتظرِ کنش"), "V27-4: panel re-renders with remaining actions (one actor does not close it)")
+    const a1b = await callback(cX, u1, `gx:${exId}:act`)
+    ok(a1b.body.data?.ok === false && (a1b.body.data?.ackText ?? "").includes("انجام شده"), "V27-4: repeat act rejected")
+
+    // تشویق: تماشاگر یک‌بار؛ سهم‌دار نمی‌تواند
+    const ch4 = await callback(cX, u4, `gx:${exId}:cheer`)
+    const ch4b = await callback(cX, u4, `gx:${exId}:cheer`)
+    const ch1 = await callback(cX, u1, `gx:${exId}:cheer`)
+    ok(ch4.body.data?.ok === true && (ch4.body.data?.ackText ?? "").includes("قوت"), "V27-5: spectator cheers once (team bonus)")
+    ok(ch4b.body.data?.ok === false, "V27-5: second cheer rejected")
+    ok(ch1.body.data?.ok === false, "V27-5: holder cannot cheer — acting is their verb")
+
+    // snapshot + کارتِ خانه — پلِ ربات/مینی‌اپ (POST با service-key، همان ربات)
+    const snap = await post<{ snapshot?: { activeExpedition?: { id: string; phase: string; myRole: string | null; roles: unknown[] } | null } }>("/api/group/snapshot", { chatId: cX, telegramId: u1 })
+    const snapEx = snap.body.data?.snapshot?.activeExpedition
+    ok(snap.status === 200 && snapEx?.id === exId && snapEx?.phase === "act", "V27-6: snapshot carries activeExpedition DTO (act phase, viewer-aware)")
+    const homeOfU2 = await command(cX, u2, "game")
+    ok((homeOfU2.body.data?.text ?? "").includes("🧭") && (homeOfU2.body.data?.text ?? "").includes("کنش"), "V27-6: group home card lists the caravan in the «الان» block with personal state")
+    const homeBtns = homeOfU2.body.data?.buttons ?? []
+    ok(homeBtns.some((b) => b.cb === `gx:${exId}:act`), "V27-6: home carries the personal caravan action button (contextual — u2 hasn't acted yet)")
+
+    // حل: بقیه‌ی کنش‌ها + مهلتِ گذشته → tickGroup
+    await callback(cX, u2, `gx:${exId}:act`)
+    await callback(cX, u3, `gx:${exId}:act`)
+    exRow = await db.groupExpedition.findUniqueOrThrow({ where: { id: exId } })
+    const outcome = JSON.parse(exRow.outcomeJson ?? "{}") as { success?: boolean; perfect?: boolean; successes?: number; cheers?: number; mvpId?: string | null }
+    ok(exRow.status === "done" && exRow.resolvedAt !== null, "V27-7: all-acted caravan resolves immediately (no dead time)")
+    ok(typeof outcome.success === "boolean" && (outcome.successes ?? 0) <= 3, `V27-7: outcome JSON carries the verdict (success=${outcome.success}, successes=${outcome.successes}, cheers=${outcome.cheers})`)
+    // پاداش‌ها — دقیقاً مطابقِ شاخه‌ی حکم
+    const gAfter = await db.groupWorld.findUniqueOrThrow({ where: { id: gX } })
+    const cultAfter = JSON.parse(gAfter.cultureJson ?? "{}") as { expeditions?: number; cooperation?: number }
+    ok((cultAfter.expeditions ?? 0) >= 1 && (cultAfter.cooperation ?? 0) >= 1, "V27-7: culture counters expeditions/cooperation stamped")
+    if (outcome.success === true) {
+      ok(gAfter.treasury > treasuryBefore, `V27-7: success → treasury grew (${treasuryBefore} → ${gAfter.treasury})`)
+    }
+    for (const u of [u1, u2, u3]) {
+      const mAfter = (await db.player.findUniqueOrThrow({ where: { telegramId: u } })).money
+      ok(mAfter > moneyBefore[u], `V27-7: participant rewarded (${u.slice(-2)}: ${moneyBefore[u]} → ${mAfter})`)
+    }
+    const historyEx = await db.groupHistory.findFirst({ where: { groupId: gX, icon: tpl.emoji } })
+    ok(historyEx !== null && historyEx!.text.includes(tpl.title), "V27-7: city history remembers the caravan")
+    const achAfter = JSON.parse((await db.groupWorld.findUniqueOrThrow({ where: { id: gX } })).achievementsJson ?? "[]") as string[]
+    ok(achAfter.includes("caravan_first"), "V27-7: group achievement «اولین کاروان» granted", `unlocked=${JSON.stringify(achAfter)}`)
+    const resultCard = await db.groupOutbox.findFirst({ where: { groupId: gX, kind: "expedition", refId: exId }, orderBy: { createdAt: "desc" } })
+    ok((resultCard?.text ?? "").includes("نتیجه‌ی کاروان"), "V27-7: result card queued on outbox (edits the same panel)")
+
+    // بعد از حل: دکمه‌های کاروان مرده‌اند
+    const aDead = await callback(cX, u2, `gx:${exId}:act`)
+    ok(aDead.body.data?.ok === false && (aDead.body.data?.ackText ?? "").includes("باز نیست"), "V27-8: post-resolution press rejected honestly")
+    // کول‌داون + کارتِ انتظار
+    const m2 = await command(cX, u1, "mission")
+    ok((m2.body.data?.text ?? "").includes("کاروانی در راه نیست") && (m2.body.data?.text ?? "").includes("کاروانِ بعدی"), "V27-8: mission command during cooldown → honest anticipation card")
+    ok((m2.body.data?.text ?? "").includes("عجله"), "V27-8: cooldown card keeps the city's voice")
+    const spawnBlocked = await db.groupExpedition.findMany({ where: { groupId: gX, status: "open" } })
+    ok(spawnBlocked.length === 0, "V27-8: cooldown blocks a second concurrent caravan")
+
+    // گرامر: فعلِ ناشناخته/ناقص
+    const gUnknown = await callback(cX, u1, `gx:${exId}:teleport`)
+    const gBroken = await callback(cX, u1, "gx:")
+    ok(gUnknown.body.data?.ackText === "دکمه‌ی ناشناخته." && gBroken.body.data?.ackText === "دکمه‌ی ناقص.", "V27-9: gx: grammar determinism (unknown/incomplete)")
+
+    // ب) حل از راهِ تیک — مهلتِ کنشِ گذشته (شهرِ دوم)
+    const cY = chat(99)
+    await member(cY, "شهرِ کاروانِ دوم", tid(115), "دومِ یک")
+    await member(cY, "شهرِ کاروانِ دوم", tid(116), "دومِ دو")
+    await member(cY, "شهرِ کاروانِ دوم", tid(117), "دومِ سه")
+    const gY = await gidOf(cY)
+    await command(cY, tid(115), "mission")
+    const exY = await db.groupExpedition.findFirstOrThrow({ where: { groupId: gY, status: "open" } })
+    const rkY = EXPEDITION_MAP[exY.templateId]!.roles.map((r) => r.key)
+    await callback(cY, tid(115), `gx:${exY.id}:join:${rkY[0]}`)
+    await callback(cY, tid(116), `gx:${exY.id}:join:${rkY[1]}`)
+    await callback(cY, tid(117), `gx:${exY.id}:join:${rkY[2]}`)
+    await callback(cY, tid(115), `gx:${exY.id}:begin`)
+    await callback(cY, tid(115), `gx:${exY.id}:act`)
+    // یک سهم کنش نکرده — مهلتش می‌گذرد؛ تیک حل می‌کند
+    await fixture(async () => {
+      await db.groupExpedition.update({ where: { id: exY.id }, data: { actEndsAt: new Date(Date.now() - 60000) } })
+    })
+    await fixture(async () => {
+      await db.groupWorld.update({ where: { id: gY }, data: { lastTickAt: new Date(Date.now() - 60_000) } })
+    })
+    const rowY = await db.groupWorld.findUniqueOrThrow({ where: { id: gY } })
+    await tickGroup(rowY)
+    const exYdone = await db.groupExpedition.findUniqueOrThrow({ where: { id: exY.id } })
+    ok(exYdone.status === "done" && exYdone.phase === "act", "V27-10: expired act window → tick resolves (never-acted role counted as failure)")
+    const outY = JSON.parse(exYdone.outcomeJson ?? "{}") as { successes?: number }
+    ok((outY.successes ?? 0) <= 2, `V27-10: the idle role did not score (successes=${outY.successes} of 3)`)
+
+    // ج) کاروانِ کم‌جان — سهم‌های کافی نشد؛ تیک لغو می‌کند
+    const cZ = chat(100)
+    await member(cZ, "شهرِ کاروانِ سوم", tid(118), "سومِ یک")
+    await member(cZ, "شهرِ کاروانِ سوم", tid(119), "سومِ دو")
+    await member(cZ, "شهرِ کاروانِ سوم", tid(133), "سومِ سه")
+    const gZ = await gidOf(cZ)
+    await command(cZ, tid(118), "mission")
+    const exZ = await db.groupExpedition.findFirstOrThrow({ where: { groupId: gZ, status: "open" } })
+    const rkZ = EXPEDITION_MAP[exZ.templateId]!.roles.map((r) => r.key)
+    await callback(cZ, tid(118), `gx:${exZ.id}:join:${rkZ[0]}`)
+    await fixture(async () => {
+      await db.groupExpedition.update({ where: { id: exZ.id }, data: { recruitEndsAt: new Date(Date.now() - 60000) } })
+    })
+    await fixture(async () => {
+      await db.groupWorld.update({ where: { id: gZ }, data: { lastTickAt: new Date(Date.now() - 60_000) } })
+    })
+    const rowZ = await db.groupWorld.findUniqueOrThrow({ where: { id: gZ } })
+    await tickGroup(rowZ)
+    const exZdone = await db.groupExpedition.findUniqueOrThrow({ where: { id: exZ.id } })
+    ok(exZdone.status === "aborted", "V27-11: not enough distinct roles → honest abort (city does not pretend)")
+    const abortCard = await db.groupOutbox.findFirst({ where: { groupId: gZ, kind: "expedition", refId: exZ.id }, orderBy: { createdAt: "desc" } })
+    ok((abortCard?.text ?? "").includes("راه نیفتاد"), "V27-11: abort card states the failure plainly")
+
+    // د) همه‌پرسی — قدرتِ شهردار + رأیِ سه‌نفره + اثرِ واقعی
+    const cP = chat(101)
+    await member(cP, "شهرِ همه‌پرسی", tid(120), "پرسشیِ یک")
+    await member(cP, "شهرِ همه‌پرسی", tid(121), "پرسشیِ دو")
+    await member(cP, "شهرِ همه‌پرسی", tid(122), "پرسشیِ سه")
+    const gP = await gidOf(cP)
+    // بدونِ شهردار → ردِ صادقانه
+    const pollNoMayor = await callback(cP, tid(120), "gm:poll")
+    ok(pollNoMayor.body.data?.ok === false && (pollNoMayor.body.data?.ackText ?? "").includes("شهردار"), "V27-12: referendum is the mayor's real power (server-side role gate)")
+    // شهردار از راهِ fixture (انتخابِ واقعی از راهِ vote هم هست؛ این‌جا نقش را مستقیم می‌دهیم)
+    const p1Id = await pidOf(tid(120))
+    await fixture(async () => {
+      await db.groupMember.updateMany({ where: { groupId: gP, playerId: p1Id }, data: { role: "mayor", roleSince: new Date() } })
+    })
+    const pollMayor = await callback(cP, tid(120), "gm:poll")
+    ok(pollMayor.body.data?.ok === true, "V27-12: mayor opens a referendum (gm:poll)")
+    const voteRow = await db.groupVote.findFirstOrThrow({ where: { groupId: gP, status: "open", kind: "poll" } })
+    ok(voteRow.closesAt.getTime() > Date.now(), "V27-12: referendum vote window is open (60-minute shared panel)")
+    const options = JSON.parse(voteRow.optionsJson) as { key: string; label: string }[]
+    ok(options.length >= 2, `V27-12: referendum options served (${options.length})`)
+    // سه رأیِ متمایز — گزینه‌ی اول اکثریت می‌گیرد
+    const gPbefore = await db.groupWorld.findUniqueOrThrow({ where: { id: gP } })
+    const v1 = await callback(cP, tid(120), `gv:${voteRow.id}:${options[0]!.key}`)
+    const v2 = await callback(cP, tid(121), `gv:${voteRow.id}:${options[0]!.key}`)
+    const v3 = await callback(cP, tid(122), `gv:${voteRow.id}:${options[1]!.key}`)
+    ok(v1.body.data?.ok === true && v2.body.data?.ok === true && v3.body.data?.ok === true, "V27-13: three distinct users vote on the shared panel")
+    ok((v1.body.data?.editCard?.text ?? "").includes("رأی تا الان"), "V27-13: vote panel re-renders anonymously after a vote (panel stays open)")
+    // شمارش با force (مسیرِ تیک)
+    await closeVotes(gPbefore, new Date(Date.now() + 3600000), { force: true })
+    const voteClosed = await db.groupVote.findUniqueOrThrow({ where: { id: voteRow.id } })
+    ok(voteClosed.status === "closed", "V27-13: referendum closed by the counting path")
+    // اثرِ واقعی — دقیقاً طبقِ قالبِ برنده
+    const refId = (JSON.parse(voteClosed.payloadJson) as { referendumId: string }).referendumId
+    const refTpl = REFERENDUM_MAP[refId]!
+    const winner = refTpl.options.find((o) => o.key === options[0]!.key)!
+    const ef = winner.effects
+    const gPafter = await db.groupWorld.findUniqueOrThrow({ where: { id: gP } })
+    if (ef.chaos) ok(gPafter.chaos === Math.max(0, Math.min(100, gPbefore.chaos + ef.chaos)), `V27-14: referendum chaos effect applied (${gPbefore.chaos} → ${gPafter.chaos})`)
+    if (ef.crime) ok(gPafter.crimeLevel === Math.max(0, Math.min(100, gPbefore.crimeLevel + ef.crime)), `V27-14: referendum crime effect applied (${gPbefore.crimeLevel} → ${gPafter.crimeLevel})`)
+    if (ef.treasury) ok(gPafter.treasury === Math.max(0, gPbefore.treasury + ef.treasury), `V27-14: referendum treasury effect applied (${gPbefore.treasury} → ${gPafter.treasury})`)
+    if (ef.tagBoost) {
+      const cultP = JSON.parse(gPafter.cultureJson ?? "{}") as Record<string, unknown>
+      ok(typeof cultP[`pollBias:${ef.tagBoost.tag}`] === "string", `V27-14: tagBoost stamped into culture (pollBias:${ef.tagBoost.tag})`)
+    }
+    const pollResult = await db.groupOutbox.findFirst({ where: { groupId: gP, kind: "vote" }, orderBy: { createdAt: "desc" } })
+    ok((pollResult?.text ?? "").includes("حکمِ همه‌پرسی") && (pollResult?.text ?? "").includes(winner.label), "V27-14: verdict card names the winning option")
+    ok((pollResult?.text ?? "").includes("اجرای حکم") || (pollResult?.text ?? "").includes("اجرا شد"), "V27-14: verdict card is honest about effects being applied")
+
+    // ه) پیوندهای واقعی — رقابتِ زنده در روایتِ رویداد
+    const cB = chat(102)
+    await member(cB, "شهرِ پیوند", tid(130), "رقابتِ یک")
+    await member(cB, "شهرِ پیوند", tid(131), "رقابتِ دو")
+    await member(cB, "شهرِ پیوند", tid(132), "رقابتِ سه")
+    const gB = await gidOf(cB)
+    const b1Id = await pidOf(tid(130)), b2Id = await pidOf(tid(131))
+    const [lo, hi] = [b1Id, b2Id].sort()
+    await fixture(async () => {
+      await db.playerRelationship.upsert({
+        where: { groupId_aId_bId: { groupId: gB, aId: lo!, bId: hi! } },
+        create: { groupId: gB, aId: lo!, bId: hi!, rivalry: 40 },
+        update: { rivalry: 40 },
+      })
+    })
+    await armEventPacing(cB)
+    const gBRow = await db.groupWorld.findUniqueOrThrow({ where: { id: gB } })
+    // قالبِ قطعی با جنسِ رقابتی (chaos) تا pickBondedPair روی رقابت سوار شود
+    const evB = await spawnGroupEvent(gBRow, { templateId: "frog_remembers" })
+    ok(evB !== null, "V27-15: event spawned on the bonded group")
+    const payloadB = JSON.parse(evB!.payloadJson) as { p1Id: string | null; p2Id: string | null; p3Id: string | null }
+    const pair = [b1Id, b2Id]
+    const protagonistSet = [payloadB.p1Id, payloadB.p2Id]
+    ok(pair.includes(payloadB.p2Id!) && (pair.includes(payloadB.p1Id!) || pair.includes(payloadB.p3Id!)), `V27-15: rivalry pair wired into the narrative (p1=${payloadB.p1Id?.slice(-4)} p2=${payloadB.p2Id?.slice(-4)} p3=${payloadB.p3Id?.slice(-4)})`)
+    ok(payloadB.p3Id === null || payloadB.p3Id !== payloadB.p2Id, "V27-15: p3 is never a duplicate of p2 (distinct cast)")
+    ok(protagonistSet.some((x) => x !== null && pair.includes(x)), "V27-15: the bonded pair leads the story")
+
+    // و) ریاضیِ شانس — خالص
+    const favorChar = { level: 10 } as never
+    const pFavored = actSuccessChance(favorChar, 50, true)
+    const pPlain = actSuccessChance(null, 50, false)
+    ok(pFavored > pPlain && pFavored - pPlain >= 0.3, `V27-16: class synergy + level matter (${pPlain.toFixed(2)} → ${pFavored.toFixed(2)})`)
+    ok(teamSuccessChance(3, 5) > teamSuccessChance(1, 0), "V27-16: team chance grows with successes and cheers")
+    ok(teamSuccessChance(0, 0) >= 0.15 && teamSuccessChance(4, 5) <= 0.95, "V27-16: team chance stays in honest bounds")
+
+    // کدکس — کاروان و همه‌پرسی مستند شده‌اند
+    const codexGames = await callback(cX, u1, "gh:c:games")
+    ok((codexGames.body.data?.editCard?.text ?? "").includes("کاروان"), "V27-17: group codex documents the caravan (games category)")
+    const codexSocial = await callback(cX, u1, "gh:c:social")
+    ok((codexSocial.body.data?.editCard?.text ?? "").includes("همه‌پرسی"), "V27-17: group codex documents the referendum (social category)")
+  }
 }
 
 // ─── cleanup + final guards ────────────────────────────────────────────────────
@@ -1913,6 +2182,7 @@ async function cleanup(): Promise<void> {
     if (gids.length) {
       await db.groupOutbox.deleteMany({ where: { groupId: { in: gids } } })
       await db.groupChallenge.deleteMany({ where: { groupId: { in: gids } } })
+      await db.groupExpedition.deleteMany({ where: { groupId: { in: gids } } })
       await db.groupEvent.deleteMany({ where: { groupId: { in: gids } } })
       await db.groupVote.deleteMany({ where: { groupId: { in: gids } } })
       await db.groupProject.deleteMany({ where: { groupId: { in: gids } } })

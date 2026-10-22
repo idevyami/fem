@@ -6,13 +6,14 @@ import { db } from "@/lib/db"
 import type { GroupWorld, GroupMember, Player } from "@prisma/client"
 import { mulberry32, seedFrom, chance, randInt } from "../rng"
 import type { ObserveResponseDTO } from "./types"
-import { esc, tehranHour, minutesAgo, bumpCulture, cultureOf, pushOutbox, tehranDayKey } from "./domain"
+import { esc, tehranHour, minutesAgo, bumpCulture, cultureOf, pushOutbox, tehranDayKey, parseJson } from "./domain"
 import { scanMemeSignals, noteMemeSignal, memeCallbackLine } from "./world"
 import { WEATHER_NOTE } from "./content/misc"
+import { EXPEDITION_MAP } from "./content"
 import { noteInteraction } from "./social"
 import { getGroupSettings, noiseMultiplier } from "./admin"
 import { welcome } from "./onboarding"
-import { chip, expand, quote, emblem } from "./text"
+import { chip, expand, quote, emblem, faNum, SUB } from "./text"
 
 // ─── صداهای شخصیت — V23: همه‌ی استخرها زنده‌اند (مممیزیِ V23-A: VOICES مرده بود؛
 // world→WEATHER_VOICE در tick · system→SMALLTALK_LINES این‌جا · gm→BOT_IDENTITY ·
@@ -346,6 +347,28 @@ async function queueReturningRecap(group: GroupWorld, member: GroupMember, playe
     orderBy: { importance: "desc" },
     take: 5,
   })
+  // V27 — «الان چه چیزی منتظرِ توست؟»: بازگشتِ بعد از غیبت فقط تاریخ نیست —
+  // فرصت‌هایِ زنده را هم می‌گوید تا غایب بداند کجا قدم بگذارد (بدونِ تنبیه).
+  const [openExpedition, openVote, openEvent, building] = await Promise.all([
+    db.groupExpedition.findFirst({ where: { groupId: group.id, status: "open" } }),
+    db.groupVote.findFirst({ where: { groupId: group.id, status: "open" } }),
+    db.groupEvent.findFirst({ where: { groupId: group.id, status: "open" } }),
+    db.groupProject.findFirst({ where: { groupId: group.id, status: "building" } }),
+  ])
+  const opportunities: string[] = []
+  if (openExpedition) {
+    const roles = parseJson<{ playerId: string; roleKey: string }[]>(openExpedition.rolesJson, [])
+    const tpl = EXPEDITION_MAP[openExpedition.templateId]
+    const free = (tpl?.roles.length ?? 4) - new Set(roles.map((r) => r.roleKey)).size
+    opportunities.push(
+      openExpedition.phase === "recruit"
+        ? `🧭 کاروانِ ${openExpedition.title} باز است — ${faNum(Math.max(0, free))} سهمِ آزاد`
+        : `🧭 کاروانِ ${openExpedition.title} در راه است — تشویق هنوز باز است`,
+    )
+  }
+  if (openEvent) opportunities.push(`💥 اتفاقِ باز: ${openEvent.title}`)
+  if (openVote) opportunities.push(`🗳 رأیِ باز: ${openVote.subject}`)
+  if (building) opportunities.push(`🏗 ${building.name} در حالِ ساخت است`)
   // متنِ ذخیره‌شده‌ی history در نوشتن HTML-safe شده — این‌جا بدون esc رندر می‌شود
   const parts = events.map((e) => `${e.icon} ${e.text}`)
   const gapDays = Math.floor((now.getTime() - since.getTime()) / 86400000)
@@ -353,18 +376,20 @@ async function queueReturningRecap(group: GroupWorld, member: GroupMember, playe
   // سه رویدادِ اول پیدا؛ بقیه زیرِ نقل‌قولِ بازشدنی
   const visible = lines.slice(0, 3).map((l) => `• ${l}`)
   const hidden = lines.length > 3 ? `\n${expand(lines.slice(3).map((l) => `• ${l}`).join("\n"))}` : ""
+  const nowBlock = opportunities.length > 0 ? `\n\n${SUB}\n\n📌 <b>الان باز است — منتظرِ تو:</b>\n${opportunities.slice(0, 3).map((o) => `▪ ${o}`).join("\n")}` : ""
   await pushOutbox(group, {
     kind: "recap",
-    text: recapCardText(gapDays, visible.join("\n"), hidden),
+    text: recapCardText(gapDays, visible.join("\n"), hidden, nowBlock),
     priority: 7,
   })
   await db.groupMember.update({ where: { id: member.id }, data: { lastRecapSeenAt: now } })
 }
 
 /** کارتِ بازگشت — سازنده‌ی خالص (تست‌پذیر؛ V11)؛ ردیف‌های ذخیره‌شده HTML-safe رندرِ بدون esc.
+ *  V27 — بلوکِ «الان باز است» (اختیاری): فرصت‌هایِ زنده برای غایبِ برگشته.
  *  V24 «ظاهرِ شهر»: نشانِ 👁 در مرکزِ جداکننده + بدرقه‌ی شهر زیرِ quote. */
-export function recapCardText(gapDays: number, visibleBlock: string, hiddenBlock: string): string {
-  return `👁 <b>برگشتی.</b>\n${emblem("👁")}\n\nدر نبودت (${chip(gapDays)} روز):\n${visibleBlock}${hiddenBlock}\n\n${quote("شهر یادت را نگه داشت. مشروط.")}`
+export function recapCardText(gapDays: number, visibleBlock: string, hiddenBlock: string, nowBlock = ""): string {
+  return `👁 <b>برگشتی.</b>\n${emblem("👁")}\n\nدر نبودت (${chip(gapDays)} روز):\n${visibleBlock}${hiddenBlock}${nowBlock}\n\n${quote("شهر یادت را نگه داشت. مشروط.")}`
 }
 
 // ─── شهروندِ تازه ──────────────────────────────────────────────────────────────

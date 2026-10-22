@@ -9,7 +9,7 @@
 
 import { InlineKeyboard, InputFile } from "grammy"
 import type { Bot, Context } from "grammy"
-import { api, type GameSnapshot, type GuideResponse, type NextActionDTO } from "./api"
+import { api, type GameSnapshot, type GuideResponse, type MyGroupDTO, type NextActionDTO } from "./api"
 import { bumpCommand, bumpError, log, stats } from "./stats"
 import {
   backKeyboard,
@@ -159,8 +159,11 @@ function withHint(text: string, context: HintContext): string {
 
 // ─── حافظه‌ی جلسه (درون‌حافظه‌ای؛ hot-reload رویش می‌رود ولی مشکلی نیست) ────────
 
-/** آخرین اکشن هر چت برای دکمه‌ی «🔄 دوباره» — سقف ۱۰۰ */
-const lastAction = new Map<number, () => Promise<void>>()
+/** آخرین اکشنِ هر کاربر در هر چت برای دکمه‌ی «🔄 دوباره» — سقف ۱۰۰.
+ *  V27 — کلید ترکیبیِ «chatId:userId»: در گروه، دکمه‌ی دوباره فقط مالِ کسی است
+ *  که کار را شروع کرده — کاربرِ B دیگر اکشنِ ثبت‌شده‌ی کاربرِ A (با شناسه‌ی
+ *  تلگرامیِ A) را بازپخش نمی‌کند (سوراخِ مجوزدهیِ بسته شد؛ سقفِ LRU همان ۱۰۰). */
+const lastAction = new Map<string, () => Promise<void>>()
 
 /** نشانگرِ «در حال نوشتن…» — بی‌انتظار (fire-and-forget)، فقط در چتِ خصوصی:
  *  موتور تا چند ثانیه جواب می‌دهد؛ کاربر از همان لحظه‌ی اول بازخورد می‌بیند.
@@ -173,8 +176,9 @@ function typing(ctx: Context): void {
 async function run(ctx: Context, fn: (ctx: Context) => Promise<void>): Promise<void> {
   typing(ctx) // V12 — بازخوردِ فوری پیش از هر فراخوانیِ موتور
   const chatId = ctx.chat?.id
-  if (chatId !== undefined) {
-    lastAction.set(chatId, () => fn(ctx))
+  const userId = ctx.from?.id
+  if (chatId !== undefined && userId !== undefined) {
+    lastAction.set(`${chatId}:${userId}`, () => fn(ctx))
     if (lastAction.size > 100) {
       const oldest = lastAction.keys().next().value
       if (oldest !== undefined) lastAction.delete(oldest)
@@ -185,8 +189,15 @@ async function run(ctx: Context, fn: (ctx: Context) => Promise<void>): Promise<v
 
 export async function onRetry(ctx: Context): Promise<void> {
   const chatId = ctx.chat?.id
-  const fn = chatId !== undefined ? lastAction.get(chatId) : undefined
+  const userId = ctx.from?.id
+  const fn = chatId !== undefined && userId !== undefined ? lastAction.get(`${chatId}:${userId}`) : undefined
   if (!fn) {
+    // V27 — در گروه چیزی برای تکرارِ «این» کاربر نیست: توستِ صادقانه و تمام —
+    // پنلِ خانه‌ی خصوصی هرگز به گروه فرستاده نمی‌شود (مالِ پیوی است).
+    if (isGroupChat(ctx)) {
+      await answer(ctx, "دوباره‌کردن مالِ کسی است که کار را شروع کرد.")
+      return
+    }
     await answer(ctx, "چیزی برای تکرار نیست")
     await sendHome(ctx)
     return
@@ -1193,23 +1204,42 @@ async function groupGadmin(ctx: Context): Promise<void> {
   await sendEngineCommand(ctx, "gadmin", { isAdmin })
 }
 
-/** فرمان‌های شهر (/play /vote /projects /members /history …) در خصوصی — فقط
- *  راهنماییِ ناوبری. V15-2: عبارت‌های تازه‌ی هابِ ۱۲گانه‌ی شهر (V15-1) را هم
- *  معرفی می‌کند («دوئل‌ها»/«اقتصاد»/«افتخارات») و دکمه‌ی برگشت به خانه دارد. */
+/** فرمان‌های شهر (/play /vote /projects /members /history /mission …) در خصوصی —
+ *  راهنماییِ ناوبری + پلِ زندهٔ V27: گروه‌هایِ خودِ بازیکن با فعالیتِ بازِ هرکدام
+ *  (openActivity موتور — «🧭 کاروانِ X — سهم‌ها باز است» یا null = آرام). موتور خواب
+ *  → همان کارتِ ایستایِ دیروز (fallbackِ بی‌صدا، الگویِ fetchGuide). */
 async function cityCommandsInPrivate(ctx: Context): Promise<void> {
+  // V27 — پلِ خصوصی→گروه: snapshotِ «گروه‌هایِ من» از موتور (بدونِ chatId)
+  let myGroups: MyGroupDTO[] = []
+  try {
+    myGroups = (await api.groupSnapshot(tgId(ctx))).groups
+  } catch {
+    /* موتور خواب/شکسته — کارتِ ایستا همانِ دیروز می‌ماند */
+  }
   const lines = [
     "🏙 <b>این بخش مالِ شهرِ گروه است</b>",
     "",
     emblem("🏙"),
     "",
-    "ربات را به یک گروه دعوه کن تا جهانِ مشترک زنده شود — بعد همان‌جا این‌ها را بگو:",
-    "",
-    `🎲 ${chip("بازی‌های گروه")} · 🗳 ${chip("رأی‌گیری")} · ⚖️ ${chip("دادگاه")} · 🏗 ${chip("پروژه‌ها")}`,
-    `👥 ${chip("بازیکن‌ها")} · 📜 ${chip("تاریخچه")} · 🏙 ${chip("وضعیت شهر")}`,
-    `⚔️ ${chip("دوئل‌ها")} · 💰 ${chip("اقتصاد")} · 🏆 ${chip("افتخارات")}`,
-    "",
-    "در گروه، دکمه‌ی «منو» کارتِ شهر را با هر 12 بخشِش باز می‌کند.",
   ]
+  if (myGroups.length > 0) {
+    // شهرهایِ زندهٔ بازیکن — سقفِ ۴ خط؛ نام/فعالیتِ پویا esc() می‌شوند (عنوانِ
+    // گروه ممکن است داخلِ openActivity هم بیاید) و جمعیت با chip() رقمِ لاتین است.
+    lines.push("👥 <b>شهرِ گروه‌هایت:</b>")
+    for (const g of myGroups.slice(0, 4)) {
+      lines.push(`▪ ${esc(g.cultureEmoji)} ${esc(g.title)} · ${chip(g.population)} شهروند — ${esc(g.openActivity ?? "آرام است")}`)
+    }
+    lines.push("")
+    lines.push("کنش‌های شهر در خودِ گروه زنده‌اند — همان‌جا این‌ها را بگو:")
+  } else {
+    lines.push("ربات را به یک گروه دعوت کن تا جهانِ مشترک زنده شود — بعد همان‌جا این‌ها را بگو:")
+  }
+  lines.push("")
+  lines.push(`🎲 ${chip("بازی‌های گروه")} · 🗳 ${chip("رأی‌گیری")} · 🧭 ${chip("کاروان")} · ⚖️ ${chip("دادگاه")}`)
+  lines.push(`🏗 ${chip("پروژه‌ها")} · 👥 ${chip("بازیکن‌ها")} · 📜 ${chip("تاریخچه")} · 🏙 ${chip("وضعیت شهر")}`)
+  lines.push(`⚔️ ${chip("دوئل‌ها")} · 💰 ${chip("اقتصاد")} · 🏆 ${chip("افتخارات")}`)
+  lines.push("")
+  lines.push("در گروه، دکمه‌ی «منو» کارتِ شهر را با هر 12 بخشِش باز می‌کند.")
   const kb = new InlineKeyboard()
   if (MINIAPP_URL) kb.url("📱 Femboy War", MINIAPP_URL).primary()
   // V20 (ممیزی V20-ف: دو «شهر» یک مقصد) — سفرِ محلی از همین کارت هم باز می‌شود
@@ -1475,6 +1505,9 @@ const PRIVATE_INTENT: Partial<Record<IntentId, (ctx: Context) => Promise<void>>>
   // می‌رفت (همان واژه، دو مقصدِ متناقض). کارتِ شهرِ گروه فقط با «تاریخچه شهر».
   history: showHistory,
   gadmin: cityCommandsInPrivate,
+  // V27 — کاروانِ شهر در پیوی = کارتِ «شهرِ گروه» با گروه‌هایِ زندهٔ بازیکن
+  // (پلِ خصوصی→گروه)؛ خودِ کاروان فقط در گروه راه می‌افتد (شهرِ مشترک است).
+  mission: cityCommandsInPrivate,
   // V15-2 — فرمان‌های تازه‌ی هابِ شهر (V15-1): در خصوصی معادلِ شخصیِ موجود،
   // نه فیچرِ خصوصیِ تازه — «دوئل‌ها» → راهنمای دوئل، «اقتصاد» → بازارِ شخصی،
   // «افتخارات» → تالارِ خودِ ربات (تخته‌های fwh:)
@@ -1542,6 +1575,11 @@ async function routeGroupIntent(ctx: Context, id: IntentId): Promise<void> {
       return sendEngineCommand(ctx, "history")
     case "gadmin":
       return groupGadmin(ctx)
+    // V27 — «مامموریت/کاروان»: مأموریتِ تعاونیِ شهر. موتور یا کارتِ کاروانِ فعلی
+    // را می‌دهد یا کاروانِ تازه می‌سازد و کارتش از راهِ outbox می‌رسد (متنِ
+    // خالی = همان رفتارِ فرمانِ event — sendEngineCommand خودش می‌فهمد).
+    case "mission":
+      return sendEngineCommand(ctx, "mission")
     case "cancel":
       await ctx.reply("چیزی برای لغو در جریان نیست — دعوت‌نامه‌ها دکمه‌ی لغوی خودش را دارند.")
       return
@@ -1818,6 +1856,10 @@ export function registerBot(bot: Bot): void {
   bot.command("projects", wrap(dual(cityCommandsInPrivate, (ctx) => sendEngineCommand(ctx, "projects"))))
   bot.command("members", wrap(dual(cityCommandsInPrivate, (ctx) => sendEngineCommand(ctx, "members"))))
   bot.command("history", wrap(dual(cityCommandsInPrivate, (ctx) => sendEngineCommand(ctx, "history"))))
+  // V27 — کاروانِ شهر (مأموریتِ تعاونی): گروه = کارتِ کاروان از موتور — یا کارتِ
+  // تازه که از outbox می‌رسد (متنِ خالی، همان رفتارِ /event) · خصوصی = کارتِ
+  // «شهرِ گروه» با گروه‌هایِ زندهٔ بازیکن (cityCommandsInPrivate — پلِ V27).
+  bot.command("mission", wrap(dual(cityCommandsInPrivate, (ctx) => sendEngineCommand(ctx, "mission"))))
 
   // ── V7/V8 — ورودیِ آزادِ پیمانِ فمبوی (اسمِ فمبوی) — قبل از همه‌ی متن‌های آزاد ──
   // فقط وقتی برای این چتِ خصوصی حالتِ «اسم» در انتظار است مصرفش می‌کنیم؛
@@ -1874,7 +1916,7 @@ export function registerBot(bot: Bot): void {
       return
     }
     try {
-      // لایه‌ی گروهِ V5: پیشوندهای موتورِ شهر (ge:/gg:/gv:/ru:/gp:/cit:/gm:/gc:/gs:)
+      // لایه‌ی گروهِ V5: پیشوندهای موتورِ شهر (ge:/gg:/gv:/ru:/gp:/cit:/gm:/gc:/gx:/gh:/gs:)
       // فقط در گروه به موتور برمی‌گردند؛ خصوصی همان مسیرِ خودش را دارد.
       // gc: = دعوتِ دوئل · gs: = تنظیماتِ ادمین (ادمینِ زنده در group.ts تایید می‌شود).
       const data = ctx.callbackQuery.data ?? ""
@@ -1882,6 +1924,14 @@ export function registerBot(bot: Bot): void {
       if (isGroupCallbackData(data) && (cbChatType === "group" || cbChatType === "supergroup")) {
         stats.groupCallbacks++
         await handleGroupCallback(ctx)
+        return
+      }
+      // V27 — گرامرِ شهر در پیوی: دکمه‌ی مرده → هدایتِ صادقانه. کارت‌هایِ گروه
+      // گاهی به پیوی می‌رسند (DM‌هایِ سرنخ/دعوت که دکمه‌هایِ gm: حمل می‌کنند)؛
+      // دیروز این دکمه‌ها از هر روتری می‌افتادند و بی‌صدا ack می‌شدند. حالا:
+      // هیچ فراخوانیِ موتور، هیچ ویرایشِ پیام — فقط یک توستِ راهنما.
+      if (isGroupCallbackData(data) && cbChatType === "private") {
+        await answer(ctx, "این دکمه‌ی شهرِ تو گروه است — همان‌جا کار می‌کند.")
         return
       }
       // V7 — کال‌بک‌های فمبویِ روح‌بسته (fw:* fwa:* fwi:* fwk:* fwh:* fwt:* fwr:* fwsp:*)

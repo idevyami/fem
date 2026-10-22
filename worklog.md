@@ -2548,3 +2548,90 @@ Stage Summary:
 - ۱۵ فایل، +۶۶۱/−۲۷۴ — بازسازیِ ساختاری (نه رنگی): تب‌ها/دو‌سطحی‌شدنِ ناوبری/پنل‌های والدآگاه/قالبِ نتیجه/سفرِ فروشِ سه‌گامی/کارت‌های معناییِ گروه.
 - گیت‌ها: verify:group ۴۵۱-۴۵۲ ✓ · verify:bot ۴۷۷ ✓ · tsc×2 ✓ · eslint ✓ · رباتِ زنده v26.0.0 polling ✓ صفر خطا · مرورگر / پاک ✓.
 - نگهداریِ کاملِ مکانیک: صفر تغییرِ منطقِ بازی — همه‌ی اکشن‌های موتور و مسیرهای قدیمی دست‌نخورده (تست‌های J/§P/§C سبز).
+
+---
+Task ID: V26-PUSH
+Agent: main (Z.ai Code)
+Task: پوشِ GitHub — بستنِ موجِ V26 (مأموریتِ اصلاحیِ UI ربات)
+
+Work Log:
+- export: rsync با مجموعه‌ی مستقرِ استثناها (بدون .env*/bot-secret.env/db/upload/node_modules/.next/*.log/.agent-shots/tool-results/agent-ctx) — ۱۵ فایل، +۶۸۷/−۲۷۴، بدونِ فایلِ تازه.
+- اسکنِ سه‌مرحله‌ایِ راز: tree (فقط متنِ توصیفیِ «github_pat_» در worklog — بدونِ مقدار) · blobهای staged (صفر) · فایل‌های رازِ tracked (صفر) — تمیز.
+- push: 4967aa5 → a1b3c0c (fast-forward تمیز) — ls-remote تأیید؛ URL بدون PAT؛ PAT فقط در /home/z/.github_pat.
+- کاربر خودش Deploy می‌کند (مأموریت: «Do not perform deployment» — انجام نشد).
+
+Stage Summary:
+- V26 روی GitHub است؛ رباتِ سندباکس از قبل روی v26.0.0 زنده است (bun --hot). انتشارِ عمومی با Deployِ کاربر.
+
+---
+Task ID: V27-BOT
+Agent: full-stack-developer
+Task: V27 — سیم‌کشیِ ترنسپورتِ کاروان در ربات (mini-services/bot): گرامرِ gx: + فرمان/عبارتِ mission + سه فیکسِ ترنسپورتی (lastAction per-user، دکمه‌ی مرده در پیوی، پلِ خصوصی←گروه) + مستندسازیِ نیت + بخشِ ⑳⑤ سوئیتِ verify:bot.
+
+Work Log:
+- مطالعه: انتهای worklog (V24/V25/V26) + پنج فایلِ ربات (group/intent/handlers/api/stats) + سطحِ تازه‌ی موتور (router.ts: COMMANDS.mission و CALLBACKS.gx با گرامرِ `gx:{expeditionId}:join:{roleKey}|act|cheer|begin`؛ expeditions.ts: missionCommandCard با متنِ خالی=کارت از outbox؛ snapshot.ts: myGroups با openActivityِ تازه) + مسیرِ POST /api/group/snapshot (service-key + telegramId، بدونِ chatId → فقط groups).
+- gx: در آینه‌ی پیشوندها (group.ts): GROUP_CB_PREFIXES حالا ["ge:","gg:","gv:","ru:","gp:","cit:","gm:","gc:","gx:","gh:","gs:"] — مسیرِ یکنواختِ handleGroupCallback (action:"callback" → editCard → editMessageText + توستِ ackText) بدونِ هیچ تغییرِ دیگری کارش را می‌کند؛ سربرگِ فایل و کامنتِ hotfixِ V15 هم‌زبان شدند (کاروان/gx). بدونِ این، هر دکمه‌ی کاروان دکمه‌ی مرده بود (همان نشانه‌ی gh: در V15).
+- نیتِ mission (intent.ts): IntentId تازه + PHRASES با عبارتِ بازِ «مامموریت»/«کاروان» + en «mission»/«caravan» (هر چهار open:true — در گروهِ بی‌آدرس هم جواب می‌گیرد، مثل «منو»)؛ املایِ «مامموریت» عمداً هم‌زبانِ روترِ موتور است.
+- /mission (handlers.ts): bot.command("mission", dual(cityCommandsInPrivate, (ctx) => sendEngineCommand(ctx, "mission"))) — آینه‌ی /event؛ متنِ خالیِ موتور = کارت از outbox (sendEngineCommand خودش می‌فهمد). PRIVATE_INTENT.mission و routeGroupIntent case "mission" هم سیم شدند؛ در پیوی = کارتِ «شهرِ گروه» (همان مسیرِ /play و /vote).
+- فیکسِ امنیتیِ lastAction (۳b): Map از number (chatId) به string «chatId:userId» — run() زیرِ کلیدِ ترکیبی ثبت می‌کند و onRetry فقط کلیدِ فشاردهنده را می‌خواند. قبل: کاربرِ B با «🔄 دوباره» در گروه، اکشنِ ثبت‌شده‌ی A (با telegramIdِ A!) را بازپخش می‌کرد — سوراخِ مجوزدهی. بعد: B فقط توستِ «دوباره‌کردن مالِ کسی است که کار را شروع کرد.» می‌گیرد (بدونِ sendHome — پنلِ خانه‌ی خصوصی هرگز به گروه نمی‌رود)؛ A اکشنِ خودش را بازپخش می‌کند؛ پیوی همان رفتارِ دیروز (توستِ «چیزی برای تکرار نیست» + خانه)؛ سقفِ LRU=100 ماند.
+- فیکسِ دکمه‌ی مرده در پیوی (۳c): در bot.on("callback_query") بعد از شاخه‌ی گروه، شاخه‌ی تازه‌ی `isGroupCallbackData(data) && cbChatType === "private"` → فقط answer(ctx, «این دکمه‌ی شهرِ تو گروه است — همان‌جا کار می‌کند.») و return — صفر فراخوانیِ موتور، صفر ویرایشِ پیام. DM‌هایِ سرنخ/دعوت با دکمه‌هایِ gm: دیگر بی‌صدا نمی‌میرند.
+- پلِ خصوصی←گروه (۳d): api.groupSnapshot(telegramId) تازه در api.ts (POST /api/group/snapshot، service-key از helperِ مشترکِ post؛ MyGroupDTO/MyGroupsResponse با قراردادِ GroupTickResponse). cityCommandsInPrivate حالا گروه‌هایِ واقعیِ بازیکن را می‌گیرد: بلوکِ «👥 شهرِ گروه‌هایت:» با سقفِ ۴ خط (▪ {cultureEmoji} {title} · {chip(population)} شهروند — {openActivity ?? «آرام است»}) — نام/فعالیت esc() (عنوان ممکن است داخلِ openActivity هم باشد)، جمعیت chip() با رقمِ لاتین؛ با گروه، خطِ دعوت با «کنش‌های شهر در خودِ گروه زنده‌اند…» عوض می‌شود؛ بدونِ گروه، متنِ دعوتِ دیروز عیناً؛ شکستِ موتور → fallbackِ بی‌صدا به کارتِ ایستا (الگویِ fetchGuide). تراشِ عبارت‌ها + «🧭 کاروان» هم به ردیفِ چیپ‌ها اضافه شد؛ کیبورد دست‌نخورده.
+- کدکس/هلپ (۴): INTENT_SUMMARIES.mission در src/lib/game/help/phrases.ts (بافتارِ گروه) + GROUP_ROUTED و EXPECTED_INTENT_COUNT=51 در scripts/export-help.ts → export:help سبز: 51 intent / 133 topic / صفر توکنِ اسلش؛ phrase-table.generated.json و help-snapshot.json (289.9KB) regenerate شدند — موضوعِ phrase-mission خودکار ساخته شد (آینه‌بودن با resolver تضمین است).
+- نسخه‌ها: stats.version 26.0.0→27.0.0 · bot package.json 11.1.0→12.0.0.
+- سوئیتِ verify:bot — بخشِ ⑳⑤ «V27 caravan transport» با ۲۵ ادعا (الگوی ④/⑪/⑳④؛ همان رباتِ واقعی + fetchِ ماک + تلگرامِ stub): ① gx:exp1:act در گروه → دقیقاً یک /api/group/command با {action:"callback", chatId, telegramId, data} + editCard درجا ② «مامموریت» و «کاروان» بی‌آدرس در گروه → command:"mission" ③ /mission گروه → mission · پیوی → کارتِ شهرِ گروه با صفر فراخوانیِ گروه ④ gm:game در پیوی → توستِ «این دکمه‌ی شهرِ تو گروه است — همان‌جا کار می‌کند.» + صفر موتور + بدون پیام/ویرایش ⑤ lastAction: A با m:news (نمایِ شهریِ مجاز در گروه) ثبت می‌کند؛ B با e:retry فقط توستِ مالکیت می‌گیرد (صفر بازپخشِ اکشنِ A، بدون کارت)؛ A بازپخش می‌کند ⑥ پلِ زنده: m:groupcity در پیوی → POST /api/group/snapshot + بلوکِ «شهرِ گروه‌هایت» با esc/چیپ/«آرام است» + جایگزینیِ خطِ دعوت + موتور-خواب → کارتِ ایستا. مک‌های تازه: /api/group/snapshot (mockMyGroups + پرچمِ خطا) و /api/game/citynews (DTO کامل — برای m:news گروهی).
+- گیت‌ها: tsc ریشه ۰ · tsc ربات ۰ · eslint پاک · export:help سبز · verify:bot 502 PASS/0 FAIL (از ۴۷۷؛ +۲۵ تازه، هیچ پینِ قبلی نشکست) · verify:group 512/۰ (یک اجرای میانیِ پشت‌سرِهم ۲ FAIL از flakeِ مستندِ XPِ V22 برداشت — منطقِ XP دستِ این موج نبود؛ دو اجرای دیگر سبزِ کامل) · رباتِ زنده v27.0.0 awake/polling/۰ خطا/موتور-ok (hot-reload سالم؛ ۴۰۹های گذرایِ نسلی خودشان درست شدند) · dev.log همه-۲۰۰.
+
+Stage Summary:
+- کاروان از درِ گروه زنده است: دکمه‌هایِ gx: (سهم/کنش/تشویق/حرکت) به موتور می‌رسند و پنلِ اشتراکی همان‌جا درجا ویرایش می‌شود؛ «مامموریت»/«کاروان» و /mission هر سه به COMMANDS.mission می‌رسند (کارتِ فعلی یا کاروانِ تازه از outbox).
+- سه زخمِ ترنسپورتی بسته شد: lastAction کلیدِ per-user گرفت (B دیگر اکشنِ A را با هویتِ A اجرا نمی‌کند)؛ دکمه‌هایِ گرامرِ گروه در پیوی به‌جای ackِ بی‌صدا، هدایتِ صادقانه می‌گیرند؛ کارتِ «شهرِ گروه» در پیوی از ایستا به زنده رسید (گروه‌هایِ واقعی + openActivity هرکدام، با fallbackِ بی‌صدا).
+- محدودیت‌های صادقانه: openActivity برچسبِ کوتاهِ موتور است (اولویتِ کاروان>اتفاق>بازی>رأی) و بیش از ۴ گروه روی کارت جا نمی‌گیرد (سقفِ بلوک)؛ دکمه‌هایِ gx: در پیوی عمداً به موتور نمی‌روند (پنلِ شهرِ گروه است)؛ فیکسِ lastAction فقط مسیرِ run() را می‌پوشاند — کال‌بک‌هایِ گروهیِ موتور (ge:/gv:/…) از همان اول per-presser بودند.
+
+---
+Task ID: V27-BOT
+Agent: full-stack-developer (V27-BOT) + main (Z.ai Code — تکمیل/گیت‌ها پس از timeout ابزار)
+Task: ترنسپورتِ ربات برای V27 — گرامرِ gx:، عبارت‌های مامموریت/کاروان، /mission، کلیدِ per-user دکمه‌ی «دوباره»، هدایتِ دکمه‌ی مرده در پیوی، کارتِ زنده‌ی «شهرِ گروه» با openActivity.
+
+Work Log:
+- group.ts: GROUP_CB_PREFIXES += "gx:" (آینه‌ی روتِرِ موتور) — مسیرِ یکنواختِ handleGroupCallback خودش بقیه را دارد (اکشنِ callback، editCard → ویرایشِ درجا، توست).
+- intent.ts: IntentId += "mission" با عبارت‌های بازِ [«مامموریت», «کاروان», mission, caravan] (open: true — مثل «منو»).
+- handlers.ts: /mission با dual(cityCommandsInPrivate, sendEngineCommand("mission")) · routeGroupIntent case "mission" · PRIVATE_INTENT مأموریت → cityCommandsInPrivate.
+- handlers.ts (اصلاحِ مجوزدهی): lastAction از Map<number> به Map<string> با کلیدِ `${chatId}:${userId}` — در گروه، B دیگر اکشنِ A (با تلگرام‌آی‌دیِ A) را بازپخش نمی‌کند؛ بدونِ کلید → توستِ «دوباره‌کردن مالِ کسی است که کار را شروع کرد.» (پنلِ خانه‌ی خصوصی هرگز به گروه نمی‌رود).
+- handlers.ts (دکمه‌ی مرده): isGroupCallbackData در پیوی → توستِ «این دکمه‌ی شهرِ تو گروه است — همان‌جا کار می‌کند.» — صفر فراخوانیِ موتور، صفر ویرایش.
+- api.ts: MyGroupDTO/MyGroupsResponse + api.groupSnapshot(telegramId) (POST /api/group/snapshot بدونِ chatId — پلِ خصوصی←گروه).
+- handlers.ts cityCommandsInPrivate: کارتِ زنده — بلوکِ «👥 شهرِ گروه‌هایت:» با title/openActivity (esc‌شده) و جمعیتِ chip؛ موتور خواب → همان کارتِ ایستا (fallbackِ بی‌صدا).
+- help/phrases.ts: INTENT_SUMMARIES += mission · export:help → ۵۱ نیت / ۱۵ دسته / ۱۳۳ موضوع؛ phrase-table + help-snapshot بازتولید شد.
+- نسخه: ربات 27.0.0 · پکیج 12.0.0.
+- verify/bot-group.ts ⑳⑤: ۶ گروهِ تست — gx: دقیقاً یک فراخوانی با گرامرِ عیني · «مامموریت»/«کاروان» → mission · /mission گروه/پیوی · gm: در پیوی → توستِ هدایت + صفر موتور · lastAction per-user (B نرپخش، A بازپخش) · کارتِ زنده‌ی شهرِ گروه با escape/fallback.
+
+Stage Summary:
+- گیت‌ها (اجرای واقعی): tsc ریشه ۰ · tsc ربات ۰ · eslint پاک · export:help سبز · verify:bot 502 PASS/0 FAIL · verify:group 512 PASS/0 FAIL · رباتِ زنده v27.0.0 awake/polling/۰ خطا · dev.log بدونِ ۵۰۰.
+- سه سوراخِ ترنسپورت بسته شد: بازپخشِ اکشنِ دیگران، دکمه‌ی مرده‌ی گرامرِ گروه در پیوی، کارتِ ایستایِ «شهرِ گروه».
+
+---
+Task ID: V27
+Agent: main (Z.ai Code)
+Task: FEMBOY WAR V27 — «شهرِ اجتماعیِ زنده»: کاروانِ شهر (مأموریتِ تعاونیِ چندنفره) + همه‌پرسیِ اثرگذار + پیوندهای واقعی در روایت + انتظار/بازگشت + پل‌های خصوصی↔گروه.
+
+Work Log:
+- ممیزیِ V27 (دو ایجنتِ کاوش): نقشه‌ی کاملِ موتورِ گروه + ترنسپورتِ ربات؛ حفره‌های اصلی: هیچ کنشِ «مکمل» (رویدادها موازی، بازی‌ها رأی/کوییزِ هم‌شکل، پروژه‌ها فقط پول)، نقش‌های بازی فقط متن، poll مرده، قدرت‌های نقش اجرا نشده، p2/p3 قرعه‌ی خام.
+- Prisma: GroupExpedition (recruit/act/done/aborted + rolesJson + cheersJson + messageId برای ویرایشِ درجا) + رابطه‌ی GroupWorld.expeditions؛ db:push سبز.
+- محتوا: content/expeditions.ts (۴ قالبِ ۴-سهمی: گورستان/کاروانِ ابریشم/کوچه‌ی خاکستر/مهِ ماهِ قرمز؛ favoredClasses همه‌ی ۸ کلاس را می‌پوشانند؛ پاداش برد/بُرد-نشده) · content/referendums.ts (۵ همه‌پرسی: خلق‌وخو/دروازه‌ی شبانه/روحِ شهر/بودجه‌ی جشن/قانونِ کوچه) · ۲ دستاوردِ شهر (اولین کاروان/کاروانِ بی‌نقص).
+- expeditions.ts (قلبِ V27): spawnExpedition (کول‌داون expReadyAt در culture) → joinExpedition (اولین-رسنده، یک سهمِ قطعی، دروازه‌ی شهروندی) → beginExpedition (فقط سهم‌دار) → actExpedition (رولِ قطعیِ seedشده، بازخوردِ همان‌لحظه، همه-کنش‌کردند → حلِ فوری) → cheerExpedition (تماشاگر، یک‌بار، +۲٪ تا ۵ نفر) → depart/abort/resolve (فلیپِ شرطی، تراکنش، awards/awardSoulProgress، روابطِ cooperation زوجی، حافظه/خبر/تاریخ، کارتِ نتیجه با editMessageId) → tickExpeditions (فازِ ۲.۵ تیک).
+- شانس (خالص/تست‌پذیر): کنش p=clamp(0.42+0.16·هم‌افزا+0.018·سطح+0.0012·(شانس−50), 0.20, 0.93) · حکم p=clamp(0.28+0.11·موفق‌ها+0.02·تشویق, 0.15, 0.95) · سهمِ بی‌کنش «لنگ» می‌ماند — پاداشِ همدلی، نه تنبیه.
+- router.ts: CALLBACKS gx: (join/act/cheer/begin — همه editCard؛ لمسِ کارتِ کهنه خودش را شفا می‌دهد) · COMMANDS mission · gm:mission/gm:poll · ACTIONS expeditionJoin/Act/Cheer (مینی‌اپ).
+- politics.ts: openCityPoll (kinds="poll" زنده شد — ۶۰ دقیقه، شمارشِ عمومی، gv: موجود) + resolveVote شاخه‌ی poll با اثرهای واقعی (آشوب/جرم/صندوق/آبرویِ جمعی/tagBoost×1.35 تا ۴۸ ساعت — collectPollBias در pickEventTemplate) + openCityPollCard (قدرتِ واقعیِ شهردار — gm:poll؛ دروازه‌ی نقش در سرور).
+- tick.ts: فازِ ۲.۵ tickExpeditions · فاز ۵.۷ همه‌پرسیِ خودجوش (هر ~۳ روز، ۱۲-۲۲) · فاز ۶.۵ کاروانِ خودجوش (۴.۵٪، ۹-۲۳، فاصله‌ی ۳۰ دقیقه از آخرین رویداد) · markDelivered refType expedition.
+- events.ts: pickBondedPair + renderVars(bonded) — {p2}/{p3} روایت‌های ۱۱۱قالبی حالا زوجِ رقابتِ واقعی (chaos/competition/meme/political) یا دوستی (بقیه، ≥۱۵ امتیاز) است؛ بدونِ محرک خودِ زوج قهرمان است.
+- snapshot.ts: activeExpedition DTO (myRole/myRoleActed/iCheered/roles) + HomeViewer سه فیلدِ کاروان + myGroups += openActivity (پلِ خصوصی←گروه) + بلوکِ «در راه»: کاروانِ بعدی/سهمِ آزاد/معما/پروژه/استایل‌شوی امشب.
+- presentation.ts/hub.ts: کاروان در «🟢 الان» خانه + دکمه‌های contextuی (سهمِ تو/کنشِ سهمِ تو/تشویق — دقیقاً کارِ همان دکمه برای همین بیننده) · بخشِ بازی‌ها میزبانِ کاروان · بخشِ رأی‌ها + همه‌پرسیِ شهردار · helpCardText گامِ ۳ = مامموریت.
+- presence.ts: recap برگشته += بلوکِ «📌 الان باز است — منتظرِ تو» (کاروان/اتفاق/رأی/پروژه).
+- کدکس: games-caravan + social-referendum (مستندسازیِ قواعدِ صادقانه) · export:help → ۱۳۳ موضوع.
+- مینی‌اپ: ExpeditionCard (roster زنده + کنشِ شخصی + تشویق) در GroupScreen — آینه‌ی gx: رویِ سیمِ session.
+- رخدادِ عملیاتی: سرورِ dev با کلاینتِ Prisma کهنه (db.groupExpedition undefined → ۵۰۰ها) → ری‌استارت با setsid؛ از این پس بعد از هر db:push ری‌استارت لازم است.
+- تست‌ها: §V27 در group-engine.ts (۶۰+ ادعا): چرخه‌ی کاملِ ۴ کاربرِ متمایز (سهم/تکرار/غیرشهروند/شروع/کنش/تشویق/حل فوری/پاداش/دستاورد/کول‌داون/گرامر) + حل از راهِ تیک + لغوِ کم‌جان + همه‌پرسی (دروازه‌ی شهردار، ۳ رأیِ متمایز، اثرهای دقیق، کارتِ حکم) + پیوندِ رقابت در payload + ریاضیِ شانس + کدکس؛ cleanup += groupExpedition.
+- سفرِ مرورگر (agent-browser): اینترو → هویت → پیمانِ کامل (شینوبیِ سایه + سایه‌ای + «شبنم وی27») → تبِ شهر → لنزِ گروه با گروهِ آزمایشی → ExpeditionCard رندر شد → کلیکِ «پیشقراول» → expeditionJoin واقعی → کارت زنده شد (۱ از ۴، بازرسِ وی۲۷، انتظارِ ۳ سهمِ آزاد) → 320px بدونِ سرریز → صفر خطای کنسول/صفحه → residue پاک شد.
+
+Stage Summary:
+- گروه حالا «دنیایِ اجتماعیِ زنده» است: کاروان (اولین چرخه‌ی حیاتِ واقعاً تعاونی: سهم‌های مکمل + کنش‌های شخصی + تشویقِ تماشاگر) موازی با رویداد/رأی؛ همه‌پرسی حکمِ جمعی را به وضعیتِ جهان گره می‌زند (قدرتِ اولِ واقعیِ شهردار)؛ روایت‌ها به رقابت‌ها/دوستی‌های واقعی اشاره می‌کنند؛ خانه/کارتِ پیوی/بازگشت از غیبت همه «چیزی برای آمدن» دارند.
+- گیت‌ها: tsc×۲ ۰ · eslint پاک · export:help ۵۱ نیت/۱۳۳ موضوع · verify:group ۵۱۰-۵۱۳ PASS (flakeهای مستندِ §X گاهی؛ هر دو مسیرِ سبز دیده شد) · verify:bot ۵۰۲ PASS/۰ FAIL · رباتِ زنده v27.0.0 · مرورگر سبز.
+- خارج از موج (صادقانه): نقش‌های نامتقارنِ بازی‌ها (heist/social_deduction) هنوز مکانیکِ نوبتی ندارند — موجِ بعد؛ تورنمنت/تیم‌به‌تیم نیست (دوئل + کاروان پوششِ فعلی)؛ فازِ pollBias در cultureJson بدونِ GCِ زمان‌بندی است (خواندنِ زمان‌آگاه، اثرِ صفر بعد از انقضا).

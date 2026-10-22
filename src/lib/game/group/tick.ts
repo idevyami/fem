@@ -8,7 +8,8 @@ import { tehranHour, tehranDayKey, weekNumber, cultureOf, bumpCulture, computeCu
 import { expireOpenEvents, spawnGroupEvent } from "./events"
 import { pacingOf } from "./pacing"
 import { tickGames, startGame } from "./games"
-import { closeVotes, openElection, paySalaries, collectProjectIncome } from "./politics"
+import { closeVotes, openElection, paySalaries, collectProjectIncome, openCityPoll } from "./politics"
+import { tickExpeditions, spawnExpedition } from "./expeditions"
 import { pushCityNews, ensureMysteryActive, decayMemories, spawnRumor } from "./world"
 import { spawnStyleShow } from "./style"
 import { expireRumors } from "./safety"
@@ -82,9 +83,11 @@ async function rhythmCard(group: GroupWorld, key: string): Promise<void> {
 // ترتیبِ فازها (موجِ ۲ — مستند):
 //   ۰) شهرِ بدونِ ربات؟ · ۰.۵) شهرِ بسته (enabled=false؛ Part 9)؟ · ۱) فعالیّت
 //   ۲) بستن‌ها: رویدادهایِ سرآمده → دعوت‌های دوئلِ سرآمده (موجِ ۲) → بازی‌ها → رأی‌ها
-//   ۳) ریتم · ۴) حقوق/درآمد · ۵) انتخابات · ۵.۵) استایل‌شو · ۶) رویدادِ خودجوش
-//   (ضریبِ eventFreq) · ۷) بازیِ خودجوش · ۸) شایعه · ۹) معما · ۱۰) زوال+انقضای
-//   شایعه · ۱۱) هواشناسی · ۱۲) فرهنگ.
+//   ۲.۵) کاروان‌ها (V27): گذارِ فازِ سهم‌گیری→عمل، حل/لغوِ سرآمده
+//   ۳) ریتم · ۴) حقوق/درآمد · ۵) انتخابات · ۵.۵) استایل‌شو
+//   ۵.۷) همه‌پرسیِ خودجوش (V27 — هر ~۳ روز) · ۶) رویدادِ خودجوش
+//   (ضریبِ eventFreq) · ۶.۵) کاروانِ خودجوش (V27) · ۷) بازیِ خودجوش · ۸) شایعه
+//   ۹) معما · ۱۰) زوال+انقضای شایعه · ۱۱) هواشناسی · ۱۲) فرهنگ.
 export async function tickGroup(group: GroupWorld, now = new Date()): Promise<void> {
   // ۰) شهرِ بدونِ ربات — تحویل دائماً رد شده (ربات حذف/بیرون شده).
   // شهر فقط نفس می‌کشد و حرف نمی‌زند تا ربات با یک فرمان/پیام/کال‌بک برگردد
@@ -113,6 +116,9 @@ export async function tickGroup(group: GroupWorld, now = new Date()): Promise<vo
   await expireStaleChallenges(db, group.id, now)
   await tickGames(group, now)
   await closeVotes(group, now)
+  // ۲.۵) کاروان‌ها (V27) — گذارِ فاز و حلِ سرآمده؛ بعد از رأی‌ها تا کارتِ نتیجه
+  // در همان دورِ زهکشی هم راه بیفتد (اولویت ۷/۸ بالاتر از ریتم)
+  await tickExpeditions(group, now)
 
   if (!isActive) {
     // شهرِ خفته فقط نفس می‌کشد — بدون پیام
@@ -154,6 +160,17 @@ export async function tickGroup(group: GroupWorld, now = new Date()): Promise<vo
     }
   }
 
+  // ۵.۷) همه‌پرسیِ خودجوش (V27) — هر ~۳ روز، بعدازظهر؛ فقط وقتی رأیِ بازیتی باز
+  // نیست (openCityPoll خودش هم چک می‌کند — کمربند+حمّال). شهردار هم هر وقت
+  // بخواهد می‌تواند فراخوان کند (gm:poll — قدرتِ واقعیِ نقش).
+  const lastPollDay = typeof c.lastPollDay === "string" ? c.lastPollDay : ""
+  if (hour >= 12 && hour < 22 && members.length >= 3 && lastPollDay !== day && (!lastPollDay || daysBetween(lastPollDay, day) >= 3)) {
+    const openVote = await db.groupVote.findFirst({ where: { groupId: group.id, status: "open" } })
+    if (!openVote) {
+      await openCityPoll(group)
+    }
+  }
+
   // ۶) رویدادِ خودجوش — V18: ریتمِ هوشمند. دروازه در خودِ spawnGroupEvent نشسته
   // (۲ ساعت + ۱۰۰ پیام؛ یا ۶ ساعت + ۳۰ پیام در شهرِ آرام) — شانسِ این‌جا فقط
   // جیترِ شخصیتِ شهر است: آشوبِ بالا زودتر از دروازه‌ی بازشده رد می‌شود، ولی هیچ
@@ -167,6 +184,16 @@ export async function tickGroup(group: GroupWorld, now = new Date()): Promise<vo
   const pacing = pacingOf(group, now)
   if (pacing.gateOpen && !quietHours && chance(eventChance, mulberry32(seedFrom("amb", group.id, Math.floor(now.getTime() / 60000))))) {
     await spawnGroupEvent(group, { priority: 6 })
+  }
+
+  // ۶.۵) کاروانِ خودجوش (V27) — مأموریتِ تعاونی؛ کول‌داون و «فقط یکی باز» در
+  // خودِ spawnExpedition پاسداری می‌شود. با رویداد موازی می‌تواند باشد (فعالیتِ
+  // جنسِ متفاوت) ولی با رویدادِ همان‌لحظه نمی‌آید — ۳۰ دقیقه فاصله از آخرین ماجرا
+  // تا چت دو کارتِ هم‌زمان نخورد.
+  if (!quietHours && hour >= 9 && hour < 23 && members.length >= 3 && now.getTime() - group.lastEventAt.getTime() >= 30 * 60000) {
+    if (chance(0.045, mulberry32(seedFrom("gx", group.id, Math.floor(now.getTime() / 60000))))) {
+      await spawnExpedition(group, { priority: 6 })
+    }
   }
 
   // ۷) بازیِ خودجوش — اگر کسی «بازی» گفته باشد یا شانسِ پایین
@@ -388,6 +415,9 @@ export async function markDelivered(outboxId: string, messageId: string | number
   } else if (row.refType === "challenge" && row.refId) {
     // messageId دعوت‌نامه — حل/رد/انقضای بعدی کارتِ همان پیام را ویرایش می‌کند
     await db.groupChallenge.updateMany({ where: { id: row.refId }, data: { messageId: String(messageId) } })
+  } else if (row.refType === "expedition" && row.refId) {
+    // V27 — messageId کاروان: گذارِ فاز و کارتِ نتیجه همان پیام را ویرایش می‌کنند
+    await db.groupExpedition.updateMany({ where: { id: row.refId }, data: { messageId: String(messageId) } })
   }
 }
 

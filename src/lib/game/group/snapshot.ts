@@ -9,7 +9,7 @@ import { getClass } from "../content/classes"
 import type {
   GroupSnapshotDTO, GroupEventDTO, GameSessionDTO, GroupVoteDTO, GroupRumorDTO,
   GroupMemeDTO, GroupProjectDTO, GroupMysteryDTO, GroupMemberDTO, GroupHistoryDTO,
-  GroupChallengeDTO,
+  GroupChallengeDTO, GroupExpeditionDTO,
 } from "./types"
 import {
   GROUP_ROLE_MAP, GROUP_PROJECT_MAP, GROUP_ACHIEVEMENTS,
@@ -21,6 +21,7 @@ import { memberRep, emergentTitle } from "./social"
 import { participantsOf } from "./events"
 import { STYLE_SHOW_ID } from "./style"
 import { faNum } from "./text"
+import { EXPEDITION_MAP } from "./content"
 
 // نکته‌ی DTO: فیلدهای snapshot خام می‌مانند (بدونِ تگِ HTML) — هم ربات و هم مینی‌اپ
 // می‌خوانندش؛ تراش/اسپویلر فقط در سازنده‌های کارتِ سمتِ موتور (engine/politics/...) می‌افتد.
@@ -89,6 +90,51 @@ export async function buildGroupSnapshot(chatId: string, viewerPlayerId?: string
       subject: state.subject ?? "",
       closesAt: openGame.closesAt?.toISOString() ?? null,
       createdAt: openGame.createdAt.toISOString(),
+    }
+  }
+
+  // کاروانِ باز (V27) — مأموریتِ تعاونی؛ سهمِ بیننده از همان ردیفِ rolesJson
+  const openExpedition = await db.groupExpedition.findFirst({ where: { groupId: group.id, status: "open" } })
+  let activeExpedition: GroupExpeditionDTO | null = null
+  if (openExpedition) {
+    const exTpl = EXPEDITION_MAP[openExpedition.templateId]
+    const roles = parseJson<{ playerId: string; roleKey: string; actedAt?: string }[]>(openExpedition.rolesJson, [])
+    const cheers = parseJson<string[]>(openExpedition.cheersJson, [])
+    const holderIds = roles.map((r) => r.playerId)
+    const holders = holderIds.length
+      ? await db.player.findMany({ where: { id: { in: holderIds } }, select: { id: true, name: true } })
+      : []
+    const nameOf = new Map(holders.map((p) => [p.id, p.name]))
+    const chars = holderIds.length
+      ? await db.soulCharacter.findMany({ where: { playerId: { in: holderIds } }, select: { playerId: true, classKey: true } })
+      : []
+    const classOf = new Map(chars.map((c) => [c.playerId, c.classKey]))
+    const myRow = viewerPlayerId ? roles.find((r) => r.playerId === viewerPlayerId) ?? null : null
+    activeExpedition = {
+      id: openExpedition.id,
+      templateId: openExpedition.templateId,
+      title: openExpedition.title,
+      emoji: openExpedition.emoji,
+      phase: openExpedition.phase,
+      phaseLabel: openExpedition.phase === "recruit" ? "سهم‌گیری" : "در راه",
+      hook: exTpl?.hook ?? "",
+      roles: (exTpl?.roles ?? []).map((r) => {
+        const holder = roles.find((row) => row.roleKey === r.key)
+        return {
+          key: r.key,
+          label: r.label,
+          emoji: r.emoji,
+          holderName: holder ? nameOf.get(holder.playerId) ?? "؟" : null,
+          holderClassEmoji: holder ? getClass(classOf.get(holder.playerId) ?? "")?.emoji ?? null : null,
+          acted: Boolean(holder?.actedAt),
+        }
+      }),
+      myRole: myRow?.roleKey ?? null,
+      myRoleActed: Boolean(myRow?.actedAt),
+      iCheered: viewerPlayerId ? cheers.includes(viewerPlayerId) : false,
+      recruitEndsAt: openExpedition.recruitEndsAt.toISOString(),
+      closesAt: openExpedition.actEndsAt?.toISOString() ?? null,
+      createdAt: openExpedition.createdAt.toISOString(),
     }
   }
 
@@ -198,16 +244,54 @@ export async function buildGroupSnapshot(chatId: string, viewerPlayerId?: string
     ? openEvent?.templateId === STYLE_SHOW_ID
       ? `${currentEvent.emoji} ${currentEvent.title} — صحنه روشن است، قضاوت در راه است`
       : `${currentEvent.emoji} ${currentEvent.title} — منتظرِ انتخاب‌هاست`
-    : activeGame
-      ? `${activeGame.emoji} ${activeGame.name} در جریانه`
-      : voteDtos.length > 0
-        ? `🗳 ${voteDtos[0]!.subject}`
-        : "شهر نفس می‌کشد. مخصوصاً اگر کسی کاری بکند."
+    : activeExpedition
+      ? `🧭 کاروانِ ${activeExpedition.title} — ${activeExpedition.phase === "recruit" ? "سهم‌ها باز است" : "در راه است"}`
+      : activeGame
+        ? `${activeGame.emoji} ${activeGame.name} در جریانه`
+        : voteDtos.length > 0
+          ? `🗳 ${voteDtos[0]!.subject}`
+          : "شهر نفس می‌کشد. مخصوصاً اگر کسی کاری بکند."
 
+  // V27 — «در راه»: چیزهایی که منتظرِ آمدنِ بازیکن‌اند (انتظار، نه وضعیتِ فعلی).
+  // بازیکن بدونِ چیزی برای صبر کردن برنمی‌گردد؛ این خط‌ها همان قلاب‌های بازگشت‌اند.
+  const anticipation: string[] = []
+  if (openExpedition && activeExpedition) {
+    const free = activeExpedition.roles.filter((r) => !r.holderName).length
+    if (activeExpedition.phase === "recruit") {
+      anticipation.push(free > 0 ? `کاروانِ ${activeExpedition.title}: ${faNum(free)} سهمِ آزاد` : `کاروانِ ${activeExpedition.title} آماده‌ی حرکت`)
+    } else {
+      anticipation.push(`کاروانِ ${activeExpedition.title} در راه است`)
+    }
+  } else {
+    const readyAt = typeof c.expReadyAt === "string" ? new Date(c.expReadyAt) : null
+    if (readyAt && readyAt.getTime() > now.getTime()) {
+      const mins = Math.ceil((readyAt.getTime() - now.getTime()) / 60000)
+      if (mins >= 2) anticipation.push(`کاروانِ بعدی ~${faNum(mins)} دقیقه‌ی دیگر`)
+    }
+  }
+  {
+    const activeMystery = mysteries.find((m) => m.status === "active")
+    if (activeMystery) anticipation.push(`معما: ${faNum(activeMystery.progress)}/${faNum(activeMystery.cluesTotal)} سرنخ`)
+  }
+  {
+    const building = projects.find((p) => p.status === "building")
+    if (building) anticipation.push(`${building.name} تا ${faNum(Math.min(99, Math.floor((building.contributed / building.goal) * 100)))}%`)
+  }
+  {
+    // استایل‌شوی امشب — فقط وقتی امشب واقعاً شبِ صحنه است (هر ۳ شب؛ ساعت ۱۹ تا ۲۳).
+    // عصرِ همان‌شبِ قضاوت (۱۶ تا ۲۳) می‌گوییم «امشب»؛ بعد از نمایش، روز ثبت شده
+    // و خط نمی‌آید. شهرِ تازه (بدونِ نمایشِ ثبت‌شده) شبِ اولش را اعلام می‌کند.
+    const lastShowDay = typeof c.lastStyleShowDay === "string" ? c.lastStyleShowDay : ""
+    const hourNow = Number(new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: false, timeZone: "Asia/Tehran" }).format(now)) % 24
+    const todayKey = new Intl.DateTimeFormat("en-CA", { dateStyle: "short", timeZone: "Asia/Tehran" }).format(now)
+    if (hourNow >= 16 && hourNow < 23 && lastShowDay !== todayKey) {
+      const daysSinceShow = lastShowDay ? Math.abs(Math.floor((now.getTime() - new Date(lastShowDay).getTime()) / 86400000)) : 99
+      if (daysSinceShow >= 2) anticipation.push("امشب استایل‌شو — فمبوی‌ها روی صحنه")
+    }
+  }
   const whyComeBack = [
     openGame ? `${activeGame?.name} تا ${new Date(openGame.closesAt ?? now).getHours()}:${String(new Date(openGame.closesAt ?? now).getMinutes()).padStart(2, "0")} باز است` : null,
-    mysteries.find((m) => m.status === "active") ? `معما: ${mysteries.find((m) => m.status === "active")!.progress}/${mysteries.find((m) => m.status === "active")!.cluesTotal} سرنخ` : null,
-    projects.find((p) => p.status === "building") ? `${projects.find((p) => p.status === "building")!.name} تا ${Math.floor((projects.find((p) => p.status === "building")!.contributed / projects.find((p) => p.status === "building")!.goal) * 100)}%` : null,
+    ...anticipation.slice(0, 3),
     "قورباغه یادت را نگه می‌دارد.",
   ].filter(Boolean).join(" · ")
 
@@ -242,6 +326,7 @@ export async function buildGroupSnapshot(chatId: string, viewerPlayerId?: string
     roles,
     currentEvent,
     activeGame,
+    activeExpedition,
     openVotes: voteDtos,
     members,
     history,
@@ -275,6 +360,13 @@ export interface HomeViewer {
   joinedGame: boolean
   /** رأیِ باز — رأی داده؟ */
   voted: boolean
+  // ── V27: جایگاهِ بیننده در کاروانِ باز ──
+  /** سهمِ بیننده در کاروانِ باز — null یعنی سهمی ندارد (یا کاروانی نیست) */
+  expeditionRole: string | null
+  /** کنشِ سهمِ بیننده انجام شده؟ */
+  expeditionActed: boolean
+  /** بیننده کاروانِ باز را تشویق کرده؟ */
+  expeditionCheered: boolean
   // ── V17-W2 (§12): «تو کجایی؟» — جایگاهِ شخصیِ بیننده در همین شهر، بدونِ
   // سفر به پی‌وی؛ null = عضو نیست (سطرِ عضویت خالی است) ──
   wins: number | null
@@ -303,6 +395,8 @@ export async function buildHomeViewer(
     })
     joinedEvent = part !== null
   }
+  // V27 — سهمِ بیننده در کاروانِ باز (از همان snapshotِ تازه‌ساخته)
+  const ex = snap.activeExpedition ?? null
   return {
     playerId: player.id,
     isMember: member !== null,
@@ -320,6 +414,9 @@ export async function buildHomeViewer(
     joinedEvent,
     joinedGame: snap.activeGame ? snap.activeGame.participants.some((p) => p.playerId === player.id) : false,
     voted: snap.openVotes.some((v) => v.myVote !== null),
+    expeditionRole: ex?.myRole ?? null,
+    expeditionActed: Boolean(ex?.myRoleActed),
+    expeditionCheered: Boolean(ex?.iCheered),
     // V17-W2 — از همان ردیفِ عضویت که بالا خوانده شد؛ پرس‌وجویِ تازه‌ای نیست
     wins: member?.winCount ?? null,
     games: member?.gameCount ?? null,
@@ -367,7 +464,7 @@ function emptySnapshot(chatId: string): GroupSnapshotDTO {
     moodLabel: "", moodEmoji: "", state: "normal", stateLabel: "", weatherLabel: "", weatherEmoji: "",
     cultureTag: "unset", cultureLabel: "در حال شکل‌گیری", cultureEmoji: "🌫", cultureLine: "",
     chaos: 0, socialTemp: 50, socialTempLabel: "", treasury: 0, reputationLabel: "", population: 0, activePlayers: 0,
-    mayor: null, roles: [], currentEvent: null, activeGame: null, openVotes: [], members: [], history: [],
+    mayor: null, roles: [], currentEvent: null, activeGame: null, activeExpedition: null, openVotes: [], members: [], history: [],
     rumors: [], memes: [], projects: [], mysteries: [], achievements: [], achievementsUnlocked: [],
     challenges: [],
     achievementsUnlockedCount: 0,
@@ -378,7 +475,7 @@ function emptySnapshot(chatId: string): GroupSnapshotDTO {
 /** گروه‌های من — برای صفحه‌ی Mini App.
  *  جمعیت (V13 موج ۱): شمارِ اعضایِ فعال (بازدید در ۴۸ ساعت — همان پنجره‌ی
  *  activeMembers تیک)؛ پیش‌تر صفرِ هاردکد بود. یک groupBy برای همه‌ی گروه‌ها. */
-export async function myGroups(playerId: string): Promise<{ chatId: string; title: string; cultureLabel: string; cultureEmoji: string; moodEmoji: string; population: number; isMember: boolean }[]> {
+export async function myGroups(playerId: string): Promise<{ chatId: string; title: string; cultureLabel: string; cultureEmoji: string; moodEmoji: string; population: number; isMember: boolean; openActivity: string | null }[]> {
   const memberships = await db.groupMember.findMany({ where: { playerId }, include: { group: true } })
   const since = new Date(Date.now() - 48 * 3600000)
   const activeCounts = await db.groupMember.groupBy({
@@ -387,8 +484,21 @@ export async function myGroups(playerId: string): Promise<{ chatId: string; titl
     _count: { groupId: true },
   })
   const activeBy = new Map(activeCounts.map((c) => [c.groupId, c._count.groupId]))
-  return memberships.map((m) => {
+  // V27 — openActivity: فعالیتِ بازِ هر گروه (کاروان > اتفاق > بازی > رأی) —
+  // پلِ خصوصی→گروه؛ رباتِ خصوصی همین را روی کارتِ «شهرِ گروه» می‌چسباند.
+  return Promise.all(memberships.map(async (m) => {
     const culture = CULTURE_LABELS[m.group.cultureTag] ?? CULTURE_LABELS.unset!
+    const [ex, ev, game, vote] = await Promise.all([
+      db.groupExpedition.findFirst({ where: { groupId: m.groupId, status: "open" }, select: { title: true, emoji: true, phase: true } }),
+      db.groupEvent.findFirst({ where: { groupId: m.groupId, status: "open" }, select: { title: true, emoji: true } }),
+      db.gameSession.findFirst({ where: { groupId: m.groupId, status: "open" }, select: { gameKey: true } }),
+      db.groupVote.findFirst({ where: { groupId: m.groupId, status: "open" }, select: { subject: true } }),
+    ])
+    let openActivity: string | null = null
+    if (ex) openActivity = `🧭 کاروانِ ${ex.title} — ${ex.phase === "recruit" ? "سهم‌ها باز است" : "در راه است"}`
+    else if (ev) openActivity = `${ev.emoji} ${ev.title}`
+    else if (game) openActivity = `🎲 ${GAME_MAP[game.gameKey]?.name ?? "بازیِ گروهی"} باز است`
+    else if (vote) openActivity = `🗳 ${vote.subject}`
     return {
       chatId: m.group.chatId,
       title: m.group.title,
@@ -397,6 +507,7 @@ export async function myGroups(playerId: string): Promise<{ chatId: string; titl
       moodEmoji: "🙂",
       population: activeBy.get(m.groupId) ?? 0,
       isMember: true,
+      openActivity,
     }
-  })
+  }))
 }

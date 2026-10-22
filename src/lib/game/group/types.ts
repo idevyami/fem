@@ -21,6 +21,79 @@ export type MemberRepDim = "trust" | "fame" | "fear" | "respect" | "chaos" | "hu
 export type GroupPlayerStat =
   | "money" | "xp" | "fame" | "chaos" | "crime" | "reputation" | "luck" | "energy"
 
+// ─── V27: کاروانِ شهر — مأموریتِ تعاونی با سهم‌های مکمل ─────────────────────────
+
+/** سهمِ یک شهروند در کاروان — هر کلاسِ سازگار شانسِ کنش را بالا می‌برد */
+export interface ExpeditionRoleDef {
+  key: string
+  label: string
+  emoji: string
+  /** یک خط — وظیفه‌ی این سهم در کاروان */
+  duty: string
+  /** کلاس‌های هم‌افزا — +۱۵٪ شانسِ کنش برای دارنده‌ی همین کلاس‌ها */
+  favoredClasses: string[]
+  /** کنشِ این سهم در فازِ عمل — برچسبِ دکمه + طعمِ موفقیت/شکست */
+  act: { label: string; successText: string; failText: string }
+}
+
+export interface ExpeditionTemplate {
+  id: string
+  title: string
+  emoji: string
+  /** روایتِ فراخوان — زیرِ quote روی کارتِ سهم‌گیری */
+  hook: string
+  /** چند سهمِ متفاوت، کاروان راه می‌افتد */
+  minRoles: number
+  recruitMinutes: number
+  actMinutes: number
+  cooldownMinutes: number
+  minMembers: number
+  /** پاداش برد / پاداش بُرد-نشده — [min,max] */
+  reward: {
+    treasury: [number, number]
+    eachPlayer: [number, number]
+    soulXp: number
+    failPlayer: [number, number]
+    failSoulXp: number
+  }
+  /** خط‌های حکم — کارتِ نتیجه */
+  successLine: string
+  failLine: string
+  perfectLine: string
+  roles: ExpeditionRoleDef[]
+}
+
+// ─── V27: همه‌پرسی — رأیِ جمعی با اثرِ واقعی بر جهانِ شهر ────────────────────────
+
+export interface ReferendumEffects {
+  /** تغییرهای فوریِ جهان (clamp می‌شوند) */
+  chaos?: number
+  socialTemp?: number
+  crime?: number
+  /** صندوق — منفی هم مجاز (کفِ صفر) */
+  treasury?: number
+  /** وزنِ رویدادهای این tag برای N ساعت (×1.35) */
+  tagBoost?: { tag: string; hours: number }
+  /** آبروی همه‌ی اعضا — dim کوچک */
+  repAll?: { dim: MemberRepDim; delta: number }
+}
+
+export interface ReferendumOption {
+  key: string
+  label: string
+  style: ButtonStyle | null
+  /** خطِ نتیجه — «چه شد» بعد از اجرای حکم */
+  line: string
+  effects: ReferendumEffects
+}
+
+export interface ReferendumTemplate {
+  id: string
+  question: string
+  emoji: string
+  options: ReferendumOption[]
+}
+
 // ─── قالب رویداد گروهی ─────────────────────────────────────────────────────────
 
 export interface GroupOutcomeEffects {
@@ -339,6 +412,35 @@ export interface GroupSettingsDTO {
   eventFreq: "off" | "rare" | "normal"
 }
 
+/** V27 — کاروانِ بازِ شهر (ربات + مینی‌اپ از همین DTO می‌خوانند) */
+export interface GroupExpeditionRoleDTO {
+  key: string
+  label: string
+  emoji: string
+  /** نامِ دارنده‌ی سهم — null یعنی آزاد */
+  holderName: string | null
+  holderClassEmoji: string | null
+  acted: boolean
+}
+
+export interface GroupExpeditionDTO {
+  id: string
+  templateId: string
+  title: string
+  emoji: string
+  phase: string // recruit | act
+  phaseLabel: string
+  hook: string
+  roles: GroupExpeditionRoleDTO[]
+  /** سهمِ بیننده — null یعنی هنوز سهمی نگرفته */
+  myRole: string | null
+  myRoleActed: boolean
+  iCheered: boolean
+  recruitEndsAt: string | null
+  closesAt: string | null
+  createdAt: string
+}
+
 export interface GroupSnapshotDTO {
   exists: boolean
   chatId: string
@@ -367,6 +469,8 @@ export interface GroupSnapshotDTO {
   roles: { key: string; name: string; emoji: string; holder: string | null }[]
   currentEvent: GroupEventDTO | null
   activeGame: GameSessionDTO | null
+  /** V27 — کاروانِ باز (افزودنی؛ خواننده‌های کهنه نادیده می‌گیرند) */
+  activeExpedition?: GroupExpeditionDTO | null
   openVotes: GroupVoteDTO[]
   members: GroupMemberDTO[]
   history: GroupHistoryDTO[]
@@ -420,5 +524,8 @@ export interface MyGroupsDTO {
     moodEmoji: string
     population: number
     isMember: boolean
+    /** V27 — فعالیتِ بازِ همین گروه (کاروان/اتفاق/رأی/بازی)؛ null = آرام.
+     *  پلِ خصوصی→گروه: بازیکن بدونِ رفتن به گروه می‌بیند چه چیزی منتظرش است. */
+    openActivity?: string | null
   }[]
 }

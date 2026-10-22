@@ -1024,6 +1024,8 @@ export const GROUP_ACHIEVEMENTS: GroupAchievementDef[] = [
   { key: "mayor_second_term", name: "دوره‌ی دوم", emoji: "👑", description: "شهردار برای دوره‌ی دوم انتخاب شد و کسی تعجب نکرد" },
   { key: "auction_fever", name: "تبِ مزایده", emoji: "🔨", description: "یک جنس در مزایده از هزار سکه گذشت" },
   { key: "ghost_member", name: "عضوِ خاموش", emoji: "👤", description: "یک عضو یک سال چیزی ننوشت. هنوز عضو است" },
+  { key: "caravan_first", name: "اولین کاروان", emoji: "🧭", description: "اولین کاروانِ گروهیِ شهر به مقصد رسید" },
+  { key: "caravan_perfect", name: "کاروانِ بی‌نقص", emoji: "🎖", description: "یک کاروان بدونِ هیچ شکستی تمام شد" },
 ]
 
 // ─── برچسب‌های فارسی ──────────────────────────────────────────────────────────

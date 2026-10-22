@@ -55,6 +55,7 @@ export async function pickEventTemplate(
   const cultureTag = group.cultureTag
   const c = cultureOf(group)
   const projBoost = collectProjectBoosts(group)
+  const pollBias = collectPollBias(group)
 
   const candidates = GROUP_EVENT_TEMPLATES.filter((t) => {
     if (t.minMembers > memberCount) return false
@@ -70,6 +71,7 @@ export async function pickEventTemplate(
     if (cultureTag !== "unset" && affinity.includes(cultureTag)) w *= 1.6
     for (const tag of t.tags) {
       if (projBoost[tag]) w *= projBoost[tag]!
+      if (pollBias[tag]) w *= pollBias[tag]!
       if (c[`tag:${tag}`] && typeof c[`tag:${tag}`] === "number") w *= 1 + 0.05 * Math.min(8, (c[`tag:${tag}`] as number) ?? 0)
     }
     return { templateId: t.id, weight: w }
@@ -87,6 +89,23 @@ function collectProjectBoosts(group: GroupWorld): Record<string, number> {
   const out: Record<string, number> = {}
   for (const [k, v] of Object.entries(c)) {
     if (k.startsWith("projBoost:") && typeof v === "number") out[k.slice("projBoost:".length)] = v
+  }
+  return out
+}
+
+/** V27 — سوگیریِ موقتِ همه‌پرسی: pollBias:{tag} = ISO انقضا؛ تا وقتی زنده است
+ *  وزنِ رویدادهایِ آن tag ×1.35 می‌شود. خواندنِ زمان‌آگاه — کلیدِ مُرده اثری
+ *  ندارد و در نوشتنِ بعدی جای خود را می‌دهد. */
+function collectPollBias(group: GroupWorld, now = new Date()): Record<string, number> {
+  const c = cultureOf(group)
+  const out: Record<string, number> = {}
+  for (const [k, v] of Object.entries(c)) {
+    if (k.startsWith("pollBias:") && typeof v === "string") {
+      const until = new Date(v)
+      if (!Number.isNaN(until.getTime()) && until.getTime() > now.getTime()) {
+        out[k.slice("pollBias:".length)] = 1.35
+      }
+    }
   }
   return out
 }
@@ -115,12 +134,43 @@ export interface RenderVarsIds extends RenderVars {
   p3Id: string | null
 }
 
-export function renderVars(group: GroupWorld, players: Player[], instigator?: Player): RenderVarsIds {
+export function renderVars(group: GroupWorld, players: Player[], instigator?: Player, bonded?: { aId: string; bId: string } | null): RenderVarsIds {
   const rng = mulberry32(seedFrom("rendervars", group.id, Date.now()))
   const shuffled = [...players].sort(() => rng() - 0.5)
   const p1p = instigator ?? shuffled[0] ?? null
-  const p2p = shuffled.find((p) => p.id !== p1p?.id) ?? null
-  const p3p = shuffled.find((p) => p.id !== p1p?.id && p.id !== p2p?.id) ?? null
+  let p2p = shuffled.find((p) => p.id !== p1p?.id) ?? null
+  let p3p = shuffled.find((p) => p.id !== p1p?.id && p.id !== p2p?.id) ?? null
+  // V27 — پیوندهای واقعی: وقتی شهر رابطه‌ی زنده‌ای (رقابت/دوستی) دارد، {p2}/{p3}
+  // همان زوج است و بدونِ محرک، {p1} خودِ یکی از آن دو — روایت‌های ۱۱۱قالبی
+  // حالا به روابطِ واقعیِ بازیکن‌ها اشاره می‌کنند، نه به قرعه‌ی خام.
+  if (bonded) {
+    const a = players.find((p) => p.id === bonded.aId) ?? null
+    const b = players.find((p) => p.id === bonded.bId) ?? null
+    if (a && b) {
+      if (!instigator) {
+        // بدونِ محرک، زوجِ پیوسته خودش قهرمانِ روایت است: {p1}/{p2} همان زوج؛
+        // {p3} رهگذرِ سومِ تصادفی می‌ماند (نه دوبارِ همان آدم)
+        const [first, second] = rng() < 0.5 ? [a, b] : [b, a]
+        const third = shuffled.find((p) => p.id !== first.id && p.id !== second.id) ?? null
+        return {
+          p1: first.name,
+          p2: second.name,
+          p3: third?.name ?? "رهگذر",
+          p1Id: first.id,
+          p2Id: second.id,
+          p3Id: third?.id ?? null,
+          npc: pickOne(NPCS, rng).name,
+          item: pickOne(ITEMS, rng).name,
+          amount: randInt(400, 9000, rng),
+          group: group.title,
+          day: Math.floor((Date.now() - new Date(group.createdAt).getTime()) / 86400000) + 1,
+        }
+      }
+      // با محرک: {p2}/{p3} خودِ زوج است — روایت حولِ محرک و پیوندش می‌چرخد
+      p2p = a
+      p3p = b
+    }
+  }
   return {
     p1: p1p?.name ?? "یک شهروند",
     p2: p2p?.name ?? "همسایه‌ی ناشناس",
@@ -134,6 +184,29 @@ export function renderVars(group: GroupWorld, players: Player[], instigator?: Pl
     group: group.title,
     day: Math.floor((Date.now() - new Date(group.createdAt).getTime()) / 86400000) + 1,
   }
+}
+
+/** V27 — زوجِ پیوسته‌ی واقعی این شهر: برای روایت‌های پرقابل (رقابت) یا
+ *  اجتماع‌گرا (دوستی)، بالاترین رابطه‌ی زندهٔ میانِ اعضای فعال. خالصِ DB —
+ *  حداقل ۱۵ امتیاز تا داستان‌سازی روی رابطه‌ی واقعی سوار شود. */
+export async function pickBondedPair(
+  groupId: string,
+  kind: string,
+  playerIds: string[],
+): Promise<{ aId: string; bId: string } | null> {
+  if (playerIds.length < 2) return null
+  const wantRivalry = ["chaos", "competition", "meme", "political"].includes(kind)
+  const order = wantRivalry ? { rivalry: "desc" as const } : { friendship: "desc" as const }
+  const rows = await db.playerRelationship.findMany({
+    where: { groupId, aId: { in: playerIds }, bId: { in: playerIds } },
+    orderBy: order,
+    take: 8,
+  })
+  for (const r of rows) {
+    const score = wantRivalry ? r.rivalry : r.friendship
+    if (score >= 15) return { aId: r.aId, bId: r.bId }
+  }
+  return null
 }
 
 export function render(text: string, v: RenderVars): string {
@@ -244,7 +317,8 @@ export async function spawnGroupEvent(group: GroupWorld, opts: SpawnEventOpts = 
   if (!template) return null
 
   const players = members.map((m) => m.player)
-  const v = renderVars(group, players, opts.instigator)
+  const bonded = await pickBondedPair(group.id, template.kind, players.map((p) => p.id))
+  const v = renderVars(group, players, opts.instigator, bonded)
 
   const event = await db.groupEvent.create({
     data: {

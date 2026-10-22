@@ -595,6 +595,28 @@ export interface GroupTickResponse {
   groupsTicked: number
 }
 
+// ─── V27 — پلِ خصوصی←گروه (کارتِ «شهرِ گروه» در پیوی) ──────────────────────────
+
+/** یک گروهِ بازیکن — آینه‌ی myGroups موتور (snapshot.ts)؛ بدنه‌ی خام، بدونِ تگ */
+export interface MyGroupDTO {
+  chatId: string
+  title: string
+  cultureLabel: string
+  cultureEmoji: string
+  moodEmoji: string
+  population: number
+  isMember: boolean
+  /** فعالیتِ بازِ گروه (کاروان > اتفاق > بازی > رأی) — برچسبِ کوتاهِ فارسی یا null */
+  openActivity: string | null
+}
+
+/** پاسخِ POST /api/group/snapshot بدونِ chatId — فقط «گروه‌هایِ من» (مسیرِ ربات) */
+export interface MyGroupsResponse {
+  groups: MyGroupDTO[]
+  snapshot: null
+  games: unknown[]
+}
+
 /** درخواستِ مشاهده — ربات پیامِ گروه را عیناً برای موتور می‌برد
  *  V23: silent = شمارشِ خاموش (پیامِ مصرف‌شده توسط مسیریابِ نیت) — شمارنده‌ها
  *  می‌مانند، جواب/واکنش نمی‌آید. */
@@ -1302,6 +1324,11 @@ export const api = {
       delivered: reports,
       ...(unreachable.length > 0 ? { unreachable } : {}),
     }),
+
+  /** V27 — پلِ خصوصی←گروه: گروه‌هایِ بازیکن با فعالیتِ بازِ هرکدام (بدونِ chatId).
+   *  service-key + telegramId → موتور خودش caller را حل می‌کند (مسیرِ /api/group/snapshot). */
+  groupSnapshot: (telegramId: string) =>
+    post<MyGroupsResponse>("/api/group/snapshot", { telegramId }),
 
   // ─── V7 — فمبویِ روح‌بسته (سول‌باند) ────────────────────────────────────────
 

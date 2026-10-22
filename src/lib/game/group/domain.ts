@@ -115,6 +115,13 @@ export interface CultureCounters {
   lastStyleShowDay?: string // روزِ آخرینِ نمایشِ استایل (تدوینِ ۳روزه)
   styleShows?: number // شمارِ نمایش‌های برگزارشده
   treasuryDay?: string
+  // V27 — کاروان و همه‌پرسی
+  expeditions?: number // شمارِ کاروان‌های حل‌شده
+  perfectExpeditions?: number // کاروان‌های بی‌نقص
+  expReadyAt?: string // ISO — کاروانِ بعدی کِی ممکن می‌شود
+  expLastId?: string // آخرین قالبِ کاروان (تکرارنشدن)
+  lastPollDay?: string // روزِ آخرینِ همه‌پرسی
+  lastPollId?: string // آخرین قالبِ همه‌پرسی
   [key: string]: number | string | undefined
 }
 
@@ -330,6 +337,8 @@ export interface OutboxButton {
   style?: "primary" | "success" | "danger" | null
   cb?: string
   url?: string
+  /** V27 — نشانه‌ی چیدمانِ فشرده (آینه‌ی types.ts): true یعنی «در ردیفِ قبلی بنشین» */
+  sameRow?: boolean
 }
 
 export interface PushOutboxOpts {
@@ -423,6 +432,9 @@ export async function checkAchievementsTx(tx: Tx, group: GroupWorld): Promise<st
     mystery_10: (c.mystery ?? 0) >= 10,
     crime_wave: (c.crime ?? 0) >= 30,
     cooperative_20: (c.cooperation ?? 0) >= 20,
+    // V27 — کاروان‌های شهر
+    caravan_first: (c.expeditions ?? 0) >= 1,
+    caravan_perfect: (c.perfectExpeditions ?? 0) >= 1,
   }
   const granted: string[] = []
   for (const [key, ok] of Object.entries(checks)) {

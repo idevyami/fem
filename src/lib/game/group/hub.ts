@@ -42,7 +42,7 @@ import type { OutboxButton } from "./types"
 import { esc, parseJson } from "./domain"
 import { SUB, chip, pct, remainChip, emblem, quote, barRow, faNum } from "./text"
 import { buildGroupSnapshot, buildHomeViewer } from "./snapshot"
-import { GROUP_ACHIEVEMENTS, SOCIAL_GAMES } from "./content"
+import { GROUP_ACHIEVEMENTS, SOCIAL_GAMES, GROUP_ROLE_MAP } from "./content"
 import { memberRep } from "./social"
 import { hallOfFame } from "../character"
 import { getWorld } from "../world"
@@ -175,9 +175,14 @@ export async function navSection(ctx: GroupCallCtx, key: string): Promise<Callba
       } else {
         lines.push(quote("رأیِ بازی در جریان نیست — انتخاباتِ شهردار هر هفته خودکار برگزار می‌شود."))
       }
+      // V27 — همه‌پرسی: رأیِ جمعی با اثرِ واقعی بر جهانِ شهر؛ فراخوانِ شهردار یا
+      // خودِ شهر هر ~3 روز. کشف‌پذیری از همین بخش — بدونِ حفظ‌کردنِ عبارت.
+      const isMayor = viewer?.roleLabel === GROUP_ROLE_MAP.mayor!.name
+      lines.push("📊 همه‌پرسی — حکمِ اکثریت، وضعیتِ شهر را واقعاً عوض می‌کند (هر ~3 روز خودکار).")
       children.push(
         { label: "🗳 رأیِ باز", style: "primary", cb: "gm:vote" },
         { label: "🏛 انتخاباتِ فوری", style: "danger", cb: "gm:elect", sameRow: true },
+        ...(isMayor ? [{ label: "📊 فراخوانِ همه‌پرسی", style: "success" as const, cb: "gm:poll" }] : []),
         { label: "⚖️ دادگاه بساز", style: "primary", cb: "gm:court" },
         { label: "📖 نقش‌ها و انتخابات", style: "primary", cb: "gh:t:social-roles:0", sameRow: true },
       )
@@ -289,6 +294,25 @@ export async function navSection(ctx: GroupCallCtx, key: string): Promise<Callba
       break
     }
     case "games": {
+      // V27 — کاروانِ شهر: مأموریتِ تعاونیِ سهم‌به‌سهم. این بخشِ «فعالیت‌های جمعی»
+      // خانه‌ی طبیعیِ کاروان است — کشف از همین‌جا، بدونِ دکمه‌ی بیشتر روی خانه.
+      if (snap.activeExpedition) {
+        const ex = snap.activeExpedition
+        const free = ex.roles.filter((r) => !r.holderName).length
+        const stat = ex.phase === "recruit"
+          ? `${chip(free)} سهمِ آزاد · ⏳ ${remainChip(ex.recruitEndsAt)}`
+          : `${chip(ex.roles.filter((r) => r.acted).length)}/${chip(ex.roles.length)} کنش · ⏳ ${remainChip(ex.closesAt)}`
+        lines.push(`🧭 ${ex.emoji} <b>${esc(ex.title)}</b> — ${stat}`)
+        if (ex.phase === "recruit" && !viewer?.expeditionRole) {
+          children.push({ label: "🧭 سهمِ من در کاروان", style: "success", cb: "gm:mission" })
+        } else if (ex.phase === "act" && viewer?.expeditionRole && !viewer.expeditionActed) {
+          children.push({ label: "🎯 کنشِ سهمِ من", style: "danger", cb: `gx:${ex.id}:act` })
+        } else if (ex.phase === "act" && !viewer?.expeditionRole && !viewer?.expeditionCheered) {
+          children.push({ label: "📣 تشویقِ کاروان", style: "primary", cb: `gx:${ex.id}:cheer` })
+        }
+      } else {
+        lines.push(quote("🧭 کاروان — مأموریتِ تعاونیِ سهم‌به‌سهم؛ «مامموریت» را بگو تا یکی ساخته شود."))
+      }
       if (snap.activeGame) {
         const g = snap.activeGame
         const mine = ctx.player ? g.participants.some((p) => p.playerId === ctx.player!.id) : false
@@ -301,8 +325,9 @@ export async function navSection(ctx: GroupCallCtx, key: string): Promise<Callba
       }
       lines.push(`🎲 ${chip(SOCIAL_GAMES.length)} بازی در شهر است — با جایزه و عواقبِ واقعی.`)
       children.push(
-        { label: "🎲 بازی‌های گروهی", style: "primary", cb: "gm:play" },
-        { label: "💥 اتفاقِ شهر", style: "danger", cb: "gm:event", sameRow: true },
+        { label: "🧭 کاروانِ شهر", style: "primary", cb: "gm:mission" },
+        { label: "🎲 بازی‌های گروهی", style: "primary", cb: "gm:play", sameRow: true },
+        { label: "💥 اتفاقِ شهر", style: "danger", cb: "gm:event" },
       )
       break
     }

@@ -440,6 +440,7 @@ model GroupWorld {
   factions       GroupFaction[]
   outbox         GroupOutbox[]
   challenges     GroupChallenge[]
+  expeditions    GroupExpedition[]
 }
 
 model GroupMember {
@@ -690,6 +691,35 @@ model GroupChallenge {
   @@index([groupId, status])
   @@index([challengerId, status])
   @@index([targetId, status])
+}
+
+// ─── V27: کاروانِ شهر — مأموریتِ تعاونیِ چندنفره با سهم‌های مکمل ───────────────
+// چرخه‌ی حیات: recruit (سهم‌گیری روی پنلِ اشتراکی) → act (کنشِ هر سهم + تشویقِ
+// تماشاگران) → resolve (رولِ قطعی، پاداش/پیامد، کارتِ نتیجه با ویرایشِ همان پیام).
+// سهم‌ها first-come-first-served اند؛ هر شهروند یک سهم؛ کلاسِ مناسب شانسِ کنش را
+// بالا می‌برد (پلِ پیشرفتِ شخصی → بازیِ گروهی). هم‌زمان با رویداد/رأی می‌تواند
+// باز باشد — صفِ تک‌فعالیتِ شهر را نمی‌شکند.
+model GroupExpedition {
+  id            String    @id @default(cuid())
+  groupId       String
+  templateId    String
+  title         String
+  emoji         String
+  phase         String    @default("recruit") // recruit | act | done | aborted
+  rolesJson     String    @default("[]") // [{playerId, roleKey, roll?, success?, actedAt?}]
+  cheersJson    String    @default("[]") // [playerId] — تشویقِ تماشاگران
+  payloadJson   String    @default("{}") // hook و متادیتای قالب
+  messageId     String?   // تلگرام message id — ویرایشِ درجا بعد از تحویل
+  status        String    @default("open") // open | done | aborted
+  recruitEndsAt DateTime
+  actEndsAt     DateTime?
+  resolvedAt    DateTime?
+  outcomeJson   String?
+  createdAt     DateTime  @default(now())
+
+  group         GroupWorld @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, status])
 }
 
 // صف خروجی موتور → ربات تحویل می‌دهد (server-authoritative)
