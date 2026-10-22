@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
     const body = await readBody(req)
     await resolveCaller(req, body) // نشستِ Mini App یا service-key ربات — مثل guide
     const rl = rateLimit(`help:${clientIp(req)}`, 120, 60000)
-    if (!rl.allowed) return jsonErr("کدکس نفس می‌خواهد — یک لحظه صبر کن.", 429, "rate_limited")
+    if (!rl.allowed) return jsonErr("راهنما نفس می‌خواهد — یک لحظه صبر کن.", 429, "rate_limited")
 
     const action = typeof body.action === "string" ? body.action : ""
 
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
     if (action === "topics") {
       const catId = typeof body.categoryId === "string" ? body.categoryId : ""
       const cat = getHelpCategory(catId)
-      if (!cat) return jsonErr("چنین دسته‌ای در کدکس نیست — شاید نسخه‌ی کهنه.", 404, "no_category")
+      if (!cat) return jsonErr("چنین دسته‌ای در راهنما نیست — شاید نسخه‌ی کهنه.", 404, "no_category")
       const topics = helpTopicsOf(catId).map(helpTopicStub)
       return jsonOk({ category: { id: cat.id, icon: cat.icon, titleFa: cat.titleFa, descFa: cat.descFa }, topics })
     }
@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
       const id = typeof body.id === "string" ? body.id : ""
       const page = Number.isFinite(Number(body.page)) ? Math.max(0, Math.floor(Number(body.page))) : 0
       const topic = getHelpTopic(id)
-      if (!topic) return jsonErr("چنین موضوعی در کدکس نیست — شاید نسخه‌ی کهنه.", 404, "no_topic")
+      if (!topic) return jsonErr("چنین موضوعی در راهنما نیست — شاید نسخه‌ی کهنه.", 404, "no_topic")
       const perPage = typeof body.perPage === "number" && body.perPage >= 1 && body.perPage <= 10 ? Math.floor(body.perPage) : HELP_BLOCKS_PER_PAGE
       const { blocks, page: safePage, pageCount } = helpTopicPage(topic, page, perPage)
       // related به‌صورتِ stub حل می‌شود تا مینی‌اپ بتواند چیپِ پرش بسازد (موجِ 16b)
@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
       return jsonOk({ results })
     }
 
-    return jsonErr("چنین کاری در کدکس نیست.", 400, "bad_action")
+    return jsonErr("چنین کاری در راهنما نیست.", 400, "bad_action")
   } catch (e) {
     return handleApiError(e)
   }

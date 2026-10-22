@@ -33,16 +33,10 @@ export function WorldHeader({ snap, triggering, onTriggerEvent }: WorldHeaderPro
           </span>
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-lg font-extrabold leading-7">{snap.title}</h2>
+            {/* V22 — آب‌وهوا و مودِ جهان، همیشه در چیپ‌های هدرِ پوسته دیده می‌شوند؛
+                این‌جا فقط محله‌ی گروه می‌ماند تا بالایِ لنز، چیزی تکرار نشود */}
             <p className="mt-0.5 truncate text-[11px] leading-5 text-muted-foreground">
               {snap.districtEmoji} {snap.districtName}
-              <span className="mx-1.5" aria-hidden>
-                ·
-              </span>
-              {snap.weatherEmoji} {snap.weatherLabel}
-              <span className="mx-1.5" aria-hidden>
-                ·
-              </span>
-              {snap.moodEmoji} {snap.moodLabel}
             </p>
             <p className="mt-1.5 text-xs italic leading-6 text-muted-foreground">
               {snap.cultureEmoji} «{snap.cultureLine}»

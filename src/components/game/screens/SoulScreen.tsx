@@ -3,19 +3,23 @@
 // V8 فمبوی — تبِ «🎀 فمبوی»: پیمانِ فمبوی (ساخت) یا ویترینِ فمبوی
 // V17-W2 (F2): نتیجه‌ی تعامل دیگر در توست نمی‌میرد — بلوکِ درون‌صفحه‌ای با همان
 // زبانِ بصریِ کارتِ نتیجه (پیام + ردیفِ آمار + واکنشِ پیوند + قدمِ بعدی) بالا می‌نشیند.
+// V22 (پیشرف‌مندیِ اطلاعات): صفحه با «هویت + وضعِ فعلی + تصمیمِ بعدی» شروع می‌شود —
+// کارتِ قهرمانِ همیشه‌دیدنی بالایِ قرص‌ها؛ ۱۱ سکشن در سه خوشه‌ی معنایی
+// (کنش‌ها/توسعه/شناسنامه — همان زبانِ هابِ فمبویِ رباتِ V20)؛ ورودِ عادی = «اقدامات».
 import * as React from "react"
 import { AnimatePresence, motion } from "framer-motion"
 import { X } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
-import type { CharacterActionData, CharacterData } from "@/lib/game/contract"
+import type { CharacterActionData, CharacterData, SoulCardDTO } from "@/lib/game/contract"
 import { api } from "@/lib/game/client"
 import { useGame } from "../store"
 import { haptic, hapticNotify } from "../telegram"
 import { faNum } from "../fa"
-import { ActionButton, Chip, EmptyState, GlassCard } from "../ui"
+import { ActionButton, Chip, EmptyState, GlassCard, ProgressBar } from "../ui"
 import { OutcomeMeaningsCollapsible, OutcomeNextStepRow } from "../EventCard"
 import type { OutcomeNextStep } from "../ui/outcomeMeta"
 import { cn } from "@/lib/utils"
+import { dmgModLabel, spiritBarClass } from "./soul/classMeta"
 import { CreateFlow } from "./soul/CreateFlow"
 import { OverviewSection } from "./soul/OverviewSection"
 import { ActionsSection } from "./soul/ActionsSection"
@@ -42,19 +46,73 @@ type Section =
   | "combat"
   | "hall"
 
-const SECTIONS: { key: Section; emoji: string; label: string }[] = [
-  { key: "profile", emoji: "👤", label: "پروفایل" },
-  { key: "persona", emoji: "🎭", label: "شخصیت" },
-  { key: "story", emoji: "📖", label: "داستان" },
-  { key: "actions", emoji: "💗", label: "اقدامات" },
-  { key: "skills", emoji: "🌟", label: "مهارت‌ها" },
-  { key: "evolution", emoji: "🧬", label: "فرگشت" },
-  { key: "appearance", emoji: "🎨", label: "استایل" },
-  { key: "mastery", emoji: "🎓", label: "تسلط" },
-  { key: "history", emoji: "🕰", label: "سابقه" },
-  { key: "combat", emoji: "⚔️", label: "نبرد" },
-  { key: "hall", emoji: "🏆", label: "تالار" },
+/** یک قرصِ سکشن — همان شکلی که همیشه بوده */
+interface SectionItem {
+  key: Section
+  emoji: string
+  label: string
+}
+
+// V22 — سه خوشه‌ی معنایی، همان زبانِ هابِ فمبویِ رباتِ V20:
+// کنش‌ها = فعل‌های امروز · توسعه = مسیرِ رشد · شناسنامه = که بود و چه کرد.
+// برچسبِ سکشنِ پروفایل → «آمار» (کلیدِ داخلی «profile» دست‌نخورده — deep-linkها سالم).
+const SECTION_GROUPS: { label: string; items: SectionItem[] }[] = [
+  {
+    label: "کنش‌ها",
+    items: [
+      { key: "actions", emoji: "💗", label: "اقدامات" },
+      { key: "story", emoji: "📖", label: "داستان" },
+      { key: "combat", emoji: "⚔️", label: "نبرد" },
+    ],
+  },
+  {
+    label: "توسعه",
+    items: [
+      { key: "skills", emoji: "🌟", label: "مهارت‌ها" },
+      { key: "evolution", emoji: "🧬", label: "فرگشت" },
+      { key: "appearance", emoji: "🎨", label: "استایل" },
+      { key: "mastery", emoji: "🎓", label: "تسلط" },
+    ],
+  },
+  {
+    label: "شناسنامه",
+    items: [
+      { key: "persona", emoji: "🎭", label: "شخصیت" },
+      { key: "profile", emoji: "📊", label: "آمار" },
+      { key: "history", emoji: "🕰", label: "سابقه" },
+      { key: "hall", emoji: "🏆", label: "تالار" },
+    ],
+  },
 ]
+
+/** فهرستِ تختِ سکشن‌ها — برای مصرفِ deep-link (pendingSoulSection) */
+const ALL_SECTIONS: SectionItem[] = SECTION_GROUPS.flatMap((g) => g.items)
+
+// ─── V22: «📌 الان:» — تصمیمِ بعدی از خودِ کارت، بدونِ endpoint تازه ──────────
+
+/** همان آستانه‌ای که موتور «روحیه‌ی پایین» می‌داند (recommender.ts: spirit < 35) */
+const SPIRIT_LOW = 35
+/** هزینه‌ی استقامتِ هر شکار — همان عددی که سکشنِ اقدامات صادقانه می‌گوید */
+const HUNT_STAMINA = 3
+
+/** قدمِ بعدیِ صفحه‌ی فمبوی — اولویت‌ها از مهم‌ترین: قصه‌ی باز، نقطه‌مهارتِ
+ *  بی‌استفاده، دل‌گیری، آمادگیِ شکار؛ وگرنه همین‌جا ماندن. همه از فیلدهای
+ *  واقعیِ کارتِ همین صفحه (api.character) — هیچ چیزِ ساخته‌ای نیست. */
+function nextDecisionOf(card: SoulCardDTO): { label: string; target: Section } {
+  if (card.story && card.story.status === "available") {
+    return { label: "📖 فصلِ بعدی را بخوان", target: "story" }
+  }
+  if (card.skillPoints > 0) {
+    return { label: `✨ ${faNum(card.skillPoints)} نقطه‌مهارت را خرج کن`, target: "skills" }
+  }
+  if (card.spirit < SPIRIT_LOW) {
+    return { label: "💗 دلداری‌اش بده", target: "actions" }
+  }
+  if (card.condition.canFight && card.stamina >= HUNT_STAMINA) {
+    return { label: "⚔️ آماده‌ی شکار", target: "combat" }
+  }
+  return { label: "💗 همین‌جا کنارِ او بمان", target: "actions" }
+}
 
 export function SoulScreen() {
   const active = useGame((s) => s.activeTab === "soul")
@@ -69,7 +127,9 @@ export function SoulScreen() {
   const [data, setData] = React.useState<CharacterData | null>(null)
   const [booting, setBooting] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
-  const [section, setSection] = React.useState<Section>("profile")
+  // V22 — ورودِ عادیِ تب روی «اقدامات» می‌افتد: مراقبتِ روزانه فعلِ اولِ صفحه است
+  // (فمبویِ تازه‌ساخته همچنان مستقیم روی «داستان» فرود می‌آید — handleCreate)
+  const [section, setSection] = React.useState<Section>("actions")
   // V17-W2 (F2): پاسخِ کاملِ آخرین تعامل — بلوکِ نتیجه‌ی درون‌صفحه‌ای؛ null = بلوکی نیست
   const [interactOutcome, setInteractOutcome] = React.useState<CharacterActionData | null>(null)
   // V19 — پیامِ آخرین انتخابِ داستان (نتیجه‌ی روایی) + حالتِ ارسال
@@ -88,7 +148,7 @@ export function SoulScreen() {
   // ناشناخته بی‌صدا رد می‌شود. فقط جابه‌جایی بینِ سکشن‌های موجود — هیچ UI تازه‌ای نیست
   React.useEffect(() => {
     if (!active || pendingSoulSection === null) return
-    const target = SECTIONS.find((s) => s.key === pendingSoulSection)
+    const target = ALL_SECTIONS.find((s) => s.key === pendingSoulSection)
     if (target) setSection(target.key)
     setPendingSoulSection(null)
   }, [active, pendingSoulSection, setPendingSoulSection])
@@ -303,31 +363,7 @@ export function SoulScreen() {
   const { card } = data
   return (
     <div className="flex flex-col gap-4">
-      {/* سرِ صفحه: نام + پالس */}
-      <header className="flex items-center justify-between gap-2 px-1">
-        <h1 className="flex min-w-0 items-center gap-1.5 text-xl font-extrabold leading-8">
-          <span aria-hidden className="text-lg">
-            🎀
-          </span>
-          <span className="truncate">{card.name}</span>
-          <span aria-hidden className="text-sm opacity-80">
-            {card.evolutionEmoji}
-          </span>
-        </h1>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <Chip tone={card.condition.canFight ? (card.stamina >= 3 ? "amber" : "rose") : "rose"} className="font-bold">
-            ⚡ {faNum(card.stamina)}
-          </Chip>
-          <Chip
-            tone={card.condition.dmgMod > 0 ? "emerald" : card.condition.dmgMod < 0 ? "rose" : "default"}
-            className="font-bold"
-          >
-            {card.condition.emoji} {faNum(card.spirit)}
-          </Chip>
-        </div>
-      </header>
-
-      {/* V17-W2 (F2) — نتیجه‌ی تعامل: بلوکِ درون‌صفحه‌ای، بالایِ سکشن‌ها */}
+      {/* V17-W2 (F2) — نتیجه‌ی تعامل: بلوکِ درون‌صفحه‌ای، بالایِ همه‌چیز */}
       {interactOutcome ? (
         <InteractOutcomeBlock
           data={interactOutcome}
@@ -339,32 +375,48 @@ export function SoulScreen() {
         />
       ) : null}
 
-      {/* قرص‌های سکشن — شکستنِ ردیف به‌جای اسکرولِ پنهان؛ همه با یک نگاه پیدا می‌شوند */}
-      <div className="-mx-1 flex flex-wrap gap-1.5 px-1 py-0.5" role="tablist" aria-label="بخش‌های فمبوی">
-        {SECTIONS.map((s) => {
-          const isOn = s.key === section
-          return (
-            <button
-              key={s.key}
-              type="button"
-              role="tab"
-              aria-selected={isOn}
-              onClick={() => {
-                haptic("light")
-                setSection(s.key)
-              }}
-              className={cn(
-                "flex min-h-9 shrink-0 items-center gap-1 rounded-full border px-3 py-1 text-[11px] font-bold transition-colors",
-                isOn
-                  ? "border-primary/30 bg-primary/15 text-primary"
-                  : "border-white/10 bg-white/[0.03] text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <span aria-hidden>{s.emoji}</span>
-              {s.label}
-            </button>
-          )
-        })}
+      {/* V22 — کارتِ قهرمان: هویت + وضعِ فعلی + تصمیمِ بعدی؛ همیشه بالایِ قرص‌ها */}
+      <SoulHeroCard
+        card={card}
+        milestone={snapshot.femboy?.nextMilestone ?? null}
+        decision={nextDecisionOf(card)}
+        onGo={setSection}
+      />
+
+      {/* قرص‌های سکشن — سه خوشه‌ی معنایی با برچسبِ کوچک؛ شکستنِ ردیف به‌جای
+          اسکرولِ پنهان؛ همه با یک نگاه پیدا می‌شوند و سبکِ بصری‌شان همان است */}
+      <div className="flex flex-col gap-1.5" role="tablist" aria-label="بخش‌های فمبوی">
+        {SECTION_GROUPS.map((g) => (
+          <div key={g.label} className="flex flex-col gap-1">
+            <p className="px-1.5 text-[10px] font-bold leading-3 text-muted-foreground/70">{g.label}</p>
+            <div className="-mx-1 flex flex-wrap gap-1.5 px-1">
+              {g.items.map((s) => {
+                const isOn = s.key === section
+                return (
+                  <button
+                    key={s.key}
+                    type="button"
+                    role="tab"
+                    aria-selected={isOn}
+                    onClick={() => {
+                      haptic("light")
+                      setSection(s.key)
+                    }}
+                    className={cn(
+                      "flex min-h-9 shrink-0 items-center gap-1 rounded-full border px-3 py-1 text-[11px] font-bold transition-colors",
+                      isOn
+                        ? "border-primary/30 bg-primary/15 text-primary"
+                        : "border-white/10 bg-white/[0.03] text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    <span aria-hidden>{s.emoji}</span>
+                    {s.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* بدنه‌ی سکشن */}
@@ -376,7 +428,7 @@ export function SoulScreen() {
           exit={{ opacity: 0, y: -6 }}
           transition={{ duration: 0.18, ease: "easeOut" }}
         >
-          {section === "profile" ? <OverviewSection card={card} femboy={snapshot.femboy} onGoStory={() => setSection("story")} onGoPersona={() => setSection("persona")} /> : null}
+          {section === "profile" ? <OverviewSection card={card} /> : null}
           {section === "persona" ? <PersonaSection card={card} /> : null}
           {section === "story" ? (
             <StorySection
@@ -419,6 +471,160 @@ export function SoulScreen() {
         </motion.div>
       </AnimatePresence>
     </div>
+  )
+}
+
+// ─── V22: کارتِ قهرمانِ فمبوی — هویت + وضعِ فعلی + تصمیمِ بعدی ─────────────
+
+/** لایه‌ای که باید «همیشه» دیده شود: اسم/کلاس/فرگشت/رتبه، سه نوارِ زنده
+ *  (سطح/روحیه/استقامت)، پیوند و سلوکِ بعدی، و یک فعلِ روشن برای الان.
+ *  آمارِ سنگین به سکشنِ «آمار» رفت و پرتره‌ی کامل در «فرگشت» خانه دارد. */
+function SoulHeroCard({
+  card,
+  milestone,
+  decision,
+  onGo,
+}: {
+  card: SoulCardDTO
+  milestone: string | null
+  decision: { label: string; target: Section }
+  onGo: (s: Section) => void
+}) {
+  const dmg = dmgModLabel(card.condition.dmgMod)
+  const accessory = card.appearance.equipped.accessory
+  const staminaHint =
+    card.stamina < card.staminaMax && card.staminaMinutesToNext !== null
+      ? `${faNum(card.staminaMinutesToNext)} دقیقه تا واحدِ بعد`
+      : card.stamina >= card.staminaMax
+        ? "پُر است"
+        : ""
+  return (
+    <header aria-label={`هویت و وضعِ ${card.name}`}>
+      <GlassCard className="border-primary/20">
+        {/* ابروی هویت — همان برچسبِ مقصدِ ربات (V21) */}
+        <p className="text-[11px] leading-4 text-muted-foreground">فمبویِ من</p>
+        <h1 className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xl font-extrabold leading-8">
+          <span aria-hidden className="text-lg">
+            🎀
+          </span>
+          <span className="truncate">{card.name}</span>
+          {accessory ? (
+            <span aria-hidden className="shrink-0 text-sm opacity-80" title={accessory.name}>
+              {accessory.emoji}
+            </span>
+          ) : null}
+          <span aria-hidden className="shrink-0 text-sm opacity-80">
+            {card.evolutionEmoji}
+          </span>
+        </h1>
+        <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11.5px] leading-5 text-muted-foreground">
+          <span className="truncate">
+            {card.classEmoji} {card.className} · {card.evolutionName}
+          </span>
+          <Chip tone="violet" className="shrink-0 font-bold">
+            {card.rank.emoji} {card.rank.name}
+          </Chip>
+        </p>
+
+        {/* وضعِ فعلی — فشرده: سه نوارِ زنده + پیوند و سلوکِ بعدی */}
+        <div className="mt-3 flex flex-col gap-2.5 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+          {/* سطح + XP */}
+          <div>
+            <div className="mb-1 flex items-center justify-between gap-2 text-[11px] leading-4">
+              <span className="shrink-0 font-bold">سطح {faNum(card.level)}</span>
+              <span className="text-muted-foreground tabular-nums">
+                {faNum(card.xpIntoLevel)} / {faNum(card.xpForNext)} ✨
+              </span>
+            </div>
+            <ProgressBar
+              value={card.xpIntoLevel}
+              max={card.xpForNext || 1}
+              barClassName="bg-primary"
+              label={`پیشرفتِ سطحِ ${card.name}`}
+            />
+          </div>
+
+          {/* روحیه + استقامت */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <div className="mb-1 flex items-center justify-between gap-1 text-[11px] leading-4">
+                <span className="shrink-0 font-bold">❤️ روحیه {faNum(card.spiritPct)}%</span>
+                {dmg ? (
+                  <span
+                    className={cn(
+                      "shrink-0 font-bold tabular-nums",
+                      card.condition.dmgMod > 0 ? "text-emerald-300" : "text-rose-300",
+                    )}
+                  >
+                    {dmg}
+                  </span>
+                ) : null}
+              </div>
+              <ProgressBar
+                value={card.spirit}
+                max={100}
+                barClassName={spiritBarClass(card.condition.dmgMod)}
+                label={`روحیه‌ی ${card.name}`}
+              />
+              <p className="mt-1 min-h-4 truncate text-[11px] leading-4 text-muted-foreground">
+                <span aria-hidden className="me-0.5">
+                  {card.condition.emoji}
+                </span>
+                {card.condition.label}
+              </p>
+              {!card.condition.canFight ? (
+                <p className="text-[11px] leading-4 text-rose-300">تهی است — شربت یا هم‌نفَسی.</p>
+              ) : null}
+            </div>
+            <div>
+              <div className="mb-1 flex items-center justify-between gap-1 text-[11px] leading-4">
+                <span className="shrink-0 font-bold">⚡ استقامت</span>
+                <span className="shrink-0 text-muted-foreground tabular-nums">
+                  {faNum(card.stamina)}/{faNum(card.staminaMax)}
+                </span>
+              </div>
+              <ProgressBar
+                value={card.stamina}
+                max={card.staminaMax}
+                barClassName="bg-amber-300"
+                label={`استقامتِ ${card.name}`}
+              />
+              <p className="mt-1 min-h-4 truncate text-[11px] leading-4 text-muted-foreground">
+                {staminaHint}
+              </p>
+            </div>
+          </div>
+
+          {/* پیوند + سلوکِ بعدی */}
+          <div className="flex items-center justify-between gap-2 text-[11px] leading-4">
+            <span className="shrink-0 font-bold text-primary tabular-nums">💞 پیوند {faNum(card.bond)}</span>
+            {milestone ? (
+              <span className="min-w-0 truncate text-muted-foreground">
+                <span aria-hidden className="me-0.5">
+                  🎯
+                </span>
+                {milestone}
+              </span>
+            ) : null}
+          </div>
+        </div>
+
+        {/* تصمیمِ بعدی — یک فعلِ روشن از خودِ کارت */}
+        <div className="mt-3 border-t border-white/10 pt-3">
+          <p className="px-1 text-[11px] font-bold leading-4 text-muted-foreground">📌 الان:</p>
+          <ActionButton
+            variant="primary"
+            size="md"
+            fullWidth
+            className="mt-1.5"
+            aria-label={`قدمِ بعدی: ${decision.label}`}
+            onClick={() => onGo(decision.target)}
+          >
+            {decision.label}
+          </ActionButton>
+        </div>
+      </GlassCard>
+    </header>
   )
 }
 

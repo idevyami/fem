@@ -14,7 +14,7 @@
 
 import { db } from "@/lib/db"
 import type { GroupWorld, Player } from "@prisma/client"
-import { pickOne } from "../rng"
+import { pickOne, mulberry32, seedFrom } from "../rng"
 import type {
   ObserveResponseDTO, GroupTickResponseDTO, OutboxMessageDTO,
   GroupSnapshotDTO, GroupActionResponseDTO,
@@ -22,6 +22,7 @@ import type {
 import { ensureGroup, ensureGroupTx, ensurePlayerTx, ensureMemberTx } from "./domain"
 import { observe as observeMessage, welcomeNewCitizen } from "./presence"
 import { tickAllGroups, markDelivered, markUnreachable } from "./tick"
+import { FAREWELL_LINES } from "./content/misc"
 import { buildGroupSnapshot, myGroups } from "./snapshot"
 import { requireGroupMember, NOT_CITIZEN_MSG } from "./safety"
 import { getGroupSettings, PAUSED_CARD_TEXT, PAUSED_ACK } from "./admin"
@@ -72,6 +73,9 @@ export interface ObserveRequest {
   text: string
   addressedToBot: boolean
   replyToTelegramId?: string | null
+  /** V23 — شمارشِ خاموش (پیامِ مصرف‌شده توسط مسیریابِ نیت ربات): شمارنده‌ها می‌مانند،
+   *  جواب/واکنش نمی‌آید — جوابِ پیام، خودِ کارتِ نیت است. */
+  silent?: boolean
 }
 
 export async function observe(req: ObserveRequest): Promise<ObserveResponseDTO> {
@@ -91,6 +95,7 @@ export async function observe(req: ObserveRequest): Promise<ObserveResponseDTO> 
     text: req.text,
     addressedToBot: req.addressedToBot,
     replyToPlayerId,
+    ...(req.silent ? { silent: true } : {}),
   })
 }
 
@@ -190,8 +195,10 @@ export async function playerGroups(playerId: string) {
 /** بازیکن گروه را ترک کرد (ربات گزارش می‌دهد): کشِ جمعیت یکی کم می‌شود (کفِ صفر)
  *  و ردیفِ عضویت برای بازگشتِ احتمالی نگه داشته می‌شود — فقط آخرین دید تازه
  *  می‌شود. حذفی در کار نیست. عضوِ نبودِه = no-op (idempotent برایِ دوبله‌فرستیِ
- *  تلگرام/ربات). موجِ ۵ ربات این را با action:"member_left" صدا می‌زند. */
-export async function memberLeft(chatId: string, telegramId: string): Promise<{ left: boolean }> {
+ *  تلگرام/ربات). موجِ ۵ ربات این را با action:"member_left" صدا می‌زند.
+ * V23 — خداحافظیِ صادقانه: عضوی که واقعاً حرف زده بود (≥۵ پیام) یک خطِ
+ *  خداحافظی می‌گیرد؛ رهگذرِ خاموش بی‌سروصدا می‌رود (اسپمِ ترک‌کردن نه). */
+export async function memberLeft(chatId: string, telegramId: string): Promise<{ left: boolean; farewell?: string }> {
   const group = await db.groupWorld.findUnique({ where: { chatId } })
   if (!group) return { left: false }
   const player = await db.player.findUnique({ where: { telegramId } })
@@ -200,6 +207,11 @@ export async function memberLeft(chatId: string, telegramId: string): Promise<{ 
   if (!member) return { left: false }
   await db.groupMember.update({ where: { id: member.id }, data: { lastSeenAt: new Date() } })
   await db.groupWorld.update({ where: { id: group.id }, data: { population: Math.max(0, group.population - 1) } })
+  if (member.messageCount >= 5) {
+    const rng = mulberry32(seedFrom("farewell", group.id, member.id))
+    const line = pickOne(FAREWELL_LINES, rng)
+    return { left: true, farewell: line.replaceAll("{name}", player.name) }
+  }
   return { left: true }
 }
 

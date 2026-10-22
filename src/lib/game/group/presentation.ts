@@ -17,7 +17,7 @@ import type { GroupSnapshotDTO } from "./types"
 import type { HomeViewer } from "./snapshot"
 import type { OutboxButton } from "./types"
 import { esc } from "./domain"
-import { SEP, SUB, DOTS, chip, pct, remainChip } from "./text"
+import { SUB, DOTS, chip, pct, remainChip, emblem, quote, barRow } from "./text"
 import { NAV_SECTIONS, navGridButtons } from "./hub"
 // V16-4 — واژه‌نامه‌ی قاعده‌مند: عنوانِ کارتِ راهنما «شهرِ گروه» (TERM.groupWorld)
 import { TERM } from "../terminology"
@@ -32,44 +32,47 @@ export const MINIAPP_URL = /^https:\/\//.test(process.env.MINIAPP_URL || "")
 
 /** کارتِ /game — خانه‌ی شهر؛ state-aware (V13 §3.3): «الان چی می‌گذره؟» + «تو».
  *  هر فعالیت یک خط: ایموجی + عنوان + چیپِ مهلت + شمارِ همراهان؛ وضعیتِ حضورِ
- *  بیننده به‌جای دکمه‌ی گمراه‌کننده (§6.3). دکمه‌های contextuی را gameHomeButtons می‌سازد. */
+ *  بیننده به‌جای دکمه‌ی گمراه‌کننده (§6.3). دکمه‌های contextuی را gameHomeButtons می‌سازد.
+ *  V24 «ظاهرِ شهر»: نشانِ 🎀 در مرکزِ جداکننده + ردیف‌های ▪ برای فعالیت‌هایِ باز. */
 export function gameHomeCardText(snap: GroupSnapshotDTO, groupTitle: string, viewer?: HomeViewer | null): string {
   const lines: string[] = [
     `🎀 <b>FEMBOY WAR — ${esc(groupTitle)}</b>`,
     `${snap.districtEmoji} محله‌ی ${snap.districtName} · ${snap.weatherEmoji} ${snap.weatherLabel} · ${snap.cultureEmoji} ${snap.cultureLabel}`,
-    SEP,
+    emblem("🎀"),
     "",
     "⚡ <b>الان چی می‌گذره؟</b>",
   ]
 
   // فعالیت‌هایِ باز — اولویت: دعوتِ دوئل > اتفاق > بازی > رأی > پروژه (حداکثر ۵ خط)
+  // V24: هر ردیف ▪ می‌خورد — فهرستِ زنده‌ی شهر؛ حالتِ خالی زیرِ نقل‌قول
   const acts: string[] = []
   for (const c of snap.challenges ?? []) {
     if (c.status !== "pending") continue
     const mine = viewer && c.myRole === "target" ? " · منتظرِ جوابِ توست" : viewer && c.myRole === "challenger" ? " · دعوت از توست" : ""
-    acts.push(`⚔️ <b>${esc(c.challengerName)}</b> دعوتِ دوئل به <b>${esc(c.targetName)}</b> — ⏳ ${remainChip(c.expiresAt)}${mine}`)
+    acts.push(`▪ ⚔️ <b>${esc(c.challengerName)}</b> دعوتِ دوئل به <b>${esc(c.targetName)}</b> — ⏳ ${remainChip(c.expiresAt)}${mine}`)
   }
   if (snap.currentEvent) {
     const ev = snap.currentEvent
     const mine = viewer?.joinedEvent ? " · انتخابت ثبت است" : ""
-    acts.push(`💥 ${ev.emoji} ${ev.title} — ${chip(ev.participantsCount)} انتخاب · ⏳ ${remainChip(ev.expiresAt)}${mine}`)
+    acts.push(`▪ 💥 ${ev.emoji} ${ev.title} — ${chip(ev.participantsCount)} انتخاب · ⏳ ${remainChip(ev.expiresAt)}${mine}`)
   }
   if (snap.activeGame) {
     const g = snap.activeGame
     const mine = viewer?.joinedGame ? " · تو داخلی" : ""
-    acts.push(`🎲 ${g.emoji} ${g.name} — ${chip(g.participants.length)} نفر${mine}`)
+    acts.push(`▪ 🎲 ${g.emoji} ${g.name} — ${chip(g.participants.length)} نفر${mine}`)
   }
   if (snap.openVotes.length > 0) {
     const v = snap.openVotes[0]!
     const total = v.options.reduce((s, o) => s + o.count, 0)
     const mine = viewer?.voted ? " · رأیت ثبت است" : ""
-    acts.push(`🗳 ${esc(v.subject)} — ${chip(total)} رأی${mine}`)
+    acts.push(`▪ 🗳 ${esc(v.subject)} — ${chip(total)} رأی${mine}`)
   }
   const building = snap.projects.find((p) => p.status === "building")
   if (building) {
-    acts.push(`🏗 ${building.emoji} ${building.name} — ${pct(Math.min(100, (building.contributed / Math.max(1, building.goal)) * 100))}`)
+    // V24: پیشرفتِ پروژه با سقفِ واقعیِ goal — نوارِ زنده به‌جای چیپِ درصد
+    acts.push(`▪ ${barRow(building.emoji, building.name, building.contributed, building.goal)}`)
   }
-  lines.push(...(acts.length > 0 ? acts.slice(0, 5) : ["😴 شهر نفس می‌کشد. مخصوصاً اگر کسی کاری بکند."]))
+  lines.push(...(acts.length > 0 ? acts.slice(0, 5) : [quote("😴 شهر نفس می‌کشد. مخصوصاً اگر کسی کاری بکند.")]))
 
   // «تو» — هویتِ فمبوی یا پلِ پی‌وی (§3.2)
   lines.push("", SUB, "", "👤 <b>تو</b>")
@@ -146,11 +149,11 @@ export function gameHomeButtons(snap: GroupSnapshotDTO, viewer?: HomeViewer | nu
   return buttons
 }
 
-/** کارتِ /city — وضعیتِ محیط */
+/** کارتِ /city — وضعیتِ محیط. V24: نشانِ 🏙. */
 export function cityCardText(snap: GroupSnapshotDTO, groupTitle: string): string {
   return [
     `🏙 <b>شهرِ ${esc(groupTitle)}</b>`,
-    SEP,
+    emblem("🏙"),
     "",
     `${snap.weatherEmoji} ${snap.weatherLabel} · ${snap.moodEmoji} ${snap.moodLabel} · ${snap.stateLabel}`,
     `🌀 آشوب: ${pct(snap.chaos)} · ${snap.socialTempLabel}`,
@@ -158,7 +161,8 @@ export function cityCardText(snap: GroupSnapshotDTO, groupTitle: string): string
   ].join("\n")
 }
 
-/** کارتِ /play — فهرستِ بازی‌ها (V14 Task 15b: صفحه‌بندی — 10 بازی در هر صفحه) */
+/** کارتِ /play — فهرستِ بازی‌ها (V14 Task 15b: صفحه‌بندی — 10 بازی در هر صفحه).
+ *  V24: نشانِ 🎲 + مقدمه زیرِ نقل‌قول + ردیف‌های ▪. */
 export function playCardText(games: { emoji: string; name: string; tagline: string; ok: boolean; why: string }[], page = 0): string {
   const perPage = 10
   const pageCount = Math.max(1, Math.ceil(games.length / perPage))
@@ -166,60 +170,69 @@ export function playCardText(games: { emoji: string; name: string; tagline: stri
   const slice = games.slice(p * perPage, p * perPage + perPage)
   return [
     "🎲 <b>بازی‌هایِ گروهی</b>",
-    SEP,
+    emblem("🎲"),
     "",
-    "هر بازی داخلِ همین جهان اجرا می‌شود — با جایزه و عواقبِ واقعی.",
+    quote("هر بازی داخلِ همین جهان اجرا می‌شود — با جایزه و عواقبِ واقعی."),
     "",
-    ...slice.map((g) => `${g.emoji} <b>${g.name}</b> — ${g.tagline}${g.ok ? "" : ` <i>(${g.why})</i>`}`),
+    ...slice.map((g) => `▪ ${g.emoji} <b>${g.name}</b> — ${g.tagline}${g.ok ? "" : ` <i>(${g.why})</i>`}`),
     ...(pageCount > 1 ? ["", `<i>صفحه‌ی ${p + 1} از ${pageCount} — ${chip(games.length)} بازی در شهرِ شماست.</i>`] : []),
   ].join("\n")
 }
 
-/** کارتِ /vote — رأیِ باز (fa-IR-u-nu-latn: ترتیبِ فارسی، رقمِ انگلیسی) */
+/** کارتِ /vote — رأیِ باز (fa-IR-u-nu-latn: ترتیبِ فارسی، رقمِ انگلیسی).
+ *  V20 (مأموریت §8.1/ممیتیز V20-۱۴): مهلت دیگر ساعتِ خام نیست — همان خطِ زنده‌ی
+ *  «⏳ N دقیقه»ی ماجراهای V18 روی کارتِ رأی هم هست؛ بازیکن یک زبانِ واحد می‌بیند.
+ *  V24: نشانِ 🗳 + ردیف‌های ▪ + خطِ مهلتِ زنده زیرِ بلوکِ نقل‌قولی (هم‌زبانِ events). */
 export function voteCardText(v: { subject: string; options: { label: string; count: number }[]; closesAt: string }): string {
-  return `🗳 <b>${esc(v.subject)}</b>\n${SEP}\n\n${v.options.map((o) => `• ${esc(o.label)} — ${chip(o.count)} رأی`).join("\n")}\n\n<i>مهلت: تا ${new Date(v.closesAt).toLocaleTimeString("fa-IR-u-nu-latn")}</i>`
+  const mins = Math.ceil((new Date(v.closesAt).getTime() - Date.now()) / 60000)
+  const windowBlock = mins > 0 ? `\n${quote(`⏳ ${chip(mins)} دقیقه وقت داری.`)}` : ""
+  const rows = v.options.map((o) => `▪ ${esc(o.label)} — ${chip(o.count)} رأی`).join("\n")
+  return `🗳 <b>${esc(v.subject)}</b>\n${emblem("🗳")}\n\n${rows}${windowBlock}\n\n<i>مهلت: تا ${new Date(v.closesAt).toLocaleTimeString("fa-IR-u-nu-latn")}</i>`
 }
 
-/** کارتِ /projects — پروژه‌های عمرانی؛ پیشرفتِ در حالِ ساخت با pct */
+/** کارتِ /projects — پروژه‌های عمرانی؛ پیشرفتِ در حالِ ساخت با pct.
+ *  V24: نشانِ 🏗 + مقدمه زیرِ نقل‌قول + ردیف‌های ▪. */
 export function projectsCardText(menu: { status: string; emoji: string; name: string; pct: number }[]): string {
   return [
     "🏗 <b>پروژه‌هایِ عمرانیِ شهر</b>",
-    SEP,
+    emblem("🏗"),
     "",
-    "هر پروژه با کمکِ داوطلبانه ساخته می‌شود و چیزِ تازه‌ای باز می‌کند.",
+    quote("هر پروژه با کمکِ داوطلبانه ساخته می‌شود و چیزِ تازه‌ای باز می‌کند."),
     "",
     ...menu.slice(0, 8).map((p) => {
       const status = p.status === "done" ? "✅" : p.status === "building" ? `🏗 ${pct(p.pct)}` : "▫️"
-      return `${status} ${p.emoji} <b>${p.name}</b>`
+      return `▪ ${status} ${p.emoji} <b>${p.name}</b>`
     }),
   ].join("\n")
 }
 
 /** کارتِ /members — شهروندهای مهم؛ badge ذخیره‌شده HTML-safe بدون esc دوباره.
  *  V14 Task 15b: چیپِ هویتِ فمبوی (ایموجیِ کلاس + ✨×مرحله‌ی فرگشت + اکسسوار)
- *  کنارِ هر عضوی که فمبوی دارد — chips = playerId → چیپِ آماده. */
+ *  کنارِ هر عضوی که فمبوی دارد — chips = playerId → چیپِ آماده.
+ *  V24: نشانِ 🏘 + ردیف‌های ▪. */
 export function membersCardText(members: { playerId?: string; avatar: string; name: string; roleLabel: string | null; roleEmoji: string | null; title: string | null; onlineLabel: string }[], chips: Record<string, string> = {}): string {
   return [
     "🏘 <b>شهروندهایِ مهم</b>",
-    SEP,
+    emblem("🏘"),
     "",
     ...members.map((m) => {
       const badge = [m.roleLabel ? `${m.roleEmoji} ${m.roleLabel}` : null, m.title]
         .filter(Boolean)
         .join(" · ")
       const chip = (m.playerId && chips[m.playerId]) ? ` ${chips[m.playerId]}` : ""
-      return `${m.avatar}${chip} <b>${esc(m.name)}</b>${badge ? ` — ${badge}` : ""} · ${m.onlineLabel}`
+      return `▪ ${m.avatar}${chip} <b>${esc(m.name)}</b>${badge ? ` — ${badge}` : ""} · ${m.onlineLabel}`
     }),
   ].join("\n")
 }
 
-/** کارتِ /history — ردیف‌های ذخیره‌شده HTML-safe بدون esc */
+/** کارتِ /history — ردیف‌های ذخیره‌شده HTML-safe بدون esc.
+ *  V24: نشانِ 📜؛ هر ردیفِ روایت زیرِ نقل‌قول (هم‌زبانِ خبرنامه‌ی world.ts). */
 export function historyCardText(history: { icon: string; text: string }[]): string {
   return [
     "📜 <b>تاریخچه‌ی شهر</b>",
-    SEP,
+    emblem("📜"),
     "",
-    ...history.map((h) => `${h.icon} ${h.text}`),
+    ...history.map((h) => quote(`${h.icon} ${h.text}`)),
   ].join("\n")
 }
 
@@ -231,7 +244,7 @@ export function historyCardText(history: { icon: string; text: string }[]): stri
 export function helpCardText(): string {
   return [
     `🎀 <b>${TERM.groupWorld.label} FEMBOY WAR</b>`,
-    SEP,
+    emblem("🎀"),
     "",
     "این گروه خودش یک شهر است. حلقه‌ی بازی:",
     "",

@@ -16,6 +16,10 @@
 //   • تعامل: ۹ نوع (از جمله جشن/هدیه/مرورِ خاطره) — مستقیم از موتور
 //   • شربتِ روح + تغییرِ نام — دکمه‌های هاب (V8 ممیزی؛ DoD 14)
 //
+// V24 — زبانِ بصریِ ۲٫۰ («ظاهرِ شهر»): هر کارت نشانِ خودش را دارد — emblem(ایموجیِ
+//   کارت) به‌جایِ SEP؛ آمارهایِ سقف‌دار نوارِ زنده (barRow) می‌گیرند؛ روایت‌ها و
+//   صداهایِ احساسی زیرِ نقل‌قول می‌روند (quote/expand).
+//
 // کال‌بک‌ها (کوتاه؛ همه < ۶۴ بایت):
 //   fw:hub fw:begin fw:next fw:prev fw:class:{key} fw:name2 fw:confirm fw:rename
 //   fw:hunt fw:interact fw:skills fw:evo fw:evoGo:{0|1} fw:evoYes:{0|1}
@@ -45,7 +49,7 @@ import {
 import { bumpError, log, stats } from "./stats"
 import { privateLink, withMiniApp } from "./keyboards"
 import { sendEngineCommand } from "./group"
-import { bar, chip, clampText, DOTS, esc, expand, faNum, pct, quote, SEP, spoiler, SUB, toLatinDigits } from "./format"
+import { barRow, chip, clampText, DOTS, emblem, esc, expand, faNum, quote, spoiler, SUB, toLatinDigits } from "./format"
 import { answer, botUsername, errText, fail, isGroupChat, isInfraError, isPrivate, show, tgId } from "./ui"
 import { guardOwnerPanel, openPrivatePanel } from "./panels"
 // V16-3 — خطِ عبارت‌هایِ بافتاریِ هابِ فمبوی (intent.ts — ماژولِ خالص، بدونِ حلقه)
@@ -280,7 +284,7 @@ export async function handleFemboyCommand(ctx: Context): Promise<void> {
 // V9 — دومین لمسِ آشنایی (اولی /start است): کوتاه، هویت‌محور، بدون تکرارِ خوش‌آمد.
 const INTRO = [
   "🎀 <b>پیمانِ فمبوی</b>",
-  SEP,
+  emblem("🎀"),
   "",
   expand(
     "هر شهروندِ این جهان یک فمبوی دارد — امضای روحِ خودش در شهر.\n" +
@@ -305,7 +309,7 @@ function classCardText(c: SoulClassDTO, pos: number, total: number): string {
   return [
     `${c.emoji} <b>${esc(c.name)}</b> — ${esc(c.roleName)}`,
     `<i>${diff} ${esc(c.difficultyLabel)} · ${chip(`${faNum(pos)}/${faNum(total)}`)}</i>`,
-    SEP,
+    emblem(c.emoji),
     "",
     expand(`<i>${esc(clampText(c.fantasy, 110))}</i>`),
     "",
@@ -473,17 +477,21 @@ function personaPickerText(p: BotPersonaCardDTO, classEmoji?: string, className?
   const traits = p.traits.map((t) => `▫️ ${esc(t)}`).join("\n")
   return [
     // کلاسِ برگزیده + طبعِ درِ دست
-    `${classEmoji ?? "🎀"} <b>${esc(className ?? "فمبوی")}</b> — حالا طبعش را برگزین:`,
-    SEP,
+    `${classEmoji ?? "🎀"} <b>${esc(className ?? "فمبوی")}</b> — حالا شخصیتش را برگزین:`,
+    emblem(p.emoji),
     "",
     `${p.emoji} <b>${esc(p.name)}</b>`,
     `<i>${esc(p.tagline)}</i>`,
     "",
     traits,
+    // V24 — صدای نمونه: پیش از انتخاب، حرفِ زدنش را گوش بده (نقل‌قولِ کوتاه)
+    ...(p.voiceSample ? ["", quote(p.voiceSample)] : []),
     "",
     SUB,
     "",
-    "<i>کلاس می‌گوید «چه‌کاره است»؛ طبع می‌گوید «چطور رفتار می‌کند» — روی حرف‌هاش، داستانِ شخصی‌اش و استعدادهایش اثر می‌گذارد. مثلِ کلاس، برای همیشه است.</i>",
+    quote(
+      "<i>کلاس می‌گوید «چه‌کاره است»؛ شخصیت می‌گوید «چطور رفتار می‌کند» — روی حرف‌هاش، داستانِ شخصی‌اش و استعدادهایش اثر می‌گذارد. مثلِ کلاس، برای همیشه است.</i>",
+    ),
   ].join("\n")
 }
 
@@ -509,7 +517,7 @@ async function sendPersonaPicker(ctx: Context, personas: BotPersonaCardDTO[]): P
   const kb = new InlineKeyboard()
   kb.text("→ بعدی", "fw:pNext").primary()
   kb.text("قبلی ←", "fw:pPrev").primary().row()
-  kb.text(`✅ همین طبع — ${clampText(p.name, 14)}`, `fw:persona:${p.key}`).success().row()
+  kb.text(`✅ همین شخصیت — ${clampText(p.name, 14)}`, `fw:persona:${p.key}`).success().row()
   kb.text("↩️ کلاسِ دیگری", "fw:begin").primary()
   await show(ctx, personaPickerText(p, flow?.classEmoji, flow?.className), kb)
 }
@@ -585,7 +593,7 @@ async function onPickPersona(ctx: Context, personaKey: string): Promise<void> {
   }
   const p = (data.personas ?? []).find((x) => x.key === personaKey)
   if (!p) {
-    await answer(ctx, "چنین طبعی نیست — دوباره انتخاب کن.")
+    await answer(ctx, "چنین شخصیتی نیست — دوباره انتخاب کن.")
     return
   }
   flow.step = "name"
@@ -684,11 +692,11 @@ function confirmText(flow: SoulFlow): string {
   return [
     // V17-3 — واژگانِ قاعده‌مند (§16): «فمبویِ تو» — نه نامِ قدیمیِ «روح‌بسته»
     "👑 <b>فمبویِ تو</b>",
-    SEP,
+    emblem("👑"),
     "",
     `🏷 کلاس: ${flow.classEmoji ?? "🎀"} <b>${esc(flow.className ?? flow.classKey ?? "؟")}</b>`,
     ...(flow.classRole ? [`💬 ${esc(flow.classRole)}`] : []),
-    ...(flow.personaName ? [`🎭 طبع: ${flow.personaEmoji ?? ""} <b>${esc(flow.personaName)}</b>`] : []),
+    ...(flow.personaName ? [`🎭 شخصیت: ${flow.personaEmoji ?? ""} <b>${esc(flow.personaName)}</b>`] : []),
     `📛 اسم: <b>${esc(flow.name ?? "")}</b>`,
     "",
     SUB,
@@ -787,18 +795,20 @@ function hubCaption(card: SoulCardDTO, banner = ""): string {
     // سطحِ ≤۲ در مرحله‌ی سفرِ bound (قراردادِ snapshot.journey موتور). دکمه‌ی
     // «💗 تعامل» همین کارت است — چیزی جز مسیرِ واقعی تبلیغ نمی‌شود (§16).
     ...(banner ? [banner] : []),
-    SEP,
+    // V24 — نشانِ کارتِ فمبوی: 🎀 در مرکزِ جداساز (زبانِ بصریِ ۲٫۰)
+    emblem("🎀"),
     "",
     `🎖 رتبه: ${card.rank.emoji} <b>${esc(card.rank.name)}</b> · ⭐ سطح ${chip(card.level)}`,
     `🏷 کلاس: ${card.classEmoji} ${esc(card.className)} · ${card.evolutionEmoji} ${esc(card.evolutionName)}`,
-    ...(card.persona ? [`🎭 طبع: ${card.persona.emoji} <b>${esc(card.persona.name)}</b> — <i>${esc(clampText(card.persona.tagline, 60))}</i>`] : []),
+    ...(card.persona ? [`🎭 شخصیت: ${card.persona.emoji} <b>${esc(card.persona.name)}</b> — <i>${esc(clampText(card.persona.tagline, 60))}</i>`] : []),
     ...(card.story && card.story.status === "available" ? [`📖 <b>فصلِ ${chip(card.story.chaptersDone + 1)} از ${chip(card.story.chaptersTotal)} — آماده است</b>`] : []),
     ...(masteryLine ? [masteryLine] : []),
     "",
     SUB,
     "",
-    `❤️ روحیه ${pct(card.spirit)} (${card.condition.emoji} ${esc(card.condition.label)}${dmgPart})`,
-    `⚡ استقامت ${chip(`${faNum(card.stamina)}/${faNum(card.staminaMax)}`)}`,
+    `${barRow("❤️", "روحیه", card.spirit, 100)} · ${card.condition.emoji} ${esc(card.condition.label)}${dmgPart}`,
+    barRow("⚡", "استقامت", card.stamina, card.staminaMax, `${faNum(card.stamina)}/${faNum(card.staminaMax)}`),
+    barRow("⭐", "تجربه", card.xpIntoLevel, card.xpForNext, `${faNum(card.xpIntoLevel)}/${faNum(card.xpForNext)}`),
     // V8 — خطِ هزینه‌ی شربت (مثلِ هزینه‌های تعامل)؛ در سقفِ روحیه لازم نیست
     ...(card.spirit < 100 ? [`🧪 شربتِ روح — کیک از کیف، یا 200 سکه`] : []),
     `⚔️ نبرد ${chip(`${faNum(card.wins)}W/${faNum(card.losses)}L`)}`,
@@ -812,24 +822,27 @@ function hubCaption(card: SoulCardDTO, banner = ""): string {
 }
 
 function hubKeyboard(): InlineKeyboard {
-  // V10 — ردیف‌های تمیز (حداکثر ~۳ دکمه): جنگ / منبع / هویت / خانه
-  // V8 — 🧪 شربتِ روح کنارِ تعامل (نفس‌های روحی) · ✏️ تغییرِ نام در ردیفِ هویت
-  // V19 — 🎭 طبع و 📖 داستان کنارِ هویت (شخصیتِ عمیق)
+  // V20 (مأموریت §6.2/§E — فمبوی یک سیستمِ منسجم، نه منوی ۱۳-دکمه‌ایِ تخت):
+  // دکمه‌ها به چهار گروهِ معنادار چیده شدند — کنش‌ها / هویت / توسعه / وضعیت —
+  // و دو مقصدِ کم‌تردد به صاحبِ واقعی‌شان رفتند: «✏️ تغییرِ نام» به کارتِ شخصیت
+  // (هویت!) و «🎓 کلاس-تسلط» به کارتِ مهارت‌ها (توانایی!). ۱۱ دکمه (دیروز ۱۴).
   const kb = new InlineKeyboard()
+  // کنش‌ها — چه کاری با او انجام بدهم
   kb.text("⚔️ شکار", "fw:hunt").danger()
-  kb.text("💗 تعامل", "fw:interact").success()
-  kb.text("✨ مهارت‌ها", "fw:skills").primary().row()
-  kb.text("🎭 طبع", "fw:about").primary()
-  kb.text("📖 داستان", "fw:story").success()
-  kb.text("🧪 شربتِ روح", "fwsp:go").danger().row()
-  kb.text("⚡ شارژِ استقامت", "fw:charge").danger()
+  kb.text("💗 تعامل", "fw:interact").success().row()
+  // هویت — او کیست
+  kb.text("🎭 شخصیت", "fw:about").primary()
+  kb.text("📖 داستانِ شخصی", "fw:story").success().row()
+  // توسعه — چطور رشد می‌کند
+  kb.text("✨ مهارت‌ها", "fw:skills").primary()
+  kb.text("🎨 استایل", "fw:style").primary().row()
   kb.text("🌌 فرگشت", "fw:evo").primary()
-  kb.text("🎨 ظاهر و استایل", "fw:style").primary().row()
-  kb.text("✏️ تغییرِ نام", "fw:rename").primary()
-  kb.text("🎓 تسلط", "fw:mastery").primary()
+  kb.text("🏆 تالار", "fw:hall").primary().row()
+  // وضعیت و سوابق
+  kb.text("⚡ شارژِ استقامت", "fw:charge").danger()
+  kb.text("🧪 شربتِ روح", "fwsp:go").danger()
   kb.text("🕰 سابقه", "fw:history").primary().row()
-  kb.text("🏆 تالار", "fw:hall").primary()
-  kb.text("🏠 خانه", "m:menu").primary().row()
+  kb.text("↩ خانه", "m:menu").primary()
   return withMiniApp(kb)
 }
 
@@ -890,11 +903,12 @@ function groupHubText(card: SoulCardDTO): string {
   return [
     // V17-3 — واژگانِ قاعده‌مند (§16): «فمبوی: X» — نه نامِ قدیمیِ «روح‌بسته»
     `👑 <b>فمبوی: ${esc(card.name)}</b>`,
-    SEP,
+    emblem("👑"),
     "",
     `🎖 ${card.rank.emoji} ${esc(card.rank.name)} · ⭐ سطح ${chip(card.level)} · ${card.classEmoji} ${esc(card.className)}`,
     ...(card.persona ? [`🎭 ${card.persona.emoji} ${esc(card.persona.name)}${card.talent ? ` · ${card.talent.emoji} ${esc(card.talent.name)}` : ""}`] : []),
-    `❤️ روحیه ${pct(card.spirit)} (${card.condition.emoji}) · ⚡ ${chip(`${faNum(card.stamina)}/${faNum(card.staminaMax)}`)} · ⚔️ ${chip(`${faNum(card.wins)}W/${faNum(card.losses)}L`)}`,
+    `${barRow("❤️", "روحیه", card.spirit, 100)} · ${card.condition.emoji}`,
+    `${barRow("⚡", "استقامت", card.stamina, card.staminaMax, `${faNum(card.stamina)}/${faNum(card.staminaMax)}`)} · ⚔️ ${chip(`${faNum(card.wins)}W/${faNum(card.losses)}L`)}`,
     "",
     `<i>برای مدیریتِ کامل، در خصوصی بگو: ${chip("پیمان فمبوی")}</i>`,
   ].join("\n")
@@ -940,28 +954,28 @@ async function soulHub(ctx: Context): Promise<void> {
 
 /** کارتِ نبرد — وضعیتِ راند یا کارتِ نتیجه */
 function combatText(enc: SoulCombatDTO): string {
-  const hp = (hp: number, hpMax: number): string => chip(`${faNum(hp)}/${faNum(hpMax)}`)
-  const hpBar = (hp: number, hpMax: number): string => bar((hp / Math.max(1, hpMax)) * 100)
+  const hpChip = (hp: number, hpMax: number): string => chip(`${faNum(hp)}/${faNum(hpMax)}`)
+  const hpRow = (hp: number, hpMax: number): string => barRow("❤️", "جان", hp, hpMax, `${faNum(hp)}/${faNum(hpMax)}`)
   const lines: string[] = []
   if (enc.status === "active") {
-    lines.push(`⚔️ <b>نبرد — راندِ ${chip(enc.round)}</b>`, SEP, "")
+    lines.push(`⚔️ <b>نبرد — راندِ ${chip(enc.round)}</b>`, emblem("⚔️"), "")
     if (enc.enemy) {
-      lines.push(`${enc.enemy.emoji} <b>${esc(enc.enemy.name)}</b> — ❤️ ${hp(enc.enemy.hp, enc.enemy.hpMax)}`)
-      lines.push(hpBar(enc.enemy.hp, enc.enemy.hpMax))
+      lines.push(`${enc.enemy.emoji} <b>${esc(enc.enemy.name)}</b>`)
+      lines.push(hpRow(enc.enemy.hp, enc.enemy.hpMax))
     }
-    lines.push(`${enc.you.emoji} <b>${esc(enc.you.name)}</b> — ❤️ ${hp(enc.you.hp, enc.you.hpMax)}`)
-    lines.push(hpBar(enc.you.hp, enc.you.hpMax))
+    lines.push(`${enc.you.emoji} <b>${esc(enc.you.name)}</b>`)
+    lines.push(hpRow(enc.you.hp, enc.you.hpMax))
     lines.push(enc.cooldown > 0 ? `✨ امضا: ${chip(enc.cooldown)} راند دیگر` : "✨ امضا: آماده")
     const log = enc.log.slice(-6).map((l) => esc(clampText(l, 110))).join("\n")
     if (log) lines.push("", SUB, "", quote(log))
     return lines.join("\n")
   }
   const head = enc.status === "won" ? "🏆 <b>پیروزی!</b>" : enc.status === "lost" ? "💀 <b>شکست…</b>" : "🏃 <b>فرار کردی</b>"
-  lines.push(head, SEP, "")
+  lines.push(head, emblem("⚔️"), "")
   if (enc.enemy) {
-    lines.push(`${enc.enemy.emoji} ${esc(enc.enemy.name)} — ❤️ ${hp(enc.enemy.hp, enc.enemy.hpMax)}`)
+    lines.push(`${enc.enemy.emoji} ${esc(enc.enemy.name)} — ❤️ ${hpChip(enc.enemy.hp, enc.enemy.hpMax)}`)
   }
-  lines.push(`${enc.you.emoji} ${esc(enc.you.name)} — ❤️ ${hp(enc.you.hp, enc.you.hpMax)}`)
+  lines.push(`${enc.you.emoji} ${esc(enc.you.name)} — ❤️ ${hpChip(enc.you.hp, enc.you.hpMax)}`)
   if (enc.result) {
     lines.push("", SUB, "")
     const story = enc.result.lines.slice(0, 4).map((l) => esc(clampText(l, 110))).join("\n")
@@ -981,7 +995,7 @@ function combatKeyboard(enc: SoulCombatDTO): InlineKeyboard {
   if (enc.status !== "active") {
     const kb = new InlineKeyboard()
     kb.text("⚔️ شکارِ بعدی", "fw:hunt").danger()
-    kb.text("🏠 هابِ فمبوی", "fw:hub").primary().row()
+    kb.text("↩ فمبویِ من", "fw:hub").primary().row()
     return kb
   }
   const kb = new InlineKeyboard()
@@ -1005,8 +1019,9 @@ function personaCardText(card: SoulCardDTO): string {
     (r) => `${r.icon} ${esc(r.label)} — <b>${r.pct > 0 ? "+" : "−"}${faNum(Math.abs(r.pct))}%</b> (${r.kind === "talent" ? "استعداد" : "ضعف"})`,
   )
   return [
-    `🎭 <b>طبعِ ${esc(card.name)}: ${p.emoji} ${esc(p.name)}</b>`,
+    `🎭 <b>شخصیتِ ${esc(card.name)}: ${p.emoji} ${esc(p.name)}</b>`,
     `<i>${esc(p.tagline)}</i>`,
+    emblem(p.emoji),
     "",
     p.traits.map((x) => `▫️ ${esc(x)}`).join("\n"),
     "",
@@ -1022,9 +1037,12 @@ function personaCardText(card: SoulCardDTO): string {
 }
 
 function personaCardKeyboard(): InlineKeyboard {
+  // V20 — «✏️ تغییرِ نام» به این‌جا آمد (مأموریت §6.2: کارتِ شخصیت = مالکِ هویت)؛
+  // برچسبِ بازگشتِ یکدست «↩ فمبویِ من» (نه «هابِ فمبوی» — واژه‌ی انگلیسی حذف شد)
   const kb = new InlineKeyboard()
   kb.text("📖 داستانِ شخصی", "fw:story").success()
-  kb.text("👑 هابِ فمبوی", "fw:hub").primary().row()
+  kb.text("✏️ تغییرِ نام", "fw:rename").primary().row()
+  kb.text("↩ فمبویِ من", "fw:hub").primary()
   return kb
 }
 
@@ -1051,17 +1069,19 @@ async function showPersona(ctx: Context): Promise<void> {
 
 // ─── V19: داستانِ شخصی — فصل/انتخاب/اعتماد ────────────────────────────────────
 
-/** متنِ کارتِ داستان — اعتماد + فصلِ جاری (متن درِ expand) + انتخاب‌ها */
+/** متنِ کارتِ داستان — اعتماد (نوارِ زنده) + فصلِ جاری (روایت درِ نقل‌قول) + انتخاب‌ها */
 function storyCardText(story: BotStoryCardDTO, name: string): string {
-  const trustBar = bar(story.trust, 8)
   const nextTier = story.nextTrustTier
+  const trustMax = nextTier ? nextTier.at : 100
   const header = [
     `📖 <b>داستانِ شخصیِ ${esc(name)}</b> — ${story.arcEmoji} <i>${esc(story.arcTitle)}</i>`,
     `فصلِ ${chip(Math.min(story.chaptersDone + 1, story.chaptersTotal))} از ${chip(story.chaptersTotal)}`,
-    SEP,
+    emblem(story.arcEmoji || "📖"),
     "",
-    `🤝 اعتماد: ${story.trustTier.emoji} <b>${esc(story.trustTier.label)}</b> ${chip(`${faNum(story.trust)}/100`)}`,
-    `${trustBar}${nextTier ? ` — ${chip(faNum(Math.max(0, nextTier.at - story.trust)))} تا «${esc(nextTier.label)}»` : " — سقف"}`,
+    `🤝 ${story.trustTier.emoji} <b>${esc(story.trustTier.label)}</b>`,
+    `${barRow("🤝", "اعتماد", story.trust, trustMax, `${faNum(story.trust)}/${faNum(trustMax)}`)}${
+      nextTier ? ` · ${chip(faNum(Math.max(0, nextTier.at - story.trust)))} تا «${esc(nextTier.label)}»` : " · سقف"
+    }`,
   ]
   if (story.status === "complete") {
     return [
@@ -1070,7 +1090,10 @@ function storyCardText(story: BotStoryCardDTO, name: string): string {
       SUB,
       "",
       "👑 <b>قصه کامل شد.</b> عنوانِ «راویِ پیمان» مالِ توست — فصل‌های بعدی را خودتان با هم می‌نویسید.",
-      ...(story.memories.length > 0 ? ["", SUB, "", ...story.memories.map((m) => `${m.icon} ${esc(clampText(m.text, 90))}`)] : []),
+      // V24 — دیوارِ خاطره‌ها: یک بلاکِ نقل‌قولِ یکپارچه
+      ...(story.memories.length > 0
+        ? ["", SUB, "", quote(story.memories.map((m) => `${m.icon} ${esc(clampText(m.text, 90))}`).join("\n"))]
+        : []),
     ].join("\n")
   }
   if (story.status === "locked" || !story.current) {
@@ -1087,12 +1110,14 @@ function storyCardText(story: BotStoryCardDTO, name: string): string {
   }
   const c = story.current
   const body = c.text.map((p) => esc(clampText(p, 220))).join("\n\n")
+  // V24 — روایت، جانِ بازی است: کوتاه شد؟ نقل‌قولِ همیشه‌نمایان؛ بلند؟ جمع‌شونده
+  const narrative = Array.from(body).length <= 240 ? quote(body) : expand(body)
   return [
     ...header,
     "",
     `${c.icon} <b>${esc(c.title)}</b>`,
     "",
-    expand(body),
+    narrative,
     "",
     SUB,
     "",
@@ -1109,10 +1134,10 @@ function storyKeyboard(story: BotStoryCardDTO): InlineKeyboard {
     for (const ch of story.current.choices) {
       kb.text(`${ch.label}`, `fwd:${ch.idx}`).primary().row()
     }
-    kb.text("👑 هابِ فمبوی", "fw:hub").primary().row()
+    kb.text("↩ فمبویِ من", "fw:hub").primary().row()
   } else {
     kb.text("💗 تعامل (اعتماد)", "fw:interact").success()
-    kb.text("👑 هابِ فمبوی", "fw:hub").primary().row()
+    kb.text("↩ فمبویِ من", "fw:hub").primary().row()
   }
   return kb
 }
@@ -1174,7 +1199,7 @@ async function onStoryChoose(ctx: Context, choiceIdx: number): Promise<void> {
   const card = res.card
   const name = card?.name ?? "فمبویِ تو"
   const story = res.story
-  await show(ctx, `✍️ <b>پیامدِ انتخابت</b>\n${esc(res.message)}${story ? `\n\n${storyCardText(story, name)}` : ""}`, story ? storyKeyboard(story) : new InlineKeyboard().text("👑 هابِ فمبوی", "fw:hub").primary())
+  await show(ctx, `✍️ <b>پیامدِ انتخابت</b>\n${esc(res.message)}${story ? `\n\n${storyCardText(story, name)}` : ""}`, story ? storyKeyboard(story) : new InlineKeyboard().text("↩ فمبویِ من", "fw:hub").primary())
 }
 
 /** fw:hunt — لیستِ شکار (یا ادامه‌ی نبردِ باز) */
@@ -1204,8 +1229,9 @@ async function showHunt(ctx: Context): Promise<void> {
   const enemies = allEnemies.slice(0, 8)
   const lines = [
     "⚔️ <b>شکار</b>",
-    `⚡ استقامت ${chip(`${faNum(card.stamina)}/${faNum(card.staminaMax)}`)} · هر نبرد ${chip(3)} استقامت`,
-    SEP,
+    emblem("⚔️"),
+    "",
+    `${barRow("⚡", "استقامت", card.stamina, card.staminaMax, `${faNum(card.stamina)}/${faNum(card.staminaMax)}`)} · هر نبرد ${chip(3)} استقامت`,
     "",
   ]
   if (enemies.length === 0) {
@@ -1229,7 +1255,7 @@ async function showHunt(ctx: Context): Promise<void> {
   })
   kb.row() // بستنِ ردیفِ نیمه‌کار
   if (card.stamina < 3) kb.text("⚡ شارژِ استقامت", "fw:charge").danger().row()
-  kb.text("🏠 هابِ فمبوی", "fw:hub").primary()
+  kb.text("↩ فمبویِ من", "fw:hub").primary()
   await show(ctx, lines.join("\n"), kb)
 }
 
@@ -1307,7 +1333,7 @@ function interactKeyboard(items: { icon: string; label: string; moneyCost: numbe
     if (i % 2 === 1) btn.row()
   })
   kb.row()
-  kb.text("🏠 هابِ فمبوی", "fw:hub").primary()
+  kb.text("↩ فمبویِ من", "fw:hub").primary()
   return kb
 }
 
@@ -1339,9 +1365,9 @@ async function showInteract(ctx: Context): Promise<void> {
   const card = data.card
   const lines = [
     "💗 <b>تعامل با فمبوی</b>",
-    SEP,
+    emblem("💗"),
     "",
-    `❤️ روحیه ${pct(card.spirit)} (${card.condition.emoji} ${esc(card.condition.label)}) · 🤝 پیوند ${chip(card.bond)}`,
+    `${barRow("❤️", "روحیه", card.spirit, 100)} · ${card.condition.emoji} ${esc(card.condition.label)} · 🤝 پیوند ${chip(card.bond)}`,
     card.interactCooldownMin > 0
       ? `⏳ فمبویت نفس می‌خواهد — ${chip(card.interactCooldownMin)} دقیقه دیگر`
       : "فمبویت آماده‌ی تعامل است.",
@@ -1376,7 +1402,7 @@ async function onInteract(ctx: Context, kind: string): Promise<void> {
         "",
         SUB,
         "",
-        `❤️ روحیه ${pct(res.card.spirit)} (${res.card.condition.emoji} ${esc(res.card.condition.label)}) · 🤝 پیوند ${chip(res.card.bond)}`,
+        `${barRow("❤️", "روحیه", res.card.spirit, 100)} · ${res.card.condition.emoji} ${esc(res.card.condition.label)} · 🤝 پیوند ${chip(res.card.bond)}`,
         // V17-W2 (§16): زبانِ واحدِ «🧭 بعدی» — همان گرامری که کار/قمار/استراحت
         // از V4 دارند؛ تعاملِ فمبوی هم حالا قدمِ بعدیِ روشن می‌گوید.
         res.card.interactCooldownMin > 0
@@ -1385,7 +1411,7 @@ async function onInteract(ctx: Context, kind: string): Promise<void> {
       )
     }
     const kb = new InlineKeyboard()
-    kb.text("🏠 هابِ فمبوی", "fw:hub").primary()
+    kb.text("↩ فمبویِ من", "fw:hub").primary()
     kb.text("💗 تعامل", "fw:interact").primary().row()
     await show(ctx, lines.join("\n"), kb)
   } catch (e) {
@@ -1394,7 +1420,7 @@ async function onInteract(ctx: Context, kind: string): Promise<void> {
       return
     }
     const kb = new InlineKeyboard()
-    kb.text("🏠 هابِ فمبوی", "fw:hub").primary()
+    kb.text("↩ فمبویِ من", "fw:hub").primary()
     kb.text("💗 تعامل", "fw:interact").primary().row()
     await show(ctx, `⏳ ${errText(e)}`, kb) // کول‌داون — صدای موتور
   }
@@ -1433,7 +1459,7 @@ async function showSkills(ctx: Context): Promise<void> {
   const card = data.card
   const lines = [
     `✨ <b>مهارت‌های ${esc(card.name)}</b>`,
-    SEP,
+    emblem("✨"),
     "",
     `🎖 نقطه‌مهارت ${chip(card.skillPoints)} · ⭐ سطح ${chip(card.level)}`,
   ]
@@ -1476,7 +1502,14 @@ async function showSkills(ctx: Context): Promise<void> {
       kb.text(`ارتقای ${clampText(s.name, 14)} · ${faNum(s.spCost)}✨`, `fwk:${s.id}`).success().row()
     }
   }
-  kb.text("🏠 هابِ فمبوی", "fw:hub").primary()
+  // V20 — «🎓 کلاس-تسلط» به این‌جا آمد (مأموریت §6.2: مهارت‌ها = مالکِ توانایی)؛
+  // دیروز دکمه‌ی دهمِ هاب بود؛ حالا در بافتِ درستش است.
+  if (card.mastery) {
+    kb.text("🎓 کلاس-تسلط", "fw:mastery").primary()
+    kb.text("↩ فمبویِ من", "fw:hub").primary()
+  } else {
+    kb.text("↩ فمبویِ من", "fw:hub").primary()
+  }
   await show(ctx, lines.join("\n"), kb)
 }
 
@@ -1540,7 +1573,7 @@ async function showEvolution(ctx: Context): Promise<void> {
   // فرمِ فعلی: از نردبان (isCurrent) — با مسیرِ انتخاب‌شده اگر شاخه رفته باشد
   const current = card.evolutions.find((e) => e.isCurrent) ?? null
   const pathPart = current?.isChosen && current.pathLabel ? ` (${esc(current.pathLabel)})` : ""
-  const lines: string[] = ["🌌 <b>فرگشت</b>", SEP, ""]
+  const lines: string[] = ["🌌 <b>فرگشت</b>", emblem("🌌"), ""]
   lines.push(`شکلِ فعلی: ${card.evolutionEmoji} <b>${esc(card.evolutionName)}</b>${pathPart}`)
   // نردبانِ طی‌شده — فرم‌های انتخاب‌شده‌ی گذشته
   const ladder = card.evolutions.filter((e) => e.isChosen && !e.isCurrent)
@@ -1550,7 +1583,7 @@ async function showEvolution(ctx: Context): Promise<void> {
   const next = card.nextEvolution ?? null
   const kb = new InlineKeyboard()
   if (!next || next.options.length === 0) {
-    lines.push("", SUB, "", "به آخرِ مسیرِ فرگشت رسیده‌ای — جایی که افسانه‌ها تمام نمی‌شوند.")
+    lines.push("", SUB, "", quote("به آخرِ مسیرِ فرگشت رسیده‌ای — جایی که افسانه‌ها تمام نمی‌شوند."))
   } else {
     lines.push("", SUB, "", `🌙 <b>فرگشتِ بعدی — مرحله‌ی ${chip(next.stage)}</b>`, "")
     for (const [i, opt] of next.options.slice(0, 2).entries()) {
@@ -1569,7 +1602,7 @@ async function showEvolution(ctx: Context): Promise<void> {
       lines.push("", "<i>شرط‌ها هنوز کامل نیست — شهر صبور است.</i>")
     }
   }
-  kb.text("🏠 هابِ فمبوی", "fw:hub").primary()
+  kb.text("↩ فمبویِ من", "fw:hub").primary()
   await show(ctx, lines.join("\n"), kb)
 }
 
@@ -1599,7 +1632,7 @@ async function onEvolveGo(ctx: Context, choice: number): Promise<void> {
   const opt = decision.options[choice]!
   const lines = [
     "🌌 <b>تثبیتِ فرگشت</b>",
-    SEP,
+    emblem("🌌"),
     "",
     `شاخه‌ی انتخابی: ${opt.emoji} <b>${esc(opt.name)}</b> — ${esc(opt.pathLabel ?? "مسیرِ اصلی")}`,
     ...(opt.preview ? [`⚙️ ${spoiler(esc(clampText(opt.preview, 80)))}`] : []),
@@ -1644,7 +1677,7 @@ async function onEvolveYes(ctx: Context, choice: number): Promise<void> {
     }
     const kb = new InlineKeyboard()
     kb.text("↩️ برگشت", "fw:evo").primary()
-    kb.text("🏠 هابِ فمبوی", "fw:hub").primary().row()
+    kb.text("↩ فمبویِ من", "fw:hub").primary().row()
     await show(ctx, `⚠️ ${errText(e)}`, kb)
   }
 }
@@ -1670,7 +1703,7 @@ async function showHistory(ctx: Context): Promise<void> {
   }
   const allLogs = data.logs ?? []
   const logs = allLogs.slice(0, 10)
-  const lines = ["🕰 <b>سابقه‌ی فمبوی</b>", SEP, ""]
+  const lines = ["🕰 <b>سابقه‌ی فمبوی</b>", emblem("🕰"), ""]
   if (logs.length === 0) {
     lines.push("<i>هنوز چیزی ننوشته.</i>")
     lines.push("", "<i>سابقه با اولین قدم شروع می‌شود.</i>")
@@ -1687,7 +1720,7 @@ async function showHistory(ctx: Context): Promise<void> {
       lines.push("", `<i>… و ${chip(allLogs.length - logs.length)} رویدادِ کهنه‌تر</i>`)
     }
   }
-  const kb = new InlineKeyboard().text("🏠 هابِ فمبوی", "fw:hub").primary()
+  const kb = new InlineKeyboard().text("↩ فمبویِ من", "fw:hub").primary()
   await show(ctx, lines.join("\n"), kb)
 }
 
@@ -1720,7 +1753,7 @@ const COSMETIC_KINDS: CosmeticDTO["kind"][] = ["accessory", "palette", "frame"]
 function styleText(card: SoulCardDTO): string {
   const app = card.appearance ?? { equipped: { accessory: null, palette: null, frame: null }, owned: [] }
   const eq = app.equipped
-  const lines: string[] = [`🎨 <b>ظاهر و استایل — ${esc(card.name)}</b>`, SEP, ""]
+  const lines: string[] = [`🎨 <b>ظاهر و استایل — ${esc(card.name)}</b>`, emblem("🎨"), ""]
   lines.push(`🎀 اکسسوار: ${eq.accessory ? `${eq.accessory.emoji} ${esc(eq.accessory.name)}` : "—"}`)
   lines.push(`🖌 پالت: ${eq.palette ? `${eq.palette.emoji} ${esc(eq.palette.name)}` : "—"}`)
   lines.push(`🖼 قاب: ${eq.frame ? `${eq.frame.emoji} ${esc(eq.frame.name)}` : "—"}`)
@@ -1762,7 +1795,7 @@ function styleKeyboard(card: SoulCardDTO): InlineKeyboard {
       }
     }
   }
-  kb.text("🏠 هابِ فمبوی", "fw:hub").primary()
+  kb.text("↩ فمبویِ من", "fw:hub").primary()
   return kb
 }
 
@@ -1848,7 +1881,7 @@ async function onStrip(ctx: Context, kind: string): Promise<void> {
 
 /** متنِ صفحه‌ی کلاس-تسلط: پله‌ی فعلی + پیشرفت + کارهای واجدشرطِ امروز + راهِ رشد */
 function masteryText(card: SoulCardDTO): string {
-  const lines: string[] = [`🎓 <b>کلاس-تسلط — ${esc(card.name)}</b>`, SEP, ""]
+  const lines: string[] = [`🎓 <b>کلاس-تسلط — ${esc(card.name)}</b>`, emblem("🎓"), ""]
   const m = card.mastery
   if (!m) {
     lines.push("<i>هنوز کارنامه‌ی تسلطی نوشته نشده.</i>")
@@ -1860,8 +1893,7 @@ function masteryText(card: SoulCardDTO): string {
     lines.push(`<i>${esc(clampText(m.perk, 110))}</i>`)
   }
   if (m.nextTierXp !== null && m.nextTierXp !== undefined) {
-    const p = m.nextTierXp > 0 ? Math.min(100, Math.round((m.xp / m.nextTierXp) * 100)) : 0
-    lines.push(`${bar(p)} ${pct(p)} · ${chip(`${faNum(m.xp)}/${faNum(m.nextTierXp)}`)} تسلط`)
+    lines.push(barRow(m.emoji, "تسلط", m.xp, m.nextTierXp, `${faNum(m.xp)}/${faNum(m.nextTierXp)}`))
   } else {
     lines.push(`🏅 سقفِ تسلط — ${chip(m.xp)} تسلط`)
   }
@@ -1890,7 +1922,7 @@ function masteryText(card: SoulCardDTO): string {
 function masteryKeyboard(): InlineKeyboard {
   const kb = new InlineKeyboard()
   kb.text("🏆 تخته‌ی کلاس-تسلط", "fwh:mastery").primary().row()
-  kb.text("🏠 هابِ فمبوی", "fw:hub").primary()
+  kb.text("↩ فمبویِ من", "fw:hub").primary()
   return kb
 }
 
@@ -1924,7 +1956,7 @@ function chipDigits(label: string): string {
 }
 
 function hallText(hall: HallDTO): string {
-  const lines = [`🏆 <b>تالارِ افتخارات — ${esc(hall.boardLabel)}</b>`, SEP, ""]
+  const lines = [`🏆 <b>تالارِ افتخارات — ${esc(hall.boardLabel)}</b>`, emblem("🏆"), ""]
   if (hall.entries.length === 0) {
     lines.push("<i>هنوز کسی اسمی از خودش نگذاشته…</i>")
     lines.push("", "<i>اولین افسانه تو باش.</i>")
@@ -1951,7 +1983,7 @@ function hallKeyboard(hall: HallDTO, privateChat: boolean): InlineKeyboard {
     if (i % 2 === 1) btn.row()
   })
   kb.row()
-  if (privateChat) kb.text("🏠 هابِ فمبوی", "fw:hub").primary()
+  if (privateChat) kb.text("↩ فمبویِ من", "fw:hub").primary()
   return kb
 }
 
@@ -2005,7 +2037,7 @@ function rechargeKeyboard(): InlineKeyboard {
   kb.text("+3 (360 سکه)", "fwr:3").danger()
   kb.text("+6 (720 سکه)", "fwr:6").danger().row()
   kb.text("+9 (1,080 سکه)", "fwr:9").danger().row()
-  kb.text("🏠 هابِ فمبوی", "fw:hub").primary()
+  kb.text("↩ فمبویِ من", "fw:hub").primary()
   return kb
 }
 
@@ -2030,9 +2062,9 @@ async function showRecharge(ctx: Context): Promise<void> {
   const next = card.staminaMinutesToNext
   const lines = [
     "⚡ <b>شارژِ استقامت</b>",
-    SEP,
+    emblem("⚡"),
     "",
-    `استقامت ${chip(`${faNum(card.stamina)}/${faNum(card.staminaMax)}`)}${next ? ` · ⏳ ${chip(next)} دقیقه تا +1` : ""}`,
+    `${barRow("⚡", "استقامت", card.stamina, card.staminaMax, `${faNum(card.stamina)}/${faNum(card.staminaMax)}`)}${next ? ` · ⏳ ${chip(next)} دقیقه تا +1` : ""}`,
     "",
     SUB,
     "",
@@ -2055,7 +2087,12 @@ async function onRecharge(ctx: Context, units: number): Promise<void> {
     const res = await api.soulAction(tgId(ctx), "recharge", { units })
     const lines = [`⚡ ${esc(res.message)}`]
     if (res.card) {
-      lines.push("", SUB, "", `استقامت ${chip(`${faNum(res.card.stamina)}/${faNum(res.card.staminaMax)}`)}`)
+      lines.push(
+        "",
+        SUB,
+        "",
+        barRow("⚡", "استقامت", res.card.stamina, res.card.staminaMax, `${faNum(res.card.stamina)}/${faNum(res.card.staminaMax)}`),
+      )
     }
     await show(ctx, lines.join("\n"), rechargeKeyboard()) // دکمه‌ها می‌مانند برای شارژِ بیشتر
   } catch (e) {
@@ -2084,7 +2121,7 @@ async function onSpiritPotion(ctx: Context): Promise<void> {
         "",
         SUB,
         "",
-        `❤️ روحیه ${pct(res.card.spirit)} (${res.card.condition.emoji} ${esc(res.card.condition.label)})`,
+        `${barRow("❤️", "روحیه", res.card.spirit, 100)} · ${res.card.condition.emoji} ${esc(res.card.condition.label)}`,
       )
     }
     await show(ctx, lines.join("\n"))
@@ -2095,7 +2132,7 @@ async function onSpiritPotion(ctx: Context): Promise<void> {
       return
     }
     const kb = new InlineKeyboard()
-    kb.text("🏠 هابِ فمبوی", "fw:hub").primary()
+    kb.text("↩ فمبویِ من", "fw:hub").primary()
     await show(ctx, `⚠️ ${errText(e)}`, kb) // صدای موتور: «تهِ سقف است» · «کیک نیست و 200 سکه هم نه»
   }
 }
@@ -2123,7 +2160,7 @@ async function onRenameAsk(ctx: Context): Promise<void> {
   const card = data.card
   if (card.renameCooldownMin > 0) {
     const kb = new InlineKeyboard()
-    kb.text("🏠 هابِ فمبوی", "fw:hub").primary()
+    kb.text("↩ فمبویِ من", "fw:hub").primary()
     await show(ctx, `✏️ اسمِ فعلی تا ${chip(Math.ceil(card.renameCooldownMin / 60))} ساعت دیگر می‌ماند.`, kb)
     return
   }
@@ -2132,7 +2169,7 @@ async function onRenameAsk(ctx: Context): Promise<void> {
     ctx,
     [
       "✏️ <b>تغییرِ نام</b>",
-      SEP,
+      emblem("✏️"),
       "",
       `📛 اسمِ فعلی: <b>${esc(card.name)}</b>`,
       "",
@@ -2186,7 +2223,7 @@ function publicCardCaption(playerName: string, card: NonNullable<PublicFemboyCar
   const pathPart = card.evolutionPathName ? ` (${esc(card.evolutionPathName)})` : ""
   const lines = [
     `🎀 <b>فمبویِ ${esc(playerName)}${accPart}</b>`,
-    SEP,
+    emblem("🎀"),
     "",
     `${card.classEmoji} ${esc(card.className)} — ${esc(card.classRole)}`,
     ...(card.persona ? [`🎭 ${card.persona.emoji} ${esc(card.persona.name)} — <i>${esc(clampText(card.persona.tagline, 60))}</i>`] : []),
@@ -2296,7 +2333,7 @@ export async function handleDuelCommand(ctx: Context): Promise<void> {
       ctx,
       [
         "⚔️ <b>دوئل</b>",
-        SEP,
+        emblem("⚔️"),
         "",
         "دوئلِ فمبوی‌ها در گروه‌ها انجام می‌شود:",
         "",

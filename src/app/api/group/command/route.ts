@@ -39,10 +39,11 @@ export async function POST(req: NextRequest) {
 
     // ─── رفتنِ عضو (left_chat_member؛ V13 موج ۱) ──
     // کشِ جمعیت یکی کم می‌شود؛ ردیفِ عضویت برای بازگشت می‌ماند؛ عضوِ نبودِه = no-op.
+    // V23 — خداحافظیِ عضوِ حرف‌زن (≥۵ پیام) همراهِ جواب می‌آید؛ ربات نرخِ خودش را می‌گذارد.
     if (action === "member_left") {
       if (!telegramId) return jsonErr("telegramId لازم است.", 400, "bad_request")
       const r = await memberLeft(chatId, telegramId)
-      return jsonOk({ left: r.left })
+      return jsonOk(r.farewell ? { left: r.left, farewell: r.farewell } : { left: r.left })
     }
 
     // ─── گزارشِ تحویل (messageId برای ویرایش‌های بعدی) + چت‌های بی‌دسترسی ──

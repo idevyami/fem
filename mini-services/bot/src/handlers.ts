@@ -23,6 +23,7 @@ import {
   errorKeyboard,
   guideKeyboard,
   goalsKeyboard,
+  historyKeyboard,
   homeKeyboard,
   jobsKeyboard,
   livingConfirmKeyboard,
@@ -37,6 +38,7 @@ import {
   opsKeyboard,
   parseCallback,
   achievementsKeyboard,
+  activitiesKeyboard,
   privateLink,
   profileKeyboard,
   dreamsKeyboard,
@@ -46,6 +48,7 @@ import {
   type Callback,
 } from "./keyboards"
 import {
+  countGroupPulse,
   handleGroupCallback,
   isBotMessage,
   isGroupCallbackData,
@@ -56,6 +59,18 @@ import {
   sendEngineCommand,
   verifyChatAdmin,
 } from "./group"
+import {
+  SOCIAL_INTENTS,
+  fallbackCardText,
+  fallbackNudgeText,
+  groupSocialReply,
+  privateSocialReply,
+  socialStateOf,
+  stickerLine,
+  stickerReaction,
+  type SocialIntentId,
+  type SocialState,
+} from "./social"
 import { isDuplicateUpdate } from "./dedup"
 import { admitCallback, admitCommand, admitTextCommand, SLOW_DOWN_TOAST } from "./limits"
 import { INTENT_HINT, cardHint, resolveIntent, type HintContext, type IntentId } from "./intent"
@@ -90,6 +105,7 @@ import {
 import {
   achievementsText,
   actionText,
+  activitiesText,
   bagText,
   bingoCap,
   bingoText,
@@ -117,7 +133,9 @@ import {
   opsText,
   outcomeText,
   profileText,
-  SEP,
+  emblem,
+  quote,
+  DOTS,
   suggestedPrices,
   SUB,
   titlesText,
@@ -195,10 +213,7 @@ async function fetchSnapshot(telegramId: string): Promise<GameSnapshot | null> {
 // ─── کارت‌های عکسی (V12 — الگوی هابِ /femboy در soul.ts: آرتِ کلاس + کپشنِ HTML) ──
 
 const ART_DIR = "/home/z/my-project/public/art/classes"
-
-/** آرتِ قهرمانِ خوش‌آمدِ /start — یک تصویرِ ثابت به‌عنوانِ چهره‌ی شهر؛
- *  کپشن همیشه بی‌طرفِ کلاسی است (هیچ اشاره‌ای به کلاسِ تصویر نمی‌شود). */
-const HERO_ART = "wizard"
+const ART_ROOT = "/home/z/my-project/public/art"
 
 /** بارگذاریِ آرتِ کلاس از دیسک — همان مکانیزمِ soul.ts (آپلود مستقیم به Bot API) */
 async function classArt(classKey: string): Promise<InputFile | null> {
@@ -211,17 +226,27 @@ async function classArt(classKey: string): Promise<InputFile | null> {
   }
 }
 
+/** V24 — آرتِ عمومیِ شهر (بنرِ خوش‌آمد/پیمان) از ریشه‌ی art — چهره‌ی تازه‌ی شهر */
+async function artFile(name: string): Promise<InputFile | null> {
+  try {
+    const buf = new Uint8Array(await Bun.file(`${ART_ROOT}/${name}`).arrayBuffer())
+    if (buf.byteLength === 0) return null
+    return new InputFile(buf, name)
+  } catch {
+    return null // عکس نبود — کارتِ متنی می‌ماند
+  }
+}
+
 /** سقفِ کپشنِ تلگرام — ۱۰۲۴؛ با حاشیه ۱۰۰۰ و برشِ امنِ تگ + رقم‌های انگلیسی */
 const cap = (text: string): string => safeCut(toLatinDigits(text), 1000)
 
 /** کارتِ عکسی با fallbackِ متنی — بدونِ عکس (یا اگر ارسال شکست خورد) همان show() */
 async function sendPhotoCard(
   ctx: Context,
-  classKey: string | null,
+  file: InputFile | null,
   caption: string,
   kb: InlineKeyboard,
 ): Promise<void> {
-  const file = classKey ? await classArt(classKey) : null
   if (!file) {
     await show(ctx, caption, kb)
     return
@@ -237,11 +262,26 @@ async function sendPhotoCard(
 
 // ─── /start — خصوصی ──────────────────────────────────────────────────────────
 
+/** V20 (مأموریت §9.2: آموزشِ تدریجی — رابطِ همیشه‌حاضر): کیبوردِ ثابت باید از هر
+ *  مسیرِ ورود برسد — دیروز فقط /startِ خالی می‌فرستادش؛ لینک‌های عمیقِ بازار/کیف/
+ *  اهداف/اپ هیچ‌وقت میان‌برهای ثابت را نمی‌دیدند (ممیزی V20-ب: مسیرِ یتیم). */
+async function sendReplyKeyboard(ctx: Context): Promise<void> {
+  try {
+    await ctx.reply("🎛 <b>میان‌برهای ثابَتت</b>\nهمیشه پیشِ روی‌ات‌اند — لمسشان کن، یا برای شهر چیزی بنویس…", {
+      parse_mode: "HTML",
+      reply_markup: replyKeyboard(),
+    })
+  } catch {
+    /* کیبورد فرستاده نشد؛ اهمیتی ندارد */
+  }
+}
+
 export async function handleStart(ctx: Context): Promise<void> {
   // V7 — لینکِ عمیقِ پیمانِ فمبوی (دکمه‌ی گروه/تالار): مستقیم به جریانِ /femboy
   const payload = typeof ctx.match === "string" ? ctx.match.trim() : ""
   if (payload === "femboy") {
     await handleFemboyCommand(ctx)
+    await sendReplyKeyboard(ctx)
     return
   }
   // V6 — لینکِ عمیقِ /start app (دکمه‌ی «اپ» کارت‌های گروه): کارتِ کوتاهِ بومیِ
@@ -252,21 +292,25 @@ export async function handleStart(ctx: Context): Promise<void> {
       ["🎀 <b>FEMBOY WAR</b>", "", "زندگی‌ات یک لمس جلوتر است — شهر، کیف، بازار و بقیه‌اش این‌جا زنده‌اند 👇"].join("\n"),
       miniAppCardKeyboard(),
     )
+    await sendReplyKeyboard(ctx)
     return
   }
   // V16-1 (مشکل ⑥ ممیزی) — لینک‌های عمیقِ بافتاری از هابِ شهر: همان کارتی که
   // intentِ همان نام در خصوصی می‌دهد (کیف/بازار/اهداف) — نه کارتِ خوش‌آمدِ عکسی.
   // api.auth مثلِ /startِ معمول بازیکن را ثبت/تازه می‌کند تا کارتِ مقصد صادقانه
   // رندر شود (بازیکنِ گروهیِ که هرگز خصوصی را باز نکرده نیز پذیرفته می‌شود).
+  // V20 — میان‌برهای ثابت بعد از کارتِ مقصد می‌رسند (§9.2).
   if (payload === "items" || payload === "market" || payload === "goals") {
     try {
       await api.auth(tgId(ctx), ctx.from?.first_name || ctx.from?.username)
     } catch {
       /* ثبت نشد — کارتِ مقصد خودش صدای موتور را می‌دهد (no_player صادقانه) */
     }
-    if (payload === "items") return showItems(ctx)
-    if (payload === "market") return showMarket(ctx)
-    return showGoals(ctx)
+    if (payload === "items") await showItems(ctx)
+    else if (payload === "market") await showMarket(ctx)
+    else await showGoals(ctx)
+    await sendReplyKeyboard(ctx)
+    return
   }
 
   const name = ctx.from?.first_name || ctx.from?.username
@@ -274,32 +318,36 @@ export async function handleStart(ctx: Context): Promise<void> {
 
   // V9 — فمبوی مرکزِ جهان است: بدونِ او، همه‌چیز از پیمان شروع می‌شود.
   // پیشخوانِ عمومی این‌جا نمایش داده نمی‌شود؛ بعد از قفلِ پیمان، هاب خودش می‌آید.
-  // V12 — کارتِ عکسیِ خوش‌آمد: آرتِ hero (بی‌طرفِ کلاسی) + پیمان + ردیفِ مینی‌اپ.
+  // V24 — آرتِ تازه‌ی پیمان (covenant.jpg) + زبانِ بصریِ ۲٫۰: نشانِ ✨ و روایتِ زیرِ پرده‌ی نقل‌قول.
   if (!res.snapshot.femboy) {
     const head = res.created
       ? [
           "به این شهر خوش آمدی.",
           "",
-          "هر بازیکن یک فمبویِ اختصاصی دارد — اسمش را تو انتخاب می‌کنی، مسیرش را شهر می‌نویسد.",
-          "شهر زندگی می‌کند، تو تصمیم می‌گیری، فمبویت رشد می‌کند.",
+          quote(
+            [
+              "هر بازیکن یک فمبویِ اختصاصی دارد — اسمش را تو انتخاب می‌کنی، مسیرش را شهر می‌نویسد.",
+              "شهر زندگی می‌کند، تو تصمیم می‌گیری، فمبویت رشد می‌کند.",
+            ].join("\n"),
+          ),
         ].join("\n")
-      : ["برگشتی — ولی هنوز فمبوی نداری.", "در این جهان یعنی هنوز شروع نکردی."].join("\n")
+      : ["برگشتی — ولی هنوز فمبوی نداری.", "", "<i>در این جهان یعنی هنوز شروع نکردی.</i>"].join("\n")
     const caption = [
       "🎀 <b>FEMBOY WAR</b>",
-      SEP,
+      "<i>شهری که نفس می‌کشد</i>",
+      emblem("✨"),
       "",
       head,
-      "",
-      SUB,
       "",
       "اول از همه: <b>پیمانِ فمبویت را ببندیم.</b>",
     ].join("\n")
     const kb = new InlineKeyboard().text("✨ شروعِ پیمان", "fw:begin").primary()
-    await sendPhotoCard(ctx, HERO_ART, caption, withMiniApp(kb))
+    await sendPhotoCard(ctx, await artFile("covenant.jpg"), caption, withMiniApp(kb))
   } else {
     // بازیکنِ برگشته با فمبوی — کارتِ عکسیِ پیشخوان (آرتِ کلاسِ فمبویِ خودش؛
     // خطِ هویتِ فمبوی را خودِ homeText از snapshot.femboy می‌سازد — مثل /menu)
     // V12 — خلاصه‌ی آفلاین داخلِ نقل‌قولِ بازشدنی («چه خبر شده؟») جمع می‌شود.
+    // V24 — اگر آرتِ کلاس نبود، بنرِ تازه‌ی شهر (hero-banner.jpg) چهره‌ی کارت است.
     let prefix = "برگشتی. شهر یادش نرفته.\n\n"
     const recap = res.snapshot.offlineRecap
     if (recap && recap.lines.length > 0) {
@@ -308,19 +356,14 @@ export async function handleStart(ctx: Context): Promise<void> {
     }
     const guide = await fetchGuide(tgId(ctx))
     const caption = prefix + homeText({ name: name ?? "غریبه", snapshot: res.snapshot, guide })
-    await sendPhotoCard(ctx, res.snapshot.femboy.classKey, withHint(caption, "home"), homeKeyboard())
+    const file = (await classArt(res.snapshot.femboy.classKey)) ?? (await artFile("hero-banner.jpg"))
+    await sendPhotoCard(ctx, file, withHint(caption, "home"), homeKeyboard())
   }
 
   // کیبوردِ ثابتِ خصوصی — جدا از پیامِ پیشخوان (کارتِ عکس، کیبوردِ inline دارد؛
-  // reply_markup روی یک پیام دوگانه نیست) — V12: با صدایِ شیشه‌ای
-  try {
-    await ctx.reply("🎛 <b>میان‌برهای ثابَتت</b>\nهمیشه پیشِ روی‌ات‌اند — لمسشان کن، یا برای شهر چیزی بنویس…", {
-      parse_mode: "HTML",
-      reply_markup: replyKeyboard(),
-    })
-  } catch {
-    /* کیبورد فرستاده نشد؛ اهمیتی ندارد */
-  }
+  // reply_markup روی یک پیام دوگانه نیست) — V12: با صدایِ شیشه‌ای؛ V20: همه‌ی
+  // مسیرهایِ ورود (نه فقط /startِ خالی)
+  await sendReplyKeyboard(ctx)
 }
 
 // ─── پیشخوان / «زندگیِ من» ──────────────────────────────────────────────────────
@@ -337,7 +380,12 @@ export async function sendHome(ctx: Context, seedSnapshot?: GameSnapshot): Promi
   // V12 — پیشخوانِ عکسی (الگویِ هابِ /femboy): آرتِ کلاسِ فمبویِ بازیکن + کپشنِ داشبورد؛
   // بدونِ فمبوی (یا بدونِ عکس) همان کارتِ متنی می‌ماند.
   const caption = homeText({ name, snapshot, guide })
-  await sendPhotoCard(ctx, snapshot?.femboy?.classKey ?? null, withHint(caption, "home"), homeKeyboard())
+  // V24 — آرتِ پیمان مالِ لحظه‌ی خوش‌آمدِ /start است؛ منو کارتِ متنیِ داشبورد می‌ماند
+  // (بدونِ فمبوی تصویری نمی‌آید — همان متنِ صادقانه).
+  const file = snapshot?.femboy?.classKey
+    ? ((await classArt(snapshot.femboy.classKey)) ?? (await artFile("hero-banner.jpg")))
+    : null
+  await sendPhotoCard(ctx, file, withHint(caption, "home"), homeKeyboard())
 }
 
 // ─── 🎯 قدمِ بعدی ────────────────────────────────────────────────────────────
@@ -389,6 +437,19 @@ export async function showDreams(ctx: Context): Promise<void> {
   try {
     const g = await api.guide(tgId(ctx))
     await show(ctx, dreamsText(g), dreamsKeyboard())
+  } catch (e) {
+    await fail(ctx, e)
+  }
+}
+
+// ─── ⚡ فعالیت‌ها (V20 — مقصدِ «انجامِ کارِ مفید») ─────────────────────────────
+
+/** کارتِ فعالیت‌ها — کار/استراحت/سفر/شغل با هزینه‌های روشن (مأموریت §4.2):
+ *  وضعیتِ فعلی از snapshot، هر کنش یک خطِ صادقانه؛ دکمه‌ها همان چهار کنش. */
+export async function showActivities(ctx: Context): Promise<void> {
+  try {
+    const { snapshot } = await api.state(tgId(ctx))
+    await show(ctx, withHint(activitiesText(snapshot), "acts"), activitiesKeyboard(snapshot.player))
   } catch (e) {
     await fail(ctx, e)
   }
@@ -582,15 +643,15 @@ async function outcomeShow(ctx: Context, text: string, extras?: { label: string;
   if (!na) {
     const kb0 = new InlineKeyboard()
     for (const b of extras ?? []) kb0.text(clampText(b.label, 30), b.data).primary().row()
-    kb0.text("↩ خانه", CB.menu).primary()
+    kb0.text("↩ خانه", CB.menu)
     await showOutcome(ctx, text, kb0)
     return
   }
-  const full = `${text}\n${SEP}\n🧭 <b>بعدی:</b> ${na.icon} ${esc(clampText(na.title, 48))}`
+  const full = `${text}\n${DOTS}\n🧭 <b>بعدی:</b> ${na.icon} ${esc(clampText(na.title, 48))}`
   const kb = new InlineKeyboard()
   kb.text(`🧭 ${clampText(na.actionLabel || na.title, 30)}`, CB.nextGo).primary().row()
   for (const b of extras ?? []) kb.text(clampText(b.label, 30), b.data).primary().row()
-  kb.text("↩ خانه", CB.menu).primary()
+  kb.text("↩ خانه", CB.menu)
   await showOutcome(ctx, full, kb)
 }
 
@@ -621,7 +682,7 @@ export async function showAchievements(ctx: Context): Promise<void> {
 export async function showHistory(ctx: Context): Promise<void> {
   try {
     const p = await api.profile(tgId(ctx))
-    await show(ctx, historyText(p), backKeyboard())
+    await show(ctx, historyText(p), historyKeyboard())
   } catch (e) {
     await fail(ctx, e)
   }
@@ -979,7 +1040,8 @@ export async function doGamble(ctx: Context, stake: number): Promise<void> {
   await runAction(ctx, "gamble", { stake })
 }
 
-/** کارتِ واخواهی — تأییدِ دومرحله‌ایِ شرطِ گران؛ جیبِ تازه‌خوانده‌شده،
+/** کارتِ تأییدِ شرطِ بزرگ — V20 (ممتیز V20-ه: «واخواهی» واژه‌ی ادبی/گنگ بود):
+ *  عنوان روشن + جمله‌ی صریح درباره‌ی برگشت‌ناپذیری؛ جیبِ تازه‌خوانده‌شده،
  *  اگر در این فاصله کم آمد دکمه‌ی «بفرست» نمی‌آید (صداقت، نه دکمه‌ی مرجوع). */
 async function showGambleConfirm(ctx: Context, stake: number): Promise<void> {
   try {
@@ -987,12 +1049,11 @@ async function showGambleConfirm(ctx: Context, stake: number): Promise<void> {
     const p = snapshot.player
     const affordable = stake <= bingoCap(p.money)
     const lines = [
-      "🎰 <b>واخواهی</b>",
-      SEP,
+      "🎰 <b>تأییدِ شرطِ بزرگ</b>",
+      emblem("🎰"),
       "",
-      "این‌قدر توپ می‌ریزی؟ ضرش می‌خوره.",
-      "",
-      `🎲 شرط: <b>${chip(faNum(stake))} سکه</b> · 💰 جیبِ تو: ${chip(p.money)} سکه`,
+      `🎲 شرط: <b>${chip(faNum(stake))} سکه</b> — این مبلغ از جیب می‌رود و برنمی‌گردد.`,
+      `💰 جیبِ تو: ${chip(p.money)} سکه`,
     ]
     let kb: InlineKeyboard
     if (affordable) {
@@ -1110,7 +1171,7 @@ async function cityCommandsInPrivate(ctx: Context): Promise<void> {
   const lines = [
     "🏙 <b>این بخش مالِ شهرِ گروه است</b>",
     "",
-    SEP,
+    emblem("🏙"),
     "",
     "ربات را به یک گروه دعوه کن تا جهانِ مشترک زنده شود — بعد همان‌جا این‌ها را بگو:",
     "",
@@ -1122,7 +1183,9 @@ async function cityCommandsInPrivate(ctx: Context): Promise<void> {
   ]
   const kb = new InlineKeyboard()
   if (MINIAPP_URL) kb.url("📱 Femboy War", MINIAPP_URL).primary()
-  kb.text("↩ خانه", CB.menu).primary()
+  // V20 (ممیزی V20-ف: دو «شهر» یک مقصد) — سفرِ محلی از همین کارت هم باز می‌شود
+  kb.text("🗺 سفرِ بین محله‌ها", CB.city).primary()
+  kb.text("↩ خانه", CB.menu)
   await show(ctx, lines.join("\n"), kb)
 }
 
@@ -1151,7 +1214,7 @@ export async function showSettings(ctx: Context): Promise<void> {
     const avatar = p.avatar ? `${esc(p.avatar)} ` : ""
     const lines = [
       "⚙ <b>حساب</b>",
-      SEP,
+      emblem("⚙"),
       "",
       `👤 ${avatar}<b>${esc(p.name)}</b> — بازیکنِ این شهر`,
       `🔑 تلگرام: ${chip(tgId(ctx))}`,
@@ -1169,12 +1232,12 @@ export async function showSettings(ctx: Context): Promise<void> {
     ]
     const kb = new InlineKeyboard()
     kb.text("🎓 آموزش", "hp:c:start").primary()
-    kb.text("📖 راهنما", CB.help).primary().row()
-    kb.text("🏷 عنوان‌ها", CB.titles).primary()
-    kb.text("💼 شغل‌ها", CB.jobs).primary().row()
+    kb.text("📖 راهنما", CB.help).row()
+    kb.text("🏷 عنوان‌ها", CB.titles)
+    kb.text("💼 شغل‌ها", CB.jobs).row()
     if (MINIAPP_URL) kb.webApp("✏️ ویرایش نام و آواتار", MINIAPP_URL).primary().row()
-    kb.text("👤 من", CB.me).primary()
-    kb.text("↩ خانه", CB.menu).primary()
+    kb.text("👤 من", CB.me)
+    kb.text("↩ خانه", CB.menu)
     await show(ctx, lines.join("\n"), kb)
   } catch (e) {
     await fail(ctx, e)
@@ -1195,6 +1258,8 @@ async function dispatch(ctx: Context, cb: Callback): Promise<void> {
       return showCity(ctx)
     case "items":
       return showItems(ctx)
+    case "acts":
+      return showActivities(ctx)
     case "history":
       return showHistory(ctx)
     case "work":
@@ -1333,7 +1398,9 @@ function dual(privateFn: (ctx: Context) => Promise<void>, groupFn?: (ctx: Contex
 // «باز» و عینِ کامل جواب می‌گیرند — جمله‌ای که فقط کلمه‌ی بازی را دارد، فرمان نیست.
 
 /** مسیرِ خصوصیِ هر نیت — همان هندلرِ فرمانِ متناظر (typing + «🔄 دوباره» از run) */
-const PRIVATE_INTENT: Record<IntentId, (ctx: Context) => Promise<void>> = {
+// V23 — Partial: نیت‌های اجتماعی پیش از این جدول مصرف می‌شوند (routeSocial)؛
+// entry نایل‌شدنی یعنی باگِ سیم‌کشی — dispatch با ! می‌خواندش (تضمینِ مسیرِ بالا).
+const PRIVATE_INTENT: Partial<Record<IntentId, (ctx: Context) => Promise<void>>> = {
   menu: sendHome,
   start: handleStart,
   help: handleHelp,
@@ -1347,6 +1414,7 @@ const PRIVATE_INTENT: Record<IntentId, (ctx: Context) => Promise<void>> = {
   profile: showProfile,
   city: showCity,
   status: showCity,
+  activities: showActivities,
   events: showEvent,
   players: cityCommandsInPrivate,
   leaderboard: sendTop,
@@ -1371,7 +1439,10 @@ const PRIVATE_INTENT: Record<IntentId, (ctx: Context) => Promise<void>> = {
   vote: cityCommandsInPrivate,
   court: cityCommandsInPrivate,
   projects: cityCommandsInPrivate,
-  history: cityCommandsInPrivate,
+  // V20 (ممتیز V20-ج: تناقضِ «تاریخچه»): در خصوصی تاریخچه‌ی «شخصیِ» بازیکن است —
+  // همان چیزی که دکمه‌ی «📜 تاریخچه» کارتِ «من» می‌دهد؛ دیروز به کارتِ شهرِ گروه
+  // می‌رفت (همان واژه، دو مقصدِ متناقض). کارتِ شهرِ گروه فقط با «تاریخچه شهر».
+  history: showHistory,
   gadmin: cityCommandsInPrivate,
   // V15-2 — فرمان‌های تازه‌ی هابِ شهر (V15-1): در خصوصی معادلِ شخصیِ موجود،
   // نه فیچرِ خصوصیِ تازه — «دوئل‌ها» → راهنمای دوئل، «اقتصاد» → بازارِ شخصی،
@@ -1455,6 +1526,117 @@ async function cancelNoFlow(ctx: Context): Promise<void> {
 }
 
 /** مسیریابِ اصلی — true = مصرف شد (زنجیره همین‌جا تمام) · false = ربطی نداشت */
+
+/** V20 (مأموریت §7.3/F7): سکوتِ خصوصی تمام شد — دیروز متنِ ناشناخته در پیوی
+ *  هیچ جوابی نمی‌گرفت (ممیزی V20-۴: بزرگ‌ترین حفره‌ی یادگیری). حالا یک کارتِ
+ *  کمکِ کوتاه با مسیرهای همیشه‌زنده می‌آید — با ضدسیلِ ۱۰ ثانیه‌ای تا اسپمِ
+ *  چتِ آزاد کارت نسازد. نیت‌های عین همچنان عین می‌مانند (تطبیقِ قطعی).
+ *  V23: ① سه مقدمه‌ی چرخشی (seedشده) ② خطِ وضعیتِ واقعیِ «📌 الان:» از
+ *  راهنمایِ ۶۰ثانیه‌ایِ cacheشده ③ نقضِ ضدسیل دیگر سکوتِ محض نیست — یک خطِ
+ *  «👂 شنیدم» با سقفِ خودش (۴۵ ثانیه) می‌آید؛ گفت‌وگو وسطِ حرف نمی‌میرد. */
+const fallbackAt = new Map<number, number>()
+const fallbackNudgeAt = new Map<number, number>()
+const FALLBACK_COOLDOWN_MS = 10_000
+const FALLBACK_NUDGE_COOLDOWN_MS = 45_000
+
+async function privateFallback(ctx: Context): Promise<void> {
+  const key = ctx.from?.id ?? 0
+  if ((fallbackAt.get(key) ?? 0) > Date.now() - FALLBACK_COOLDOWN_MS) {
+    // V23 — سکوتِ محض به یک خطِ کوتاه تبدیل شد (نرخ‌دار؛ نه اسپم)
+    if ((fallbackNudgeAt.get(key) ?? 0) <= Date.now() - FALLBACK_NUDGE_COOLDOWN_MS) {
+      fallbackNudgeAt.set(key, Date.now())
+      await ctx.reply(fallbackNudgeText(String(key)))
+    }
+    return
+  }
+  fallbackAt.set(key, Date.now())
+  // V23 — وضعِ واقعیِ بازیکن روی کارتِ نفهمیدن هم می‌نشیند (اگر موتور جواب داد)
+  let guideHeadline: string | null = null
+  try {
+    guideHeadline = (await api.guide(tgId(ctx))).headline || null
+  } catch {
+    /* کارت بدونِ وضعیت هم کامل است — موتور خواب، نقصِ شخصیت نیست */
+  }
+  const kb = new InlineKeyboard()
+  kb.text("🎯 قدمِ بعدی", CB.guide).primary()
+  kb.text("🎲 اتفاقِ امروز", CB.event).primary().row()
+  kb.text("📖 راهنما", CB.help).primary()
+  kb.text("↩ خانه", CB.menu)
+  await show(ctx, fallbackCardText(`${key}:${Math.floor(Date.now() / 60_000)}`, guideHeadline), kb)
+}
+
+// ─── V23 — نیت‌های اجتماعی: گفت‌وگوی واقعی (social.ts) ────────────────────
+
+/** وضعیتِ اجتماعی از موتور — هر شکستی = null (شخصیتِ ربات به موتور وابسته نیست).
+ *  فقط نیت‌های وضعیت‌آگاه موتور را می‌خوانند (greet/howAreYou/love/tired)؛
+ *  تشکر/خداحافظی/خنده جوابِ خودکفا دارند — هیچ فراخوانیِ اضافی نه. */
+async function fetchSocialState(ctx: Context, id: SocialIntentId): Promise<SocialState> {
+  const fallbackName = ctx.from?.first_name || ctx.from?.username || ""
+  const needsEngine = id === "greet" || id === "howAreYou" || id === "love" || id === "tired"
+  if (!needsEngine) return socialStateOf(null, null, fallbackName)
+  const id2 = tgId(ctx)
+  let snapshot: GameSnapshot | null = null
+  let guide: GuideResponse | null = null
+  try {
+    snapshot = (await api.state(id2)).snapshot ?? null
+  } catch {
+    /* موتور خواب — جوابِ نام‌محور می‌آید */
+  }
+  if (id === "tired") {
+    try {
+      guide = await api.guide(id2)
+    } catch {
+      /* قدمِ بعدیِ عمومی می‌آید */
+    }
+  }
+  return socialStateOf(snapshot, guide, fallbackName)
+}
+
+/** مسیرِ اجتماعی: خصوصی = جوابِ گرمِ وضعیت‌آگاه (PLAIN؛ حداکثر یک دکمه‌ی «قدمِ
+ *  بعدی»)؛ گروه (آدرس‌دهی‌شده) = یک خطِ کوتاه بدونِ موتور — ناظرِ حضور مالِ بقیه‌ی
+ *  حرف‌هاست. */
+async function routeSocial(ctx: Context, id: SocialIntentId): Promise<void> {
+  if (isGroupChat(ctx)) {
+    await ctx.reply(groupSocialReply(id, ctx.from?.first_name || ctx.from?.username || "", String(ctx.message?.message_id ?? 0)))
+    return
+  }
+  const s = await fetchSocialState(ctx, id)
+  const reply = privateSocialReply(id, s, String(ctx.message?.message_id ?? 0), new Date())
+  if (reply.buttons === "guide") {
+    const kb = new InlineKeyboard()
+    kb.text("🎯 قدمِ بعدی", CB.guide).primary()
+    await ctx.reply(reply.text, { reply_markup: kb })
+  } else {
+    await ctx.reply(reply.text)
+  }
+}
+
+// ─── V23 — استیکرِ خصوصی: رسانه هم دیده می‌شود (سابق: سیاه‌چاله) ────────────
+
+const STICKER_LINE_GAP_MS = 60_000
+const stickerLineAt = new Map<number, number>()
+
+/** هر استیکرِ خصوصی یک واکنشِ ایموجی می‌گیرد (قطعی با خودِ پیام)؛ خطِ گرم فقط
+ *  اولینِ پنجره‌ی ۶۰ثانیه‌ای — واکنش ارزان است، متن نه. در گروه ساکت می‌مانیم
+ *  (موتورِ حضور رسانه نمی‌بیند؛ صادقانه دست نمی‌زنیم). */
+async function onPrivateSticker(ctx: Context): Promise<void> {
+  if (!isPrivate(ctx)) return
+  const msgId = ctx.message?.message_id
+  if (msgId === undefined) return
+  try {
+    const reactChatId = ctx.chat?.id
+    if (reactChatId !== undefined) {
+      await ctx.api.setMessageReaction(reactChatId, msgId, [{ type: "emoji", emoji: stickerReaction(msgId) }])
+    }
+  } catch {
+    /* واکنشِ نرسیده = سکوت */
+  }
+  const key = ctx.from?.id ?? 0
+  if ((stickerLineAt.get(key) ?? 0) > Date.now() - STICKER_LINE_GAP_MS) return
+  stickerLineAt.set(key, Date.now())
+  await ctx.reply(stickerLine(key, msgId))
+}
+
 async function routeIntent(ctx: Context): Promise<boolean> {
   const raw = ctx.message?.text
   if (!raw || raw.startsWith("/")) return false // فرمان‌ها مسیرِ خودشان را دارند
@@ -1486,9 +1668,28 @@ async function routeIntent(ctx: Context): Promise<boolean> {
     // آدرس‌دهی بدونِ نیت → راهنمایِ کوتاهِ عبارت‌ها (§9: انتخاب، نه حدس) — با ضدسیل
     if (group && addressed && admitTextCommand(ctx)) {
       await ctx.reply(INTENT_HINT)
+      // V23 — نبض جا نمی‌ماند: مصرفِ مسیریاب، شمارش را نمی‌خورَد
+      await countGroupPulse(ctx)
+      return true
+    }
+    // V20 — سکوتِ خصوصی پایان یافت: پیامِ نامفهوم یک کارتِ کمکِ کوتاه می‌گیرد
+    // (ضدسیلِ ۱۰ ثانیه‌ای)؛ بازیکن راهِ برگشت را همیشه در دست دارد (§7.3)
+    if (!group) {
+      await privateFallback(ctx)
       return true
     }
     return false
+  }
+  // V23 — نیت‌های اجتماعی: گفت‌وگو، نه کارت. گروهِ بی‌آدرس → ناظرِ شهر
+  // (طبقه‌بندی/نبض مالِ اوست)؛ آدرس‌دهی‌شده = یک خطِ کوتاهِ اجتماعی.
+  if (SOCIAL_INTENTS.has(hit.id)) {
+    if (group && !addressed) return false
+    if (!admitTextCommand(ctx)) return true
+    stats.hears++
+    await run(ctx, () => routeSocial(ctx, hit.id as SocialIntentId))
+    // V23 — نبض جا نمی‌ماند (جوابش خودِ خطِ اجتماعی است؛ شمارش خاموش)
+    if (group) await countGroupPulse(ctx)
+    return true
   }
   // عبارتِ «شخصی» در گروهِ بی‌آدرس → سکوت (هijack ممنوع)؛ در خصوصی آزاد
   if (group && !addressed && !hit.open) return false
@@ -1497,9 +1698,11 @@ async function routeIntent(ctx: Context): Promise<boolean> {
 
   stats.hears++
   if (!group) {
-    await run(ctx, PRIVATE_INTENT[hit.id])
+    await run(ctx, PRIVATE_INTENT[hit.id]!)
   } else {
     await routeGroupIntent(ctx, hit.id)
+    // V23 — فرمان‌گونه‌ها هم شهروندند: شمارشِ خاموش (جوابش کارتِ نیت است)
+    await countGroupPulse(ctx)
   }
   return true
 }
@@ -1622,6 +1825,9 @@ export function registerBot(bot: Bot): void {
     }
     await next()
   })
+
+  // ── V23 — استیکرِ خصوصی: واکنشِ ایموجی + خطِ گرمِ نرخ‌دار (گروه: ساکت) ──
+  bot.on("message:sticker", wrap(onPrivateSticker))
 
   // ── دکمه‌های کیبوردِ ثابتِ خصوصی — از V13 بدونِ هندلرِ جدا ──
   // متنِ دقیقِ دکمه‌ها («🎀 فمبوی»، «🎲 اتفاق امروز»…) پس از نرمال‌سازی همین

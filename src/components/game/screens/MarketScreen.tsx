@@ -1,6 +1,9 @@
 "use client"
 
-// بازار — آگهی‌ها، مغازه‌ی محله، قیمت‌ها
+// بازار — آگهی‌ها و مغازه‌ی محله.
+// V22: این صفحه حالا نمایِ «بازار»ی تبِ «کیف و بازار» است (EconomyScreen) — در
+// حالتِ embedded هدر (پول/اقتصاد) مالِ همان صفحه‌ی بالاست. سگمنتِ «قیمت‌ها»
+// حذف شد؛ DTOی api.market همچنان prices دارد (فقط رندر نمی‌شود).
 import * as React from "react"
 import { motion } from "framer-motion"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -10,20 +13,20 @@ import { useGame } from "../store"
 import { faNum, faPercent } from "../fa"
 import { ActionOutcomeCard } from "../ActionOutcomeCard"
 import { buildSnapshotNextStep } from "../ui/outcomeMeta"
-import { ActionButton, Chip, EmptyState, GlassCard, MoneyBadge, RarityChip, SectionTitle } from "../ui"
+import { ActionButton, Chip, EmptyState, GlassCard, MoneyBadge, RarityChip } from "../ui"
 import { cn } from "@/lib/utils"
 
-type MarketTab = "listings" | "shop" | "prices"
+type MarketTab = "listings" | "shop"
 
 const TABS: { key: MarketTab; label: string }[] = [
   { key: "listings", label: "آگهی‌ها" },
   { key: "shop", label: "مغازه‌ی محله" },
-  { key: "prices", label: "قیمت‌ها" },
 ]
 
-export function MarketScreen() {
+export function MarketScreen({ embedded = false }: { embedded?: boolean }) {
   const snapshot = useGame((s) => s.snapshot)
-  const active = useGame((s) => s.activeTab === "market")
+  // V22 — واکشی فقط وقتی نمایِ بازار فعال است (تبِ «کیف» + نمایِ بازار)
+  const active = useGame((s) => s.activeTab === "bag" && s.economyView === "market")
   // V17-W3 (F1): خرید از بازار نتیجه‌اش را در کارتِ نتیجه می‌گیرد، نه توستِ ۳.۵ ثانیه‌ای
   const runActionReveal = useGame((s) => s.runActionReveal)
   const actionOutcome = useGame((s) => s.actionOutcome)
@@ -62,7 +65,7 @@ export function MarketScreen() {
     void load()
   }, [active, load, reloadSeq])
 
-  // V17-W3 (F1) — کارتِ نتیجه مثلِ توست رفتار می‌کند: با ترکِ تبِ بازار جمع می‌شود
+  // V17-W3 (F1) — کارتِ نتیجه مثلِ توست رفتار می‌کند: با ترکِ نمایِ بازار جمع می‌شود
   React.useEffect(() => {
     if (!active) setActionOutcome(null)
   }, [active, setActionOutcome])
@@ -95,18 +98,21 @@ export function MarketScreen() {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex items-center justify-between px-1">
-        <div>
-          <h1 className="text-xl font-extrabold leading-8">💰 بازار</h1>
-          <p className="text-xs text-muted-foreground">قیمت‌ها مثل شایعه‌اند؛ هر روز عوض می‌شوند.</p>
-        </div>
-        <div className="flex flex-col items-end gap-1">
-          <MoneyBadge amount={money} compact />
-          <Chip tone={economy > 115 ? "rose" : economy < 85 ? "emerald" : "default"}>
-            اقتصاد: {faPercent(economy)}
-          </Chip>
-        </div>
-      </header>
+      {/* V22 — در حالتِ embedded هدر مالِ EconomyScreen است (پول/اقتصاد/عنوان) */}
+      {embedded ? null : (
+        <header className="flex items-center justify-between px-1">
+          <div>
+            <h1 className="text-xl font-extrabold leading-8">💰 بازار</h1>
+            <p className="text-xs text-muted-foreground">قیمت‌ها مثل شایعه‌اند؛ هر روز عوض می‌شوند.</p>
+          </div>
+          <div className="flex flex-col items-end gap-1">
+            <MoneyBadge amount={money} compact />
+            <Chip tone={economy > 115 ? "rose" : economy < 85 ? "emerald" : "default"}>
+              اقتصاد: {faPercent(economy)}
+            </Chip>
+          </div>
+        </header>
+      )}
 
       {/* V17-W3 (F1) — جایگاهِ کارتِ نتیجه‌ی خرید: بالایِ محتوای بازار، تا بسته شود می‌ماند */}
       {actionOutcome ? (
@@ -191,9 +197,7 @@ export function MarketScreen() {
             onBuy={buyListing}
             onSeeCity={() => setActiveTab("city")}
           />
-        ) : (
-          <PricesTab prices={data?.prices ?? null} />
-        )}
+        ) : null}
       </motion.div>
     </div>
   )
@@ -340,52 +344,5 @@ function ShopTab(props: {
         )
       })}
     </ul>
-  )
-}
-
-// ─── قیمت‌ها ─────────────────────────────────────────────────────────────────
-
-function PricesTab({ prices }: { prices: PriceInfoDTO[] | null }) {
-  if (!prices) {
-    return (
-      <div className="flex flex-col gap-2">
-        {[0, 1, 2, 3, 4, 5].map((i) => (
-          <Skeleton key={i} className="h-12 rounded-2xl bg-white/[0.05]" />
-        ))}
-      </div>
-    )
-  }
-
-  return (
-    <GlassCard pad="sm">
-      <SectionTitle icon="📈" title="نرخ امروز" action={<Chip tone="teal">هر روز عوض می‌شه</Chip>} />
-      <ul className="scrollbar-thin max-h-96 overflow-y-auto pe-1">
-        {prices.map((p) => {
-          const diff = p.current - p.base
-          const pct = p.base > 0 ? Math.round((diff / p.base) * 100) : 0
-          return (
-            <li key={p.itemKey} className="flex items-center gap-2.5 border-b border-white/5 py-2 last:border-0">
-              <span aria-hidden className="text-lg leading-none">
-                {p.emoji}
-              </span>
-              <span className="min-w-0 flex-1 truncate text-xs font-semibold">{p.name}</span>
-              <span className="text-[11px] text-muted-foreground tabular-nums">پایه {faNum(p.base)}</span>
-              <span className="text-xs font-extrabold tabular-nums text-foreground/90">{faNum(p.current)}</span>
-              <span
-                className={cn(
-                  "flex w-14 items-center justify-center gap-0.5 text-[11px] font-bold tabular-nums",
-                  pct > 0 ? "text-emerald-300" : pct < 0 ? "text-rose-300" : "text-muted-foreground",
-                )}
-              >
-                {pct > 0 ? "▲" : pct < 0 ? "▼" : "—"} {faPercent(Math.abs(pct))}
-              </span>
-            </li>
-          )
-        })}
-      </ul>
-      <p className="mt-2 px-1 text-[11px] leading-4 text-muted-foreground">
-        ▲ یعنی گرون‌تر از پایه، ▼ یعنی ارزون‌تر. کسی نمی‌دونه فردا چی می‌شه. خود قیمت‌ها هم نمی‌دونن.
-      </p>
-    </GlassCard>
   )
 }

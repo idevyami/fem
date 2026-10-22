@@ -30,6 +30,8 @@ export async function POST(req: NextRequest) {
       text,
       addressedToBot: body.addressedToBot === true,
       replyToTelegramId: typeof body.replyToTelegramId === "string" && body.replyToTelegramId ? body.replyToTelegramId : null,
+      // V23 — شمارشِ خاموش (مصرفِ مسیریابِ نیت): شمارش بدونِ جواب
+      ...(body.silent === true ? { silent: true } : {}),
     })
     return jsonOk(result)
   } catch (e) {

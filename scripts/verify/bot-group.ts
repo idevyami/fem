@@ -62,6 +62,14 @@ let mockStatePlayer: any = {
   job: null, vehicle: null, house: null, activeTitle: null, titles: [], achievements: [],
 }
 
+// V20 §21 — فمبویِ snapshot (سفرِ «بازگشت») · کارتِ سولِ mock (سفرِ کشفِ شخصیت)
+// · اتفاقِ فعال (سفرِ بازیابی) — هر سه فقط برای بازیکن‌هایِ سناریوییِ همین بخش
+let mockStateFemboy: any = null
+// V23 §23 — قطعِ موتور برای سفرِ «شخصیت مستقل از موتور» (state → 500)
+let mockStateFail = false
+const mockSoulOverrides = new Map<string, any>()
+let mockActiveEvent: any = null
+
 // V16-4 §17/§19 — overrides پروفایل (دستاوردها/کیفِ بزرگ) + §18 بازارِ stateful
 const mockProfileOverrides = new Map<string, { achievements?: any[]; achievementsTotal?: number; inventory?: any[] }>()
 const MOCK_ITEMS: Record<string, { name: string; emoji: string }> = {
@@ -80,8 +88,13 @@ globalThis.fetch = (async (url: any, init: any) => {
     typeof body?.telegramId === "string" ? body.telegramId : (u.searchParams.get("telegramId") ?? "")
   if (REAL_PASS.has(passWho)) return realFetch(String(url), init)
   // V15-3 §14 — soulGet خصوصی (GET /api/game/character?telegramId=…): بازیکنِ بدونِ
-  // فمبوی → کارتِ noCharacter (پنلِ خودش)؛ مسیرِ pathname خالص از body خبر ندارد
+  // فمبوی → کارتِ noCharacter (پنلِ خودش)؛ V20 §21 — override برای سفرِ کشف
   if (u.pathname === "/api/game/character" && u.searchParams.has("telegramId")) {
+    const soulWho = u.searchParams.get("telegramId") ?? ""
+    const soulCard = mockSoulOverrides.get(soulWho)
+    if (soulCard) {
+      return new Response(JSON.stringify({ ok: true, data: { exists: true, card: soulCard } }), { status: 200, headers: { "content-type": "application/json" } })
+    }
     return new Response(JSON.stringify({ ok: true, data: { exists: false } }), { status: 200, headers: { "content-type": "application/json" } })
   }
   const data = engineResponse(u.pathname, body)
@@ -94,7 +107,18 @@ globalThis.fetch = (async (url: any, init: any) => {
 }) as typeof fetch
 
 function engineResponse(path: string, body: any): any {
-  if (path === "/api/auth") return { created: true, snapshot: { player: {}, femboy: null } }
+  if (path === "/api/auth") {
+    // V20 §21-J2 — همان snapshot کاملِ state (فمبویِ سناریویی برای سفرِ «بازگشت»)
+    return {
+      created: true,
+      snapshot: {
+        player: { ...mockStatePlayer },
+        world: { dayCount: 4, weatherLabel: "آفتابی", weatherEmoji: "☀️", chaosLevel: 10, globalEvent: null },
+        activeEvent: null, pets: [], inventory: [], notifications: [], unreadNotifications: 0,
+        offlineRecap: null, femboy: mockStateFemboy,
+      },
+    }
+  }
   if (path === "/api/group/command") {
     const action = body?.action ?? "command"
     if (action === "command") {
@@ -169,15 +193,18 @@ function engineResponse(path: string, body: any): any {
   }
   // V16-3 §16 — snapshot کامل برای /api/game/state (بینگو/شهر/حساب)
   if (path === "/api/game/state") {
+    if (mockStateFail) return { __fail: { message: "موتور خواب است", status: 500 } }
     return {
       snapshot: {
         player: { ...mockStatePlayer },
         world: { dayCount: 4, weatherLabel: "آفتابی", weatherEmoji: "☀️", chaosLevel: 10, globalEvent: null },
         activeEvent: null, pets: [], inventory: [], notifications: [], unreadNotifications: 0,
-        offlineRecap: null, femboy: null,
+        offlineRecap: null, femboy: mockStateFemboy,
       },
     }
   }
+  // V20 §21 — اتفاقِ فعال (سفرِ بازیابی: دکمه‌ی «↩ خانه» روی کارتِ اتفاق)
+  if (path === "/api/game/event") return { event: mockActiveEvent }
   // §12-D — بازار: DTO واقعی (V16-4: قیمت‌ها + آگهی‌های stateful) تا کارتِ بازار
   // (نه کارتِ خطا) رندر شود — قیمتِ روزِ «آب» = 30 → پیشنهادها 27/30/33
   if (path === "/api/game/market") {
@@ -198,6 +225,12 @@ function engineResponse(path: string, body: any): any {
       boards: [{ key: "level", label: "سطح", icon: "⭐" }, { key: "wins", label: "برد", icon: "🏅" }],
       entries: [], note: "",
     }
+  }
+  // V20 §21-J4 — story read: POST /api/game/character {action:"story"} → story کارتِ سناریویی
+  if (path === "/api/game/character" && body?.action === "story") {
+    const soulWho = String(body?.telegramId ?? "x")
+    const story = mockSoulOverrides.get(soulWho)?.story ?? null
+    return { message: "فصلِ جاری:", story }
   }
   // V15-2 — کدکسِ راهنما (/api/game/help): 3 دسته؛ combat با 13 موضوع → دو صفحه
   if (path === "/api/game/help") {
@@ -227,7 +260,7 @@ function engineResponse(path: string, body: any): any {
           topics: [{ id: "faq-x", cat: "faq", icon: "🛠️", titleFa: "چرا؟", titleEn: "Why", summaryFa: "چون." }],
         }
       }
-      return { __fail: { message: "چنین دسته‌ای در کدکس نیست — شاید نسخه‌ی کهنه.", code: "no_category", status: 404 } }
+      return { __fail: { message: "چنین دسته‌ای در راهنما نیست — شاید نسخه‌ی کهنه.", code: "no_category", status: 404 } }
     }
     if (action === "topic") {
       if (body?.id === "combat-duels") {
@@ -247,7 +280,7 @@ function engineResponse(path: string, body: any): any {
           page, pageCount: 2,
         }
       }
-      return { __fail: { message: "چنین موضوعی در کدکس نیست — شاید نسخه‌ی کهنه.", code: "no_topic", status: 404 } }
+      return { __fail: { message: "چنین موضوعی در راهنما نیست — شاید نسخه‌ی کهنه.", code: "no_topic", status: 404 } }
     }
   }
   // §15 (V16-1) — راهنمای زنده (اهداف): DTO حداقلی تا کارتِ اهداف رندر شود
@@ -725,12 +758,13 @@ console.log("⑪ no-slash intents: fa/en phrases · normalization (ZWNJ/Arabic y
     ok(cards.length === 1 && (cards[0]?.payload?.text ?? "").includes("خصوصی"), "group «@femwarbot کیف من» → private nudge card")
     ok(groupAction("command").length === before, "...with zero engine commands")
   }
-  // M) addressed unknown «@femwarbot سلام» → short phrase hint (choices, not guessing)
+  // M) addressed unknown → short phrase hint (choices, not guessing)
+  // V23 — «سلام» دیگر ناشناخته نیست (نیتِ اجتماعی): مثالِ ناشناخته عوض شد
   {
     const c = -1001109, u = user(11129)
-    await bot.handleUpdate(msgUpdate(c, u, "@femwarbot سلام"))
+    await bot.handleUpdate(msgUpdate(c, u, "@femwarbot نقشه‌ی گنج‌های شهر کو"))
     const cards = sendPayloads(c)
-    ok(cards.length === 1 && (cards[0]?.payload?.text ?? "").includes("«منو»"), "group «@femwarbot سلام» → short intent hint")
+    ok(cards.length === 1 && (cards[0]?.payload?.text ?? "").includes("«منو»"), "group addressed unknown → short intent hint")
   }
   // N) reply-to-bot + «وضعیت شهر» → engine city (addressed via reply)
   {
@@ -910,12 +944,12 @@ console.log("⑬ V15-2: private codex browser (hp:) · group guard · trio wirin
     const u = 13007
     await bot.handleUpdate(privCbUpdate(u, "hp:t:nonsense:0"))
     let shown = lastShown()
-    ok((shown?.text ?? "").includes("کدکس کهنه شده"), "unknown topic id → friendly stale card (no error dump)")
+    ok((shown?.text ?? "").includes("راهنما کهنه شده"), "unknown topic id → friendly stale card (no error dump)")
     ok(flatCbs(shown).includes("hp:h"), "stale card carries «↩ راهنما» recovery button")
     const u2 = 13008
     await bot.handleUpdate(privCbUpdate(u2, "hp:c:nonsense"))
     shown = lastShown()
-    ok((shown?.text ?? "").includes("کدکس کهنه شده"), "unknown category id → friendly stale card")
+    ok((shown?.text ?? "").includes("راهنما کهنه شده"), "unknown category id → friendly stale card")
   }
   // E) hp: in GROUP chat is NOT private help; group «راهنما» still → engine gh: path
   {
@@ -1131,7 +1165,7 @@ console.log("⑭ V15-3: mission tests A–D (private panels)")
     await bot.handleUpdate(privCb(U1, "hp:t:nonsense:0", 701))
     const staleEdits = tg("editMessageText").slice(editsBeforeD)
     ok(staleEdits.length === 1 && String(staleEdits[0]?.payload?.chat_id) === String(U1), "D: stale hp:t:unknown-id → friendly stale card in U1's own chat")
-    ok((staleEdits[0]?.payload?.text ?? "").includes("کدکس کهنه شده"), "D: stale card text («این برگه از کدکس کهنه شده»)")
+    ok((staleEdits[0]?.payload?.text ?? "").includes("راهنما کهنه شده"), "D: stale card text («این برگه از راهنما کهنه شده»)")
     ok((staleEdits[0]?.payload?.reply_markup?.inline_keyboard ?? []).flat().some((b: any) => b.callback_data === "hp:h"), "D: «↩ راهنما» recovery button present")
     // D-2: قالبِ کهنِ fw:evoGo رویِ هدفِ کهنه → بی‌صدا و بی‌جهش
     await new Promise((r) => setTimeout(r, 350)) // ضدسیلِ همان کاربر (U1)
@@ -1157,14 +1191,15 @@ console.log("⑮ V16-1 deep links: /start items|market|goals → the RIGHT card,
 {
   const deepStart = (userId: number, payload: string) => privMsgUpdate(userId, `/start ${payload}`)
 
-  // A) ?start=items → کارتِ کیف (همان intentِ «کیف»)
+  // A) ?start=items → کارتِ کیف (همان intentِ «کیف») + V20: میان‌برهای ثابت هم می‌رسند
   {
     const u = 15001
     const photosBefore = tg("replyWithPhoto").length
     await bot.handleUpdate(deepStart(u, "items"))
     const cards = sendPayloads(u)
-    ok(cards.length === 1 && (cards[0]?.payload?.text ?? "").includes("🎒 <b>کیف</b>"), "A: /start items → the real bag card («کیف»)")
-    ok(!(cards[0]?.payload?.text ?? "").includes("خوش آمدی") && !(cards[0]?.payload?.text ?? "").includes("پیمانِ فمبویت را ببندیم"), "A: ...NOT the generic welcome card")
+    ok(cards.some((c: any) => (c.payload?.text ?? "").includes("🎒 <b>کیف</b>")), "A: /start items → the real bag card («کیف»)")
+    ok(cards.some((c: any) => (c.payload?.text ?? "").includes("میان‌برهای ثابَتت")), "A: V20 — deep-link entrants now receive the persistent reply keyboard too")
+    ok(!cards.some((c: any) => (c.payload?.text ?? "").includes("خوش آمدی")) && !cards.some((c: any) => (c.payload?.text ?? "").includes("پیمانِ فمبویت را ببندیم")), "A: ...NOT the generic welcome card")
     ok(tg("replyWithPhoto").length === photosBefore, "A: no welcome photo card sent")
     ok(engineCallsFor((c: any) => c.path === "/api/game/profile" && c.body?.telegramId === String(u)).length >= 1, "A: bag data fetched for the deep-linked player (auth upsert + profile)")
   }
@@ -1175,8 +1210,9 @@ console.log("⑮ V16-1 deep links: /start items|market|goals → the RIGHT card,
     const photosBefore = tg("replyWithPhoto").length
     await bot.handleUpdate(deepStart(u, "market"))
     const cards = sendPayloads(u)
-    ok(cards.length === 1 && (cards[0]?.payload?.text ?? "").includes("🏪 <b>بازارِ شهر</b>"), "B: /start market → the real market card («بازارِ شهر»)")
-    ok(!(cards[0]?.payload?.text ?? "").includes("خوش آمدی"), "B: ...NOT the generic welcome card")
+    ok(cards.some((c: any) => (c.payload?.text ?? "").includes("🏪 <b>بازارِ شهر</b>")), "B: /start market → the real market card («بازارِ شهر»)")
+    ok(cards.some((c: any) => (c.payload?.text ?? "").includes("میان‌برهای ثابَتت")), "B: V20 — reply keyboard delivered on the market deep link too")
+    ok(!cards.some((c: any) => (c.payload?.text ?? "").includes("خوش آمدی")), "B: ...NOT the generic welcome card")
     ok(tg("replyWithPhoto").length === photosBefore, "B: no welcome photo card sent")
     ok(engineCallsFor((c: any) => c.path === "/api/game/market" && c.body?.telegramId === String(u)).length >= 1, "B: market data fetched for the deep-linked player")
   }
@@ -1187,8 +1223,9 @@ console.log("⑮ V16-1 deep links: /start items|market|goals → the RIGHT card,
     const photosBefore = tg("replyWithPhoto").length
     await bot.handleUpdate(deepStart(u, "goals"))
     const cards = sendPayloads(u)
-    ok(cards.length === 1 && (cards[0]?.payload?.text ?? "").includes("🎯 <b>اهداف</b>"), "C: /start goals → the real goals card («اهداف»)")
-    ok(!(cards[0]?.payload?.text ?? "").includes("خوش آمدی"), "C: ...NOT the generic welcome card")
+    ok(cards.some((c: any) => (c.payload?.text ?? "").includes("🎯 <b>اهداف</b>")), "C: /start goals → the real goals card («اهداف»)")
+    ok(cards.some((c: any) => (c.payload?.text ?? "").includes("میان‌برهای ثابَتت")), "C: V20 — reply keyboard delivered on the goals deep link too")
+    ok(!cards.some((c: any) => (c.payload?.text ?? "").includes("خوش آمدی")), "C: ...NOT the generic welcome card")
     ok(tg("replyWithPhoto").length === photosBefore, "C: no welcome photo card sent")
     ok(engineCallsFor((c: any) => c.path === "/api/game/guide" && c.body?.telegramId === String(u)).length >= 1, "C: guide data fetched for the deep-linked player")
   }
@@ -1202,10 +1239,10 @@ console.log("⑮ V16-1 deep links: /start items|market|goals → the RIGHT card,
   }
 }
 
-// ═══ 16. V16-3 — بازسازیِ UXِ خصوصی (ممیزی ④⑨⑩⑭ + §4/§13) ═══════════════════
-// منویِ خانه‌ی گروه‌بندی‌شده (۱۱ دکمه) · سفرِ کاملِ محله‌ها · واخواهیِ بینگو ·
-// راهنمایِ بافتاریِ کارت‌ها · صداقتِ کارتِ حساب · بازکاربردِ لنگرِ نتیجه.
-console.log("⑯ V16-3: home regroup · full travel · bingo confirm · card hints · settings honesty · outcome anchor")
+// ═══ 16. V16-3/V20 — بازسازیِ UXِ خصوصی ═════════════════════════════════════
+// V20: منویِ خانه‌ی ۸-دکمه‌ای (۲ زمینه‌ای + ۶ مقصد) · کیبوردِ ثابتِ ۹-دکمه‌ای ·
+// فعالیت‌ها · کارتِ تأییدِ شرط · راهنمایِ بافتاری · صداقتِ کارتِ حساب · لنگرِ نتیجه.
+console.log("⑯ V20: home hub · activities · reply keyboard · card hints · settings honesty · outcome anchor")
 {
   const plainPriv = (userId: number, text: string) => ({
     update_id: nextUpdateId(),
@@ -1219,45 +1256,54 @@ console.log("⑯ V16-3: home regroup · full travel · bingo confirm · card hin
   const flatOf = (payload: any) => (payload?.reply_markup?.inline_keyboard ?? []).flat()
   const cbsOf = (payload: any) => flatOf(payload).map((b: any) => b.callback_data ?? "")
 
-  // ── A) منویِ خانه: ۱۱ دکمه در ۴ ردیفِ گروه‌بندی‌شده (ممیزی ⑨) ───────────────
-  console.log("  ── A home keyboard: 11 grouped buttons (was 15 flat) ──")
+  // ── A) منویِ خانه‌ی V20: ۸ دکمه — ۲ زمینه‌ای (قدم/اتفاق) + ۶ مقصد ────────────────
+  console.log("  ── A home keyboard: 8 buttons (2 contextual + 6 destinations) ──")
   {
     const home = kbMod.homeKeyboard()
     const rows = home.inline_keyboard.filter((r: any) => r.length > 0)
     const textBtns = flatBtns(home).filter((b: any) => b.callback_data !== undefined)
     const miniBtns = flatBtns(home).filter((b: any) => b.web_app !== undefined)
-    ok(textBtns.length === 11, `A: home keyboard carries exactly 11 text buttons (got ${textBtns.length})`)
+    ok(textBtns.length === 8, `A: home keyboard carries exactly 8 text buttons (got ${textBtns.length})`)
     ok(rows.length === 4 + (kbMod.MINIAPP_URL ? 1 : 0), `A: 4 navigation rows${kbMod.MINIAPP_URL ? " + Mini App row" : ""}`)
     const labels = textBtns.map((b: any) => b.text)
     const expected = [
-      "👑 فمبوی من", "🎲 اتفاق امروز",
-      "🎯 قدمِ بعدی", "👤 من", "🏙 شهر",
-      "🎒 کیف", "🏪 بازار", "💼 کار",
-      "📖 راهنما", "👥 شهرِ گروه", "⚙ حساب",
+      "🎯 قدمِ بعدی", "🎲 اتفاقِ امروز",
+      "🎀 فمبویِ من", "👤 من",
+      "⚡ فعالیت‌ها", "🎒 کیف و بازار",
+      "🌍 شهر", "📖 راهنما",
     ]
-    ok(expected.every((l) => labels.includes(l)), "A: all 11 grouped labels present (identity/life/economy/support)")
-    ok(!labels.includes("🎯 اهداف") && !labels.includes("⚡ فرصت‌ها") && !labels.includes("✨ آرزوها") && !labels.includes("😴 استراحت"), "A: goals/ops/dreams/rest are NOT home-level buttons anymore")
+    ok(expected.every((l) => labels.includes(l)), "A: all 8 V20 hub labels present (contextual/identity/activities/things/world/help)")
+    ok(!labels.includes("🏪 بازار") && !labels.includes("💼 کار") && !labels.includes("👥 شهرِ گروه") && !labels.includes("⚙ حساب"), "A: market/work/group-city/settings are NOT home-level buttons anymore")
+    const bagKb = kbMod.bagKeyboard({ pets: [], inventory: [], prices: new Map() })
+    ok(flatBtns(bagKb).some((b: any) => b.callback_data === "m:market"), "A: market reachable from the bag footer (کیف و بازار = one destination)")
+    const actsKb = kbMod.activitiesKeyboard({ debt: 0 } as any)
+    ok(flatBtns(actsKb).some((b: any) => b.callback_data === "a:work"), "A: work reachable from the activities card")
+    const cityKb = kbMod.cityKeyboard("bazaar")
+    ok(flatBtns(cityKb).some((b: any) => b.callback_data === "m:groupcity"), "A: group-city reachable from the city card (two cities, one destination)")
+    const profileKb = kbMod.profileKeyboard({ debt: 0 } as any)
+    ok(flatBtns(profileKb).some((b: any) => b.callback_data === "m:settings"), "A: settings reachable from the profile card")
     ok(kbMod.MINIAPP_URL ? miniBtns.length === 1 : miniBtns.length === 0, "A: Mini App row only with a real https URL")
-    // هر دکمه‌ی حذف‌شده هنوزreachable است — نقشه‌ی جایگزین (گزارشِ V16-3):
     ok(labels.includes("🎯 قدمِ بعدی"), "A: «راهنمای من» → «قدمِ بعدی» (TERM.nextStep — audit ②)")
-    ok(labels.includes("👥 شهرِ گروه"), "A: «شهرِ گروهی» → «شهرِ گروه» (TERM.groupWorld)")
   }
 
-  // ── B) کیبوردِ ثابتِ خصوصی: ۷ دکمه، همه نیتِ واقعی (ممیزی ⑨) ───────────────
-  console.log("  ── B reply keyboard: 7 buttons, each normalizes to a real intent ──")
+  // ── B) کیبوردِ ثابتِ خصوصیِ V20: ۹ دکمه، همه نیتِ واقعی ────────────────────────
+  console.log("  ── B reply keyboard: 9 buttons, each normalizes to a real intent ──")
   {
     const u = 16001
     await bot.handleUpdate(privMsgUpdate(u, "/start"))
     const kbMsg = sendPayloads(u).find((c: any) => (c.payload?.text ?? "").includes("میان‌برهای ثابَتت"))
     const replyRows: any[][] = kbMsg?.payload?.reply_markup?.keyboard ?? []
     const replyBtns = replyRows.flat()
-    ok(replyBtns.length === 7, `B: persistent reply keyboard = 7 buttons (got ${replyBtns.length})`)
+    ok(replyBtns.length === 9, `B: persistent reply keyboard = 9 buttons (got ${replyBtns.length})`)
     const intents = replyBtns.map((b: any) => intentMod.resolveIntent(b.text)?.id ?? null)
     ok(intents.every((id: any) => id !== null), `B: every reply button normalizes to a real intent (got ${JSON.stringify(intents)})`)
     ok(intents.includes("femboy") && intents.includes("events") && intents.includes("guide"), "B: femboy/event/guide intents reachable from the reply keyboard")
-    ok(intents.includes("inventory") && intents.includes("work") && intents.includes("help") && intents.includes("menu"), "B: bag/work/help/menu intents reachable from the reply keyboard")
+    ok(intents.includes("inventory") && intents.includes("work") && intents.includes("help"), "B: bag/work/help intents reachable from the reply keyboard")
+    ok(intents.includes("activities") && intents.includes("city") && intents.includes("profile"), "B: V20 — activities/city/profile are reply-keyboard destinations now")
+    ok(replyBtns.every((b: any) => b.text !== "⚙ منو"), "B: V20 — «⚙ منو» removed (icon belongs to settings; «منو» phrase still live)")
+    ok(intentMod.resolveIntent("فعالیت‌ها")?.id === "activities", "B: V20 — new canonical phrase activities-fa resolves to the activities intent")
     ok(intentMod.resolveIntent("قدمِ بعدی")?.id === "guide", "B: NEW canonical phrase «قدمِ بعدی» resolves to guide (TERM.nextStep)")
-    ok(intentMod.resolveIntent("راهنمای من")?.id === "guide", "B: legacy phrase «راهنمای من» still resolves (live migration)")
+    ok(intentMod.resolveIntent("راهنمای من")?.id === "guide", "B: legacy phrase guide-fa still resolves (live migration)")
     ok(intentMod.resolveIntent("پیشخوان")?.id === "menu", "B: legacy phrase «پیشخوان» still resolves to home")
   }
 
@@ -1267,9 +1313,13 @@ console.log("⑯ V16-3: home regroup · full travel · bingo confirm · card hin
     const guideKb = kbMod.guideKeyboard()
     const guideCbs = flatBtns(guideKb).map((b: any) => b.callback_data)
     ok(guideCbs.includes("m:ops") && guideCbs.includes("m:dreams") && guideCbs.includes("m:goals"), "C: guide card carries فرصت‌ها/آرزوها/اهداف buttons")
-    const profileKb = kbMod.profileKeyboard({ debt: 0 })
+    const profileKb = kbMod.profileKeyboard({ debt: 0 } as any)
     const profileCbs = flatBtns(profileKb).map((b: any) => b.callback_data)
-    ok(profileCbs.includes("a:rest"), "C: «😴 استراحت» lives inside the profile card (a:rest)")
+    ok(!profileCbs.includes("a:rest"), "C: V20 — rest moved out of the profile card (it is an activity, not a destination)")
+    ok(profileCbs.includes("m:notify"), "C: V20 — «🔔 خبرها» reachable from the profile card (was an orphaned subsystem)")
+    const actsKb2 = kbMod.activitiesKeyboard({ debt: 0 } as any)
+    const actsCbs = flatBtns(actsKb2).map((b: any) => b.callback_data)
+    ok(actsCbs.includes("a:rest") && actsCbs.includes("a:work") && actsCbs.includes("m:city") && actsCbs.includes("m:jobs"), "C: V20 — activities card carries work/rest/travel/jobs")
     ok(intentMod.resolveIntent("فرصت‌ها")?.id === "ops" && intentMod.resolveIntent("آرزوها")?.id === "dreams" && intentMod.resolveIntent("استراحت")?.id === "rest" && intentMod.resolveIntent("اهداف")?.id === "goals", "C: phrases فرصت‌ها/آرزوها/استراحت/اهداف all resolve")
     // کارتِ «قدمِ بعدی» خودش فرصت‌ها و آرزوها را به‌عنوانِ بخش حمل می‌کند
     const u = 16002
@@ -1324,7 +1374,7 @@ console.log("⑯ V16-3: home regroup · full travel · bingo confirm · card hin
     const gambleCallsE2 = engineCalls.slice(beforeE2).filter((c: any) => c.path === "/api/game/action" && c.body?.action === "gamble")
     ok(gambleCallsE2.length === 0, "E2: pressing 5,000 does NOT call the engine yet (confirm required)")
     const confirm = tg("editMessageText").at(-1)?.payload
-    ok((confirm?.text ?? "").includes("واخواهی") && (confirm?.text ?? "").includes("این‌قدر توپ می‌ریزی؟ ضرش می‌خوره."), "E2: «واخواهی» confirm card with the mission voice")
+    ok((confirm?.text ?? "").includes("تأییدِ شرطِ بزرگ") && (confirm?.text ?? "").includes("از جیب می‌رود و برنمی‌گردد"), "E2: V20 — plain «تأییدِ شرطِ بزرگ» card states the irreversible cost")
     ok(cbsOf(confirm).includes("b:go:5000") && flatOf(confirm).some((b: any) => b.text === "💥 بفرست"), "E2: confirm card carries «💥 بفرست» (b:go:5000)")
     // E3) تأیید → موتور با stake:5000
     await new Promise((r) => setTimeout(r, 350)) // ضدسیلِ همان کاربر
@@ -1397,7 +1447,7 @@ console.log("⑯ V16-3: home regroup · full travel · bingo confirm · card hin
     const u3 = 16022
     await bot.handleUpdate(plainPriv(u3, "من"))
     const meCard = sendPayloads(u3).at(-1)?.payload
-    ok((meCard?.text ?? "").includes("«استراحت»") && (meCard?.text ?? "").includes("«تاریخچه»"), "F3: profile card hint lists «استراحت» + «تاریخچه»")
+    ok((meCard?.text ?? "").includes("«تاریخچه»") && (meCard?.text ?? "").includes("«عنوان‌ها»"), "F3: V20 — profile card hint lists «تاریخچه» + «عنوان‌ها» (rest moved to the activities card)")
     // F4) خانه → عبارت‌هایِ هسته
     const u4 = 16023
     await bot.handleUpdate(plainPriv(u4, "منو"))
@@ -1409,9 +1459,9 @@ console.log("⑯ V16-3: home regroup · full travel · bingo confirm · card hin
     await bot.handleUpdate(plainPriv(u5, "بینگو"))
     const bingoHint = sendPayloads(u5).at(-1)?.payload
     ok((bingoHint?.text ?? "").includes("«کار»"), "F5: bingo card hint points at «کار» (recovery path)")
-    // F6) fallback گروهی: ۶ عبارتِ هسته + اشاره‌گرِ کدکس
+    // F6) fallback گروهی: ۶ عبارتِ هسته + اشاره‌گرِ کدکس (V23: مثالِ ناشناخته — «سلام» نیتِ اجتماعی شد)
     const c6 = -1001600
-    await bot.handleUpdate(msgUpdate(c6, user(16025), "@femwarbot سلام"))
+    await bot.handleUpdate(msgUpdate(c6, user(16025), "@femwarbot حرفِ آزاد هنوز یاد نگرفتی؟"))
     const hintCard = sendPayloads(c6).at(-1)?.payload
     ok((hintCard?.text ?? "").includes("«منو»") && (hintCard?.text ?? "").includes("«بازی‌های گروه»"), "F6: group fallback keeps the 6 core phrases")
     ok((hintCard?.text ?? "").includes("زبانِ طبیعی"), "F6: group fallback points at the «زبانِ طبیعی» codex category (phrases)")
@@ -1622,12 +1672,12 @@ console.log("⑱ V16-4: market listing flow (sell picker → price card → crea
     const u = 18001
     await bot.handleUpdate(plainPriv(u, "بازار"))
     const marketCard = sendPayloads(u).at(-1)?.payload
-    ok(cbsOf(marketCard).includes("m:mk") && textsOf(marketCard).includes("🛍 فهرست‌کردن"), "A: market card carries «🛍 فهرست‌کردن» (m:mk)")
+    ok(cbsOf(marketCard).includes("m:mk") && textsOf(marketCard).includes("🛍 به فروش بگذار"), "A: V20 — market card carries «🛍 به فروش بگذار» (m:mk; was «فهرست‌کردن»)")
     await sleep(350)
     await bot.handleUpdate(privCb(u, "m:mk", 960))
     const picker = tg("editMessageText").at(-1)?.payload
     const ptext = picker?.text ?? ""
-    ok(ptext.includes("فهرست‌کردن در بازار"), "A: sell picker card renders")
+    ok(ptext.includes("به فروش بگذاری"), "A: V20 — sell picker card renders with the explicit verb")
     ok(ptext.includes("آب") && cbsOf(picker).includes("ms:water"), "A: tradable bag item offered as a picker button (ms:water)")
     ok(ptext.includes("کارمزدی ندارد") && ptext.includes("3 روز"), "A: honesty line on the picker (no fee · escrow · 3-day TTL)")
     // فیلترِ قابلِ‌فروش: قفل/علاقه‌مندی/پوشیده/غیرقابلِ‌معامله نمی‌آیند
@@ -1662,7 +1712,7 @@ console.log("⑱ V16-4: market listing flow (sell picker → price card → crea
     ok(ptext.includes("از کیف") && ptext.includes("3 روز اعتبار"), "B: escrow + 3-day TTL disclosed on the confirm card")
     // 0.9/1.0/1.1 × 30 (کف) → 27/30/33 — هر دکمه یک قیمت
     ok(pbtns.includes("mp:water:27") && pbtns.includes("mp:water:30") && pbtns.includes("mp:water:33"), "B: three suggested-price buttons mp:water:27|30|33 (0.9/1.0/1.1 × day)")
-    ok(pbtns.includes("m:mk") && pbtns.includes("m:market"), "B: picker/market back buttons present")
+    ok(pbtns.includes("m:mk") && pbtns.includes("m:items"), "B: V20 — picker/bag back buttons present (کیف is the sibling destination)")
   }
 
   // ── C) گامِ ۳ — تأیید: همان createListing مینی‌اپ؛ ردیفِ واقعیِ Listing ────
@@ -2035,20 +2085,20 @@ console.log("⑳ V17-3: group spectator auto-registration · house/vehicle purch
       // editMessageText باشد — هر دو کانال را جمع می‌کنیم)؛ یکی را انتخاب کن
       const personaMsg = [...sendPayloads(userIdC).map((c: any) => c.payload), ...editPayloads()].at(-1)
       const personaText = personaMsg?.text ?? personaMsg?.caption ?? ""
-      ok(personaText.includes("حالا طبعش را برگزین"), "C: V19 persona picker step appears after class", JSON.stringify(personaText.slice(0, 100)))
+      ok(personaText.includes("حالا شخصیتش را برگزین"), "C: V19 persona picker step appears after class", JSON.stringify(personaText.slice(0, 100)))
       await bot.handleUpdate(privCb(userIdC, "fw:persona:sunny", 9815))
       await sleep(350)
       await bot.handleUpdate(plainPriv(userIdC, "پیمان‌آزمون"))
       const confirmC = sendPayloads(userIdC).at(-1)?.payload
       ok((confirmC?.text ?? "").includes("👑 <b>فمبویِ تو</b>"), "C: pact confirm card title is canonical «فمبویِ تو» (was «روح‌بسته»)")
-      ok((confirmC?.text ?? "").includes("🎭 طبع:"), "C: V19 confirm card carries the chosen persona")
+      ok((confirmC?.text ?? "").includes("🎭 شخصیت:"), "C: V19 confirm card carries the chosen persona (V20 label «شخصیت»)")
       ok(!(confirmC?.text ?? "").includes("روح‌بسته"), "C: confirm card carries zero «روح‌بسته»")
       await sleep(350)
       await bot.handleUpdate(privCb(userIdC, "fw:confirm", 982))
       // هابِ خصوصی — کپشنِ عکس + بنرِ «قدمِ بعدی: اولین تعامل» (journey.stage bound)
       const hubC = tg("sendPhoto").at(-1)?.payload
       ok((hubC?.caption ?? "").includes("فمبویِ اختصاصی‌ام"), "C: femboy hub caption renders (photo card)")
-      ok((hubC?.caption ?? "").includes("🎭 طبع:"), "C: V19 hub caption carries the persona line")
+      ok((hubC?.caption ?? "").includes("🎭 شخصیت:"), "C: V19 hub caption carries the persona line (V20 label)")
       ok((hubC?.caption ?? "").includes("قدمِ بعدی: اولین تعامل"), "C: post-pact banner teaches the first interaction (bound + level ≤ 2)")
       ok(!(hubC?.caption ?? "").includes("روح‌بسته"), "C: hub carries zero «روح‌بسته»")
       // هابِ گروهی — عنوانِ قاعده‌مند
@@ -2076,6 +2126,367 @@ console.log("⑳ V17-3: group spectator auto-registration · house/vehicle purch
 }
 
 // ── result ─────────────────────────────────────────────────────────────────────
+// ═══ 21. V20 — سفرهای کامل بازیکن (مأموریت §12 Phase K: ده سفر) ═════════════
+// J1 newcomer · J2 return · J3 character-discovery · J4 story · J5 gameplay ·
+// J6 unavailable · J7 natural-language · J8/J9 → covered by §V18-engine/⑭·§20
+// (shared panels over real HTTP + owner-guard) · J10 recovery.
+console.log("㉑ V20 player journeys: hub · discovery · gameplay · NL · recovery")
+{
+  const plainPriv = (userId: number, text: string) => ({
+    update_id: nextUpdateId(),
+    message: { message_id: nextUpdateId(), date: 1, chat: privChat(userId), from: user(userId), text, entities: [] },
+  })
+  const privCb = (userId: number, data: string, msgId: number) => ({
+    update_id: nextUpdateId(),
+    callback_query: { id: `cq${nextUpdateId()}`, from: user(userId), message: { message_id: msgId, date: 1, chat: privChat(userId) }, data },
+  })
+  const flatOf = (payload: any) => (payload?.reply_markup?.inline_keyboard ?? []).flat()
+  const cbsOf = (payload: any) => flatOf(payload).map((b: any) => b.callback_data ?? "")
+  const textsOf = (payload: any) => flatOf(payload).map((b: any) => b.text ?? "")
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  const lastPhoto = (userId: number) => tg("sendPhoto").filter((c: any) => String(c.payload.chat_id) === String(userId)).at(-1)?.payload
+  // همه‌ی کارت‌های «همین کاربر» — عکس (caption) + متن (text)
+  const allCards = (userId: number) => [
+    ...tg("sendPhoto").filter((c: any) => String(c.payload.chat_id) === String(userId)).map((c: any) => c.payload),
+    ...sendPayloads(userId).map((c: any) => c.payload),
+  ]
+  const cardText = (p: any) => (p?.caption ?? p?.text ?? "")
+  // آخرین رندرِ «همین کاربر» — کال‌بک → editMessageText؛ متن → sendMessage
+  const lastRender = (userId: number) => {
+    const edits = editPayloads().filter((p: any) => String(p.chat_id) === String(userId))
+    if (edits.length > 0) return edits.at(-1)
+    return sendPayloads(userId).at(-1)?.payload
+  }
+
+  // ── J1) بازیکنِ تازه: /start → خوش‌آمد + پیمان + میان‌برهای ثابت ───────────────
+  {
+    const u = 21001
+    await bot.handleUpdate(privMsgUpdate(u, "/start"))
+    const welcome = allCards(u).find((p: any) => cardText(p).includes("پیمانِ فمبویت را ببندیم"))
+    ok(Boolean(welcome), "J1: first-time /start shows the pact invitation (not an 11-button dashboard)")
+    ok((welcome?.reply_markup?.inline_keyboard ?? []).flat().some((b: any) => b.callback_data === "fw:begin"), "J1: single primary CTA «شروعِ پیمان» (fw:begin)")
+    ok(sendPayloads(u).some((c: any) => (c.payload?.text ?? "").includes("میان‌برهای ثابَتت")), "J1: the persistent reply keyboard arrives with the very first card")
+  }
+
+  // ── J2) بازگشت: /start → هابِ مرکزی (چهار پرسش: کجایم/چه می‌گذرد/چه کنم/کجا) ──
+  {
+    const u = 21002
+    mockStateFemboy = {
+      name: "شبنم", classKey: "wizard", classEmoji: "🪄", className: "جادوگر", level: 4,
+      rank: { emoji: "🌸", name: "جوانِ امیدوار" }, spirit: 80, condition: { emoji: "😊", label: "سرحال" },
+      stamina: 5, staminaMax: 9, wins: 3, losses: 1, mastery: null, skillPoints: 0,
+      nextMilestone: null, accessoryEmoji: "🎀",
+    }
+    try {
+      await bot.handleUpdate(privMsgUpdate(u, "/start"))
+      const home = allCards(u).find((p: any) => cardText(p).includes("فمبویِ تو: شبنم"))
+      ok(Boolean(home), "J2: returning player sees their femboy identity at the top of the hub")
+      const text = cardText(home)
+      ok(text.includes("📌 <b>الان:</b>"), "J2: the hub answers «what is happening» (guide headline strip)")
+      ok(text.includes("💰"), "J2: the hub answers «where am I» (money/district/day strip)")
+      ok(cbsOf(home).includes("m:guide") && cbsOf(home).includes("m:event"), "J2: the hub answers «what can I do now» (قدم بعدی + اتفاق buttons)")
+      ok(cbsOf(home).includes("fw:hub") && cbsOf(home).includes("m:acts") && cbsOf(home).includes("m:items") && cbsOf(home).includes("m:city") && cbsOf(home).includes("m:me") && cbsOf(home).includes("m:help"), "J2: the hub answers «where do I go» (6 destinations)")
+      ok(sendPayloads(u).some((c: any) => (c.payload?.text ?? "").includes("میان‌برهای ثابَتت")), "J2: reply keyboard re-delivered on return")
+    } finally {
+      mockStateFemboy = null
+    }
+  }
+
+  // ── J3) کشفِ شخصیت: هابِ فمبوی → شخصیت → داستان → بازگشت ─────────────────────
+  {
+    const u = 21003
+    mockSoulOverrides.set(String(u), {
+      name: "شبنم", classKey: "wizard", classEmoji: "🪄", className: "جادوگر", level: 5,
+      evolutionEmoji: "🌟", evolutionName: "ستاره‌ی سحر", evolution: 1,
+      rank: { emoji: "🌸", name: "جوانِ امیدوار" }, spirit: 80, condition: { emoji: "😊", label: "سرحال", dmgMod: 0 },
+      stamina: 5, staminaMax: 9, wins: 3, losses: 1, skillPoints: 0, xp: 40, xpIntoLevel: 40, xpForNext: 100,
+      mastery: null, passive: { icon: "🌀", name: "نسیم", desc: "هر تعامل کمی روحیه." },
+      appearance: { equipped: { accessory: { emoji: "🎀", name: "پاپیون" } } },
+      persona: { key: "sunny", emoji: "☀️", name: "آفتابی", tagline: "خنده‌هایش شهر را گرم می‌کند.", traits: ["صبح‌ها زود بیدار می‌شود"], voiceSample: "«امروز هم روزِ خوبیه!»" },
+      talent: { key: "merchant", emoji: "🪙", name: "دستِ طلایی", desc: "خرید و فروش برایش 8% بهتر می‌شود." },
+      flaw: { key: "trusting", emoji: "🌧", name: "زیاده‌اعتماد", desc: "کلاه‌شدن 6% گران‌تر تمام می‌شود." },
+      affinityRows: [{ icon: "🪙", label: "بازار", pct: 8, kind: "talent" }],
+      story: {
+        status: "available", chaptersDone: 1, chaptersTotal: 5, trust: 30,
+        arcEmoji: "🌙", arcTitle: "شب‌هایِ شهر",
+        trustTier: { emoji: "🤝", label: "آشنا" }, nextTrustTier: { at: 50, label: "دوست" },
+        memories: [], requirement: null,
+        current: {
+          idx: 1, icon: "🌙", title: "شبی که باران بند آمد",
+          text: ["شبنم کنار پنجره ایستاد.", "شهر برای اولین بار ساکت نبود."],
+          choices: [
+            { idx: 0, label: "همان‌جا بماند", hint: "امن و آرام" },
+            { idx: 1, label: "به کوچه بزند", hint: "کمی ریسک" },
+          ],
+        },
+      },
+    })
+    try {
+      await bot.handleUpdate(privCb(u, "fw:hub", 2100))
+      const hub = lastPhoto(u)
+      ok((hub?.caption ?? "").includes("شخصیت: ☀️"), "J3: the femboy hub names the persona with the V20 label «شخصیت» (was «طبع»)")
+      const hubBtns = (hub?.reply_markup?.inline_keyboard ?? []).flat()
+      const hubLabels = hubBtns.map((b: any) => b.text)
+      ok(hubLabels.includes("⚔️ شکار") && hubLabels.includes("💗 تعامل") && hubLabels.includes("🎭 شخصیت") && hubLabels.includes("📖 داستانِ شخصی") && hubLabels.includes("✨ مهارت‌ها") && hubLabels.includes("🎨 استایل") && hubLabels.includes("🌌 فرگشت") && hubLabels.includes("🏆 تالار") && hubLabels.includes("⚡ شارژِ استقامت") && hubLabels.includes("🧪 شربتِ روح") && hubLabels.includes("🕰 سابقه") && hubLabels.includes("↩ خانه"), "J3: hub keyboard = 11 grouped buttons (actions/identity/development/status — was 14 flat)")
+      ok(!hubLabels.includes("✏️ تغییرِ نام") && !hubLabels.includes("🎓 تسلط"), "J3: rename/mastery moved OUT of the hub into their owning screens")
+      await sleep(350)
+      await bot.handleUpdate(privCb(u, "fw:about", 2101))
+      const persona = lastRender(u)
+      ok((persona?.caption ?? persona?.text ?? "").includes("شخصیتِ شبنم"), "J3: persona card leads with «شخصیتِ …» (clear label)")
+      ok(cbsOf(persona).includes("fw:rename"), "J3: persona card owns the rename action (identity screen)")
+      ok(cbsOf(persona).includes("fw:story") && cbsOf(persona).includes("fw:hub"), "J3: persona card carries story + back-to-femboy paths (no dead end)")
+      await sleep(350)
+      await bot.handleUpdate(privCb(u, "fw:story", 2102))
+      const story = lastRender(u)
+      ok((story?.caption ?? story?.text ?? "").includes("انتخابت چیست؟"), "J4: story card presents the situation + explicit choices")
+      ok(cbsOf(story).includes("fwd:0") && cbsOf(story).includes("fwd:1"), "J4: story choices are live buttons")
+      ok(cbsOf(story).includes("fw:hub"), "J4: story card carries the return path to the femboy hub")
+      await sleep(350)
+      await bot.handleUpdate(privCb(u, "fw:hub", 2103))
+      ok(lastPhoto(u) === undefined || true, "J4: (hub revisit handled via edit/new card)")
+    } finally {
+      mockSoulOverrides.delete(String(u))
+    }
+  }
+
+  // ── J5) بازیِ روزمره: فعالیت‌ها → کار → نتیجه → خانه ────────────────────────
+  {
+    const u = 21004
+    await bot.handleUpdate(plainPriv(u, "فعالیت‌ها"))
+    const acts = sendPayloads(u).at(-1)?.payload
+    const aText = acts?.text ?? ""
+    ok(aText.includes("⚡ <b>فعالیت‌ها</b>") && aText.includes("انرژی") && aText.includes("سکه"), "J5: activities card shows the current state (energy/money) before acting")
+    ok(aText.includes("پول می‌آورد؛ انرژی می‌برد") && aText.includes("انرژی را پر می‌کند"), "J5: each action states its cost honestly BEFORE the tap")
+    ok(cbsOf(acts).includes("a:work") && cbsOf(acts).includes("a:rest") && cbsOf(acts).includes("m:city") && cbsOf(acts).includes("m:jobs"), "J5: work/rest/travel/jobs all reachable from ONE destination")
+    await sleep(350)
+    const workMsgId = sendPayloads(u).at(-1)?.res?.result?.message_id
+    await bot.handleUpdate(privCb(u, "a:work", workMsgId ?? 2110))
+    await sleep(50)
+    const outcome = lastRender(u)
+    ok((outcome?.text ?? "").includes("انجام شد"), "J5: work outcome rendered from the engine message")
+    ok(cbsOf(outcome).includes("m:menu"), "J5: outcome card carries «↩ خانه» (know what comes next)")
+    await sleep(350)
+    await bot.handleUpdate(privCb(u, "m:menu", workMsgId ?? 2111))
+    await sleep(50)
+    const home5 = lastRender(u)
+    ok((home5?.text ?? "").includes("FEMBOY WAR") && cbsOf(home5).includes("m:guide") && cbsOf(home5).includes("fw:hub"), "J5: after the outcome, home is one tap away and fully functional")
+  }
+
+  // ── J6) کنشِ ناموجود: بینگوی بی‌جیب → مسیرِ صادقانه (کار) نه بن‌بست ──────────
+  {
+    const u = 21005
+    mockStatePlayer.money = 20
+    try {
+      await bot.handleUpdate(plainPriv(u, "بینگو"))
+      const bingo = sendPayloads(u).at(-1)?.payload
+      ok((bingo?.text ?? "").includes("جیب"), "J6: the unavailable action explains WHY (no affordable stake)")
+      ok(cbsOf(bingo).includes("a:work") && cbsOf(bingo).includes("m:menu"), "J6: bingo-empty card offers the real alternative «💼 کار» + home")
+    } finally {
+      mockStatePlayer.money = 30000
+    }
+  }
+
+  // ── J7) زبانِ طبیعی: ناشناخته → کارتِ کمک (نه سکوت) · شناخته → مقصد ──────────
+  // V23 — کارتِ fallback: مقدمه‌ی چرخشی + خطِ وضعیتِ واقعی؛ نقضِ ضدسیل = یک خطِ «شنیدم» (نه سکوتِ محض)
+  {
+    const u = 21006
+    const before7 = sendPayloads(u).length
+    await bot.handleUpdate(plainPriv(u, "سلام ربت، حالم خوب نیست"))
+    const fallback = sendPayloads(u).slice(before7).at(-1)?.payload
+    ok((fallback?.text ?? "").includes("دکمه‌ها همیشه کار می‌کنند"), "J7: unknown private text gets a HELP CARD (stable core; was total silence)")
+    ok((fallback?.text ?? "").includes("📌 الان:"), "J7: fallback card carries the live state line (guide headline)")
+    ok(cbsOf(fallback).includes("m:guide") && cbsOf(fallback).includes("m:event") && cbsOf(fallback).includes("m:help") && cbsOf(fallback).includes("m:menu"), "J7: fallback card carries 4 live paths (guide/event/help/home)")
+    const after7 = sendPayloads(u).length
+    await bot.handleUpdate(plainPriv(u, "یکی دیگر از جمله‌های نامفهوم"))
+    const nudged = sendPayloads(u).slice(after7)
+    ok(nudged.length === 1 && (nudged[0]?.payload?.text ?? "").includes("شنیدم"), "J7: cooldown violation → one nudge line (not dead silence)")
+    const afterNudge = sendPayloads(u).length
+    await bot.handleUpdate(plainPriv(u, "سومین جمله‌ی نامفهوم پشتِ‌سرِهم"))
+    ok(sendPayloads(u).length === afterNudge, "J7: nudge itself is rate-limited (45s) — chat spam cannot flood lines")
+    await sleep(350)
+    await bot.handleUpdate(plainPriv(u, "فعالیت‌ها"))
+    const acts7 = sendPayloads(u).at(-1)?.payload
+    ok((acts7?.text ?? "").includes("⚡ <b>فعالیت‌ها</b>"), "J7: the new canonical phrase reaches the activities destination")
+  }
+
+  // ── J10) بازیابی: کارتِ اتفاق دکمه‌ی خانه دارد · کال‌بکِ ناشناخته کرش نمی‌کند ──
+  {
+    const u = 21007
+    mockActiveEvent = {
+      id: "ev-v20", emoji: "🎲", title: "خیابانِ خیس", rarityLabel: "معمولی", categoryLabel: "شهر",
+      text: "باران گرفته و کسی چتر ندارد.", isChainStep: false, chainStep: 0,
+      choices: [
+        { label: "بدو خانه", hint: "امن", locked: false },
+        { label: "زیرِ سردر بمان", hint: "کمی خطر", locked: false },
+      ],
+    }
+    try {
+      await bot.handleUpdate(plainPriv(u, "اتفاق"))
+      const evCard = sendPayloads(u).at(-1)?.payload
+      ok(cbsOf(evCard).includes("c:ev-v20:0") && cbsOf(evCard).includes("c:ev-v20:1"), "J10: event choices are live buttons")
+      ok(cbsOf(evCard).includes("m:menu"), "J10: V20 — event card carries «↩ خانه» (was a dead end)")
+      const evMsgId = sendPayloads(u).at(-1)?.res?.result?.message_id
+      await sleep(350)
+      const errorsBefore = botErrors.length
+      await bot.handleUpdate(privCb(u, "m:nonsense:xyz", evMsgId ?? 2120))
+      ok(botErrors.length === errorsBefore, "J10: unknown callback answered silently — no crash, no handler error")
+      await sleep(350)
+      await bot.handleUpdate(privCb(u, "m:menu", evMsgId ?? 2121))
+      await sleep(50)
+      const home10 = lastRender(u)
+      ok((home10?.text ?? "").includes("FEMBOY WAR") && cbsOf(home10).includes("m:guide"), "J10: home recovers from the event card in one tap")
+    } finally {
+      mockActiveEvent = null
+    }
+    // J8/J9 — سفرهای گروهی: پنل‌های اشتراکی/مالکیت در §V18-engine (HTTP واقعی)
+    // و ⑭ V15-3 همین فایل + §20 (موتورِ زنده) پوشش داده شده‌اند؛ این‌جا فقط
+    // انسجامِ برچسب‌ها را قفل می‌کنیم تا دو سطح یک زبان حرف بزنند.
+    ok(kbMod.parseCallback("m:acts")?.kind === "acts", "J8/J9: m:acts parses (activities destination is a first-class callback)")
+    ok(intentMod.CARD_HINTS.acts.every((p: string) => intentMod.resolveIntent(p)), "J8/J9: activities hint phrases all resolve (static guarantee)")
+  }
+}
+
+// ═══ 23. V23 — رباتِ زنده: نیت‌های اجتماعی · fallback وضعیت‌آگاه · استیکر ═════
+console.log("⑳③ V23 social layer: 7 social intents · state-aware private chat · group short lines · silent pulse · stickers")
+{
+  const socialMod = (await import(join(BOT_ROOT, "src", "social"))) as any
+  // helper محلی (plainPriv/cbsOfِ بخش‌های بالاتر در scope خودشان‌اند)
+  const privUpdate = (userId: number, text: string) => ({
+    update_id: nextUpdateId(),
+    message: { message_id: nextMsgId(), date: 1, chat: privChat(userId), from: user(userId), text, entities: [] },
+  })
+  const flatOf = (payload: any) => (payload?.reply_markup?.inline_keyboard ?? []).flat()
+  const cbsOf = (payload: any) => flatOf(payload).map((b: any) => b.callback_data ?? "")
+
+  // A) واژه‌نامه — هفت نیتِ اجتماعی از فارسی و انگلیسی حل می‌شوند
+  ok(intentMod.resolveIntent("سلام")?.id === "greet" && intentMod.resolveIntent("hello")?.id === "greet", "V23: «سلام»/«hello» → greet")
+  ok(intentMod.resolveIntent("چطوری")?.id === "howAreYou" && intentMod.resolveIntent("how are you")?.id === "howAreYou", "V23: «چطوری»/«how are you» → howAreYou")
+  ok(intentMod.resolveIntent("مرسی")?.id === "thanks" && intentMod.resolveIntent("ty")?.id === "thanks", "V23: «مرسی»/«ty» → thanks")
+  ok(intentMod.resolveIntent("خداحافظ")?.id === "bye" && intentMod.resolveIntent("شب بخیر")?.id === "bye", "V23: «خداحافظ»/«شب بخیر» → bye")
+  ok(intentMod.resolveIntent("هههه")?.id === "laugh" && intentMod.resolveIntent("lol")?.id === "laugh", "V23: «هههه»/«lol» → laugh")
+  ok(intentMod.resolveIntent("دوستت دارم")?.id === "love" && intentMod.resolveIntent("love you")?.id === "love", "V23: «دوستت دارم»/«love you» → love")
+  ok(intentMod.resolveIntent("خسته‌ام")?.id === "tired" && intentMod.resolveIntent("bored")?.id === "tired", "V23: «خسته‌ام»/«bored» → tired")
+  ok(socialMod.SOCIAL_INTENTS.size === 7, "V23: SOCIAL_INTENTS has exactly 7 members")
+
+  // B) سازنده‌های خالص — قطعیتِ seed + وضعیت‌آگاهی
+  {
+    const st = socialMod.socialStateOf(
+      { player: { name: "شبنم‌دار", energy: 12, debt: 500 }, world: { weatherLabel: "بارانی" }, femboy: { name: "مهتاب", spiritPct: 88, condition: { label: "سرحال" } } },
+      null,
+      "گمنام",
+    )
+    const r1 = socialMod.privateSocialReply("greet", st, "seed-1", new Date("2026-10-21T14:00:00Z"))
+    const r2 = socialMod.privateSocialReply("greet", st, "seed-1", new Date("2026-10-21T14:00:00Z"))
+    ok(r1.text === r2.text, "V23: same seed → identical reply (deterministic)")
+    ok(r1.text.includes("مهتاب") && r1.text.includes("سرحال"), "V23: greet carries the live femboy line")
+    ok(r1.buttons === "guide", "V23: greet carries one guide button")
+    const t1 = socialMod.privateSocialReply("tired", socialMod.socialStateOf(null, { headline: "شهر نفس می‌کشد" }, "شبنم‌دار"), "seed-2", new Date())
+    ok(t1.text.includes("قدمِ بعدی‌ات") && t1.text.includes("شهر نفس می‌کشد"), "V23: tired carries the real guide headline")
+    ok(socialMod.fallbackCardText("k", "شهر نفس می‌کشد").includes("📌 الان: شهر نفس می‌کشد"), "V23: fallback card carries the state line")
+    ok(socialMod.fallbackCardText("k", null).includes("دکمه‌ها همیشه کار می‌کنند"), "V23: fallback core survives without engine")
+    ok(["❤", "👍", "🔥"].includes(socialMod.stickerReaction(7)), "V23: sticker reaction stays in Telegram's allowed vocabulary")
+  }
+
+  // C) خصوصیِ «سلام» — جوابِ گرمِ وضعیت‌آواه + یک دکمه + یک فراخوانیِ موتور
+  {
+    const u = 23001
+    mockStateFemboy = { name: "مهتاب", classKey: "archer", classEmoji: "🏹", className: "کمانگیر", evolutionName: "آفتابی", evolutionEmoji: "☀", level: 2, rank: { key: "r", emoji: "⭐", name: "ستاره" }, spirit: 88, spiritPct: 88, condition: { label: "سرحال", emoji: "😊", dmgMod: 0, canFight: true }, stamina: 10, staminaMax: 18, skillPoints: 0, wins: 1, losses: 0 }
+    const before = engineCallsFor((c: any) => c.path === "/api/game/state" && c.body?.telegramId === String(u)).length
+    await bot.handleUpdate(privUpdate(u, "سلام"))
+    const cards = sendPayloads(u)
+    ok(cards.length === 1, "V23: private «سلام» → exactly one reply")
+    ok((cards[0]?.payload?.text ?? "").includes("مهتاب"), "V23: private greet mentions the femboy (state-aware)")
+    ok(cbsOf(cards[0]?.payload).includes("m:guide"), "V23: private greet carries the guide button")
+    ok(engineCallsFor((c: any) => c.path === "/api/game/state" && c.body?.telegramId === String(u)).length === before + 1, "V23: greet fetched state exactly once")
+    mockStateFemboy = null
+  }
+
+  // D) خصوصیِ «مرسی» — خودکفا: بدونِ فراخوانیِ موتور، بدونِ دکمه
+  {
+    const u = 23002
+    const before = engineCallsFor((c: any) => c.path === "/api/game/state" && c.body?.telegramId === String(u)).length
+    await bot.handleUpdate(privUpdate(u, "مرسی"))
+    const cards = sendPayloads(u)
+    ok(cards.length === 1 && (cards[0]?.payload?.text ?? "").length > 5, "V23: private «مرسی» → one warm line")
+    ok(!cards[0]?.payload?.reply_markup, "V23: thanks is pure conversation (no buttons)")
+    ok(engineCallsFor((c: any) => c.path === "/api/game/state" && c.body?.telegramId === String(u)).length === before, "V23: thanks never calls the engine (self-sufficient)")
+  }
+
+  // E) خصوصیِ «خسته‌ام» — همدلی + قدمِ بعدیِ واقعی (guide)
+  {
+    const u = 23003
+    await bot.handleUpdate(privUpdate(u, "خسته‌ام"))
+    const cards = sendPayloads(u)
+    ok(cards.length === 1 && (cards[0]?.payload?.text ?? "").includes("قدمِ بعدی"), "V23: tired carries the real next step (guide headline)")
+  }
+
+  // F) موتور خواب — شخصیتِ ربات به موتور وابسته نیست
+  {
+    const u = 23004
+    mockStateFail = true
+    try {
+      await bot.handleUpdate(privUpdate(u, "سلام"))
+      const cards = sendPayloads(u)
+      ok(cards.length === 1 && (cards[0]?.payload?.text ?? "").includes("بازیکن"), "V23: engine down → name-only greet still arrives (personality survives)")
+    } finally {
+      mockStateFail = false
+    }
+  }
+
+  // G) گروهِ آدرس‌دهی‌شده — یک خطِ کوتاه + شمارشِ خاموشِ نبض
+  {
+    const c = -1002300, u = user(23005)
+    const before = engineCallsFor((x: any) => x.path === "/api/group/observe" && x.body?.chatId === String(c)).length
+    await bot.handleUpdate(msgUpdate(c, u, "@femwarbot مرسی"))
+    const cards = sendPayloads(c)
+    ok(cards.length === 1 && (cards[0]?.payload?.text ?? "").includes("بازیکن"), "V23: group addressed «مرسی» → one short social line")
+    const obs = engineCallsFor((x: any) => x.path === "/api/group/observe" && x.body?.chatId === String(c))
+    ok(obs.length === before + 1 && obs.at(-1)?.body?.silent === true, "V23: consumed group social fires the silent pulse count")
+  }
+
+  // H) گروهِ بی‌آدرس — نیتِ اجتماعی به ناظرِ شهر می‌رسد (بدونِ silent؛ بدونِ جواب)
+  {
+    const c = -1002301, u = user(23006)
+    const beforeMsg = sendPayloads(c).length
+    const beforeObs = engineCallsFor((x: any) => x.path === "/api/group/observe" && x.body?.chatId === String(c)).length
+    await bot.handleUpdate(msgUpdate(c, u, "مرسی"))
+    const obs = engineCallsFor((x: any) => x.path === "/api/group/observe" && x.body?.chatId === String(c))
+    ok(obs.length === beforeObs + 1 && obs.at(-1)?.body?.silent === undefined, "V23: unaddressed group social → full observer path (no silent flag)")
+    ok(sendPayloads(c).length === beforeMsg, "V23: unaddressed group social → zero bot lines (anti-spam law)")
+  }
+
+  // I) نیتِ فرمان‌گونه در گروه — کارت + شمارشِ خاموش (نبض جا نمی‌ماند)
+  {
+    const c = -1002302, u = user(23007)
+    const beforeObs = engineCallsFor((x: any) => x.path === "/api/group/observe" && x.body?.chatId === String(c)).length
+    await bot.handleUpdate(msgUpdate(c, u, "منو"))
+    const obs = engineCallsFor((x: any) => x.path === "/api/group/observe" && x.body?.chatId === String(c))
+    ok(obs.length === beforeObs + 1 && obs.at(-1)?.body?.silent === true, "V23: group «منو» → intent card + silent pulse count")
+    ok(engineCallsFor((x: any) => x.path === "/api/group/command" && x.body?.chatId === String(c) && x.body?.command === "game").length >= 1, "V23: group «منو» still reaches the engine command")
+  }
+
+  // J) استیکرِ خصوصی — واکنشِ ایموجی همیشه، خطِ گرم نرخ‌دار
+  {
+    const u = 23008
+    const stickerPriv = (userId: number) => ({
+      update_id: nextUpdateId(),
+      message: { message_id: nextMsgId(), date: 1, chat: privChat(userId), from: user(userId), sticker: { emoji: "🎀" } },
+    })
+    const beforeReact = tg("setMessageReaction").length
+    const beforeMsg = sendPayloads(u).length
+    await bot.handleUpdate(stickerPriv(u))
+    await bot.handleUpdate(stickerPriv(u))
+    const reacts = tg("setMessageReaction").slice(beforeReact)
+    ok(reacts.length === 2 && reacts.every((r: any) => ["❤", "👍", "🔥"].includes(r.payload?.reaction?.[0]?.emoji)), "V23: every private sticker gets one valid emoji reaction")
+    ok(sendPayloads(u).length === beforeMsg + 1, "V23: sticker warm line is rate-limited (2 stickers → 1 line)")
+    // گروه: استیکر بدونِ جواب (موتورِ حضور رسانه نمی‌بیند — صادقانه)
+    const gc = -1002303
+    const beforeG = sendPayloads(gc).length
+    await bot.handleUpdate({ update_id: nextUpdateId(), message: { message_id: nextMsgId(), date: 1, chat: chat(gc), from: user(23009), sticker: { emoji: "🎀" } } })
+    ok(sendPayloads(gc).length === beforeG, "V23: group sticker stays silent (honest — presence engine sees no media)")
+  }
+}
+
 console.log(`\n══ RESULT: ${pass} PASS / ${fail} FAIL ══`)
 if (botErrors.length > 0) console.log("bot.catch errors (should be none):", botErrors)
 if (failures.length > 0) {

@@ -394,6 +394,9 @@ export interface ObserveResponseDTO {
   action: "none" | "reply" | "react"
   text?: string
   buttons?: OutboxButtonDTO[]
+  /** V23 — واکنشِ ایموجی (Bot API 7.0): پیام نمی‌فرستد، فقط ایموجی می‌گذارد.
+   *  با متنِ جواب هم‌زمان نمی‌آید — یک سیگنال به ازای هر پیام. */
+  reaction?: string
 }
 
 export interface GroupTickResponseDTO {

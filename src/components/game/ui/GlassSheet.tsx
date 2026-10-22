@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "framer-motion"
 import { X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { haptic } from "../telegram"
+import { useGame } from "../store"
 
 interface GlassSheetProps {
   open: boolean
@@ -20,6 +21,22 @@ interface GlassSheetProps {
 
 /** بات‌شیت شیشه‌ای با فریمر-موشن و بک‌دراپ — همه‌ی شیت‌های بازی از همین‌جا */
 export function GlassSheet({ open, onOpenChange, title, children, footer, bodyClassName, leading }: GlassSheetProps) {
+  // V22 — شیتِ باز خودش را در پشته‌ی برگشتِ سخت‌افزاری ثبت می‌کند؛ دکمه‌ی
+  // برگشتِ تلگرام/اندروید اول بالاترین شیت را می‌بندد، بعد تاریخِ تب‌ها را دنبال
+  // می‌کند. رفرنسِ تازه‌ی onOpenChange بدونِ ثبتِ دوباره جایگزین می‌شود.
+  const registerSheetCloser = useGame((s) => s.registerSheetCloser)
+  const unregisterSheetCloser = useGame((s) => s.unregisterSheetCloser)
+  const onOpenChangeRef = React.useRef(onOpenChange)
+  React.useEffect(() => {
+    onOpenChangeRef.current = onOpenChange
+  }, [onOpenChange])
+  React.useEffect(() => {
+    if (!open) return
+    const closer = () => onOpenChangeRef.current(false)
+    registerSheetCloser(closer)
+    return () => unregisterSheetCloser(closer)
+  }, [open, registerSheetCloser, unregisterSheetCloser])
+
   // قفل اسکرول بدنه هنگام باز بودن
   React.useEffect(() => {
     if (!open) return

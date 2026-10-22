@@ -24,7 +24,8 @@ const BOT_ADD_URL = "https://t.me/femwarbot?startgroup=game"
 
 export function GroupScreen() {
   const snapshot = useGame((s) => s.snapshot)
-  const active = useGame((s) => s.activeTab === "group")
+  // V22 — واکشی/حیاتِ دنیا فقط وقتی لنزِ شهرِ گروه فعال است (تبِ «شهر» + لنزِ گروه)
+  const active = useGame((s) => s.activeTab === "city" && s.cityMode === "group")
   const groupData = useGame((s) => s.groupData)
   const groupLoading = useGame((s) => s.groupLoading)
   const groupError = useGame((s) => s.groupError)
@@ -32,10 +33,12 @@ export function GroupScreen() {
   const setSelectedChatId = useGame((s) => s.setSelectedChatId)
   const loadGroup = useGame((s) => s.loadGroup)
   const runGroupAction = useGame((s) => s.runGroupAction)
+  // V22 — پیوندِ لنزها: ردیفِ آخرِ سکشنِ دنیا، لنزِ محله‌ها را در همان تب روشن می‌کند
+  const setCityMode = useGame((s) => s.setCityMode)
 
   const [acting, setActing] = React.useState<string | null>(null)
 
-  // با فعال‌شدنِ تب، دنیا تازه می‌شود — هر بار (شهر نفس می‌کشد)
+  // با فعال‌شدنِ لنز، دنیا تازه می‌شود — هر بار (شهر نفس می‌کشد)
   React.useEffect(() => {
     if (!active) return
     void loadGroup()
@@ -202,27 +205,50 @@ export function GroupScreen() {
           {/* V17-2 — راهنمایِ سبکِ آگاه از سفر: بدونِ فمبوی فقط تماشاگری (canonical،
               همان زبانِ کارت‌های گروه) + دکمه‌ی پیویِ ربات و مسیرِ همین‌جا */}
           {preFemboy ? <PactHintCard /> : null}
-          <ChallengesSection challenges={snap.challenges ?? []} acting={acting} onAct={handleChallenge} />
+          {/* V22 — چیدمانِ زنده-اول: اتفاقِ جاری و بازیِ فعال، قبل از بقیه */}
           {snap.currentEvent ? (
             <CurrentEventCard ev={snap.currentEvent} acting={acting} onChoose={handleChooseEvent} />
           ) : null}
           {snap.activeGame ? (
             <ActiveGameCard game={snap.activeGame} myPlayerId={myPlayerId} joining={acting === "joingame"} onJoin={handleJoin} />
           ) : null}
+          <ChallengesSection challenges={snap.challenges ?? []} acting={acting} onAct={handleChallenge} />
           <VotesSection votes={snap.openVotes} acting={acting} onVote={handleVote} />
-          <GamesSection games={games} acting={acting} onStart={handleStart} />
           <ProjectsSection
             projects={snap.projects}
             acting={acting}
             onContribute={handleContribute}
             onStartProject={handleStartProject}
           />
+          <GamesSection games={games} acting={acting} onStart={handleStart} />
+          {/* فضایِ محیطی شهر */}
           <RumorsSection rumors={snap.rumors} acting={acting} onRumor={handleRumor} />
           <MemesStrip memes={snap.memes} />
           <MysteriesSection mysteries={snap.mysteries} />
+          {/* پرونده‌ها و سوابق */}
           <MembersSection members={snap.members} population={snap.population} myPlayerId={myPlayerId} />
           <HistoryTimeline history={snap.history} />
           <AchievementsStrip achievements={snap.achievements} unlocked={snap.achievementsUnlocked} />
+          {/* V22 — پیوندِ لنزها (جانشینِ پیوندِ تب‌های V21): محله‌ها دیگر تبِ جدا
+              نیستند؛ همین ردیف، لنز را در همان تبِ شهر عوض می‌کند — سفر و مغازه‌ها
+              سرِ جایشان‌اند */}
+          <button
+            type="button"
+            onClick={() => {
+              haptic("light")
+              setCityMode("districts")
+            }}
+            className="glass flex min-h-12 w-full items-center gap-2.5 rounded-2xl px-3 text-start transition-colors hover:bg-white/[0.06]"
+            aria-label="محله‌های شهر — سفر و مغازه‌ها"
+          >
+            <span aria-hidden className="text-lg leading-6">
+              🌆
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-xs font-bold leading-5">محله‌های شهر</span>
+              <span className="mt-0.5 block text-[11px] leading-4 text-muted-foreground">سفر و مغازه‌ها</span>
+            </span>
+          </button>
         </motion.div>
       ) : null}
 

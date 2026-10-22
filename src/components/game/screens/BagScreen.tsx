@@ -1,16 +1,19 @@
 "use client"
 
-// کیف — حیوان‌ها و وسایل
+// کیف — حیوان‌ها و وسایل.
+// V22: این صفحه حالا نمایِ «کیفم»ی تبِ «کیف و بازار» است (EconomyScreen) — در
+// حالتِ embedded هدر مالِ همان صفحه‌ی بالاست. نوارِ ابزار (جست‌وجو/مرتب‌سازی/
+// چیپ‌های دسته) حذف شد و وسایل به‌جایش بر اساسِ دسته، گروه‌گروه رندر می‌شوند.
 import * as React from "react"
 import { motion } from "framer-motion"
-import { Minus, Plus, Search } from "lucide-react"
+import { Minus, Plus } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import type { InventoryEntryDTO, PetDTO, PriceInfoDTO } from "@/lib/game/contract"
 import { api } from "@/lib/game/client"
 import { useGame } from "../store"
 import { haptic } from "../telegram"
 import { faNum } from "../fa"
-import { RARITY_ORDER, RARITY_UI } from "../ui/RarityChip"
+import { RARITY_UI } from "../ui/RarityChip"
 import { ActionOutcomeCard } from "../ActionOutcomeCard"
 import { buildSnapshotNextStep } from "../ui/outcomeMeta"
 import { ActionButton, Chip, EmptyState, GlassCard, GlassSheet, ProgressBar, RarityChip, SectionTitle } from "../ui"
@@ -25,9 +28,10 @@ const CAT_LABELS: Record<string, string> = {
 }
 const CAT_KEYS = ["consumable", "gear", "collectible", "mystery", "junk"]
 
-export function BagScreen() {
+export function BagScreen({ embedded = false }: { embedded?: boolean }) {
   const snapshot = useGame((s) => s.snapshot)
-  const active = useGame((s) => s.activeTab === "bag")
+  // V22 — واکشی فقط وقتی نمایِ کیفم فعال است (تبِ «کیف» + نمایِ کیفم)
+  const active = useGame((s) => s.activeTab === "bag" && s.economyView === "bag")
   // V17-W3 (F1/F6): کنش‌های آیتم از مسیرِ انکشاف می‌روند (استفاده/فروش کارتِ نتیجه؛
   // پوشیدن/علاقه‌مندی بی‌دلتا همان توست) و تا پایانِ هر کنش قفل‌اند (دو-ضربه = ضررِ واقعی)
   const runActionReveal = useGame((s) => s.runActionReveal)
@@ -37,6 +41,8 @@ export function BagScreen() {
   const runAction = useGame((s) => s.runAction)
   // V17-W2 (F4): دکمه‌ی «قدمِ بعدی» حالت‌های خالی — مقصدِ موجود، نه صفحه‌ی تازه
   const setActiveTab = useGame((s) => s.setActiveTab)
+  // V22 — بازار نمایِ همون تبه؛ CTAهای خالی فقط نما را عوض می‌کنند
+  const setEconomyView = useGame((s) => s.setEconomyView)
   // V17-W3 (F5) — قدمِ «نقطه‌مهارت» مستقیم به سکشنِ مهارت‌ها deep-link می‌شود
   const setPendingSoulSection = useGame((s) => s.setPendingSoulSection)
 
@@ -44,9 +50,6 @@ export function BagScreen() {
   /** قیمت‌ها نیامد — خطا را خاموش قورت نمی‌دهیم؛ چیپِ «دوباره» همان واکشی را دوباره می‌زند */
   const [pricesError, setPricesError] = React.useState(false)
   const [pricesTick, setPricesTick] = React.useState(0)
-  const [query, setQuery] = React.useState("")
-  const [cat, setCat] = React.useState<string>("all")
-  const [sortBy, setSortBy] = React.useState<"qty" | "rarity">("qty")
 
   const [itemKey, setItemKey] = React.useState<string | null>(null)
   const [listingFor, setListingFor] = React.useState<string | null>(null)
@@ -76,7 +79,7 @@ export function BagScreen() {
     }
   }, [active, pricesTick])
 
-  // V17-W3 (F1) — کارتِ نتیجه مثلِ توست رفتار می‌کند: با ترکِ تبِ کیف جمع می‌شود
+  // V17-W3 (F1) — کارتِ نتیجه مثلِ توست رفتار می‌کند: با ترکِ نمایِ کیفم جمع می‌شود
   React.useEffect(() => {
     if (!active) setActionOutcome(null)
   }, [active, setActionOutcome])
@@ -84,16 +87,21 @@ export function BagScreen() {
   const inventory = snapshot?.inventory ?? []
   const pets = snapshot?.pets ?? []
 
-  const filtered = React.useMemo(() => {
-    let list = [...inventory]
-    if (cat !== "all") list = list.filter((i) => i.category === cat)
-    const q = query.trim()
-    if (q) list = list.filter((i) => i.name.includes(q))
-    list.sort((a, b) =>
-      sortBy === "qty" ? b.quantity - a.quantity : (RARITY_ORDER[b.rarity] ?? 0) - (RARITY_ORDER[a.rarity] ?? 0),
-    )
-    return list
-  }, [inventory, cat, query, sortBy])
+  // V22 — به‌جای نوارِ ابزار، وسایل بر اساسِ دسته گروه می‌شوند (ترتیبِ ثابتِ
+  // چیپ‌های قدیمی؛ دسته‌ی ناشناخته آخر می‌ماند). داخلِ هر دسته همان ترتیبِ
+  // همیشگیِ تعداد (بیشترین اول).
+  const groups = React.useMemo(() => {
+    const byCat = new Map<string, InventoryEntryDTO[]>()
+    for (const it of inventory) {
+      const arr = byCat.get(it.category)
+      if (arr) arr.push(it)
+      else byCat.set(it.category, [it])
+    }
+    for (const items of byCat.values()) items.sort((a, b) => b.quantity - a.quantity)
+    const known = CAT_KEYS.filter((k) => byCat.has(k))
+    const unknown = [...byCat.keys()].filter((k) => !CAT_KEYS.includes(k))
+    return [...known, ...unknown].map((k) => ({ key: k, label: CAT_LABELS[k] ?? k, items: byCat.get(k) ?? [] }))
+  }, [inventory])
 
   if (!snapshot) return null
 
@@ -144,10 +152,13 @@ export function BagScreen() {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="px-1">
-        <h1 className="text-xl font-extrabold leading-8">🎒 کیف</h1>
-        <p className="text-xs text-muted-foreground">هر چیزی که داری و چندتا چیز که نداری ولی هست.</p>
-      </header>
+      {/* V22 — در حالتِ embedded هدر مالِ EconomyScreen است (عنوانِ «کیف و بازار») */}
+      {embedded ? null : (
+        <header className="px-1">
+          <h1 className="text-xl font-extrabold leading-8">🎒 کیف</h1>
+          <p className="text-xs text-muted-foreground">هر چیزی که داری و چندتا چیز که نداری ولی هست.</p>
+        </header>
+      )}
 
       {/* V17-W3 (F1) — جایگاهِ کارتِ نتیجه‌ی کنش‌های آیتم (مصرف/فروش): بالایِ محتوا،
           تا بسته شود می‌ماند؛ با ترکِ تب جمع می‌شود */}
@@ -218,102 +229,65 @@ export function BagScreen() {
 
       {/* ── وسایل ── */}
       <section aria-label="وسایل">
-        <SectionTitle
-          icon="🎒"
-          title="کیف"
-          action={
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => setSortBy("qty")}
-                className={cn(
-                  "rounded-full border px-2.5 py-0.5 text-[11px] transition-colors",
-                  sortBy === "qty" ? "border-primary/30 bg-primary/10 text-primary" : "border-white/10 text-muted-foreground",
-                )}
-              >
-                تعداد
-              </button>
-              <button
-                type="button"
-                onClick={() => setSortBy("rarity")}
-                className={cn(
-                  "rounded-full border px-2.5 py-0.5 text-[11px] transition-colors",
-                  sortBy === "rarity" ? "border-primary/30 bg-primary/10 text-primary" : "border-white/10 text-muted-foreground",
-                )}
-              >
-                کمیابی
-              </button>
-            </div>
-          }
-        />
+        <SectionTitle icon="🎒" title="کیف" />
 
-        <div className="relative mb-2.5">
-          <Search className="absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="دنبال چی می‌گردی؟"
-            className="h-11 rounded-2xl border-white/10 bg-white/[0.04] ps-9 text-sm placeholder:text-muted-foreground/60"
-            aria-label="جست‌وجوی وسایل"
-          />
-        </div>
-
-        <div className="no-scrollbar -mx-1 mb-3 flex gap-1.5 overflow-x-auto px-1">
-          <CatChip label="همه" activeKey={cat} cat="all" setCat={setCat} />
-          {CAT_KEYS.map((k) => (
-            <CatChip key={k} label={CAT_LABELS[k] ?? k} activeKey={cat} cat={k} setCat={setCat} />
-          ))}
-        </div>
-
+        {/* V22 — نوارِ ابزار رفت؛ وسایل گروه‌گروه بر اساسِ دسته رندر می‌شوند */}
         {inventory.length === 0 ? (
           <GlassCard>
             <EmptyState
               emoji="🕳"
               text="کیفت خالیه. فعلاً چیزی برای دزدیدن نداری."
               action={
-                <ActionButton variant="soft" size="sm" onClick={() => setActiveTab("market")}>
+                // V22 — بازار نمایِ همین تبه؛ فقط نما عوض می‌شود
+                <ActionButton variant="soft" size="sm" onClick={() => setEconomyView("market")}>
                   برو بازار
                 </ActionButton>
               }
             />
           </GlassCard>
-        ) : filtered.length === 0 ? (
-          <GlassCard>
-            <EmptyState emoji="🔎" text="با این فیلترها هیچی پیدا نشد." hint="شاید توی جیب‌های دیگه باشه." />
-          </GlassCard>
         ) : (
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-            {filtered.map((it) => (
-              <motion.button
-                key={it.itemKey}
-                type="button"
-                whileTap={{ scale: 0.95 }}
-                onClick={() => setItemKey(it.itemKey)}
-                className={cn(
-                  "glass relative flex aspect-square flex-col items-center justify-center gap-1 p-2 transition-colors hover:bg-white/[0.07]",
-                  it.equipped && "border-primary/40",
-                )}
-                aria-label={`${it.name}${it.quantity > 1 ? ` — ${faNum(it.quantity)} عدد` : ""}`}
-              >
-                {it.quantity > 1 ? (
-                  <span className="absolute top-1.5 end-1.5 rounded-full border border-white/10 bg-black/40 px-1.5 py-0.5 text-[11px] font-bold tabular-nums">
-                    ×{faNum(it.quantity)}
-                  </span>
-                ) : null}
-                {it.favorite ? (
-                  <span aria-hidden className="absolute top-1 start-1.5 text-[11px]">
-                    ⭐
-                  </span>
-                ) : null}
-                <span aria-hidden className={cn("text-3xl leading-none", it.quantity <= 0 && "opacity-30 grayscale")}>
-                  {it.emoji}
-                </span>
-                <span className="w-full truncate text-center text-[11px] font-semibold leading-4">{it.name}</span>
-                <span className={cn("text-[11px] leading-4", RARITY_UI[it.rarity].text)}>{it.rarityLabel}</span>
-                {it.equipped ? (
-                  <span className="absolute bottom-1 end-1.5 text-[11px] font-bold text-primary">✓ تنِ توست</span>
-                ) : null}
-              </motion.button>
+          <div className="flex flex-col gap-4">
+            {groups.map((g) => (
+              <div key={g.key} className="flex flex-col gap-2">
+                <div className="flex items-baseline justify-between px-1">
+                  <h3 className="text-[11px] font-bold text-muted-foreground">{g.label}</h3>
+                  <span className="text-[11px] tabular-nums text-muted-foreground/70">{faNum(g.items.length)} قلم</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                  {g.items.map((it) => (
+                    <motion.button
+                      key={it.itemKey}
+                      type="button"
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => setItemKey(it.itemKey)}
+                      className={cn(
+                        "glass relative flex aspect-square flex-col items-center justify-center gap-1 p-2 transition-colors hover:bg-white/[0.07]",
+                        it.equipped && "border-primary/40",
+                      )}
+                      aria-label={`${it.name}${it.quantity > 1 ? ` — ${faNum(it.quantity)} عدد` : ""}`}
+                    >
+                      {it.quantity > 1 ? (
+                        <span className="absolute top-1.5 end-1.5 rounded-full border border-white/10 bg-black/40 px-1.5 py-0.5 text-[11px] font-bold tabular-nums">
+                          ×{faNum(it.quantity)}
+                        </span>
+                      ) : null}
+                      {it.favorite ? (
+                        <span aria-hidden className="absolute top-1 start-1.5 text-[11px]">
+                          ⭐
+                        </span>
+                      ) : null}
+                      <span aria-hidden className={cn("text-3xl leading-none", it.quantity <= 0 && "opacity-30 grayscale")}>
+                        {it.emoji}
+                      </span>
+                      <span className="w-full truncate text-center text-[11px] font-semibold leading-4">{it.name}</span>
+                      <span className={cn("text-[11px] leading-4", RARITY_UI[it.rarity].text)}>{it.rarityLabel}</span>
+                      {it.equipped ? (
+                        <span className="absolute bottom-1 end-1.5 text-[11px] font-bold text-primary">✓ تنِ توست</span>
+                      ) : null}
+                    </motion.button>
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
         )}
@@ -426,7 +400,8 @@ export function BagScreen() {
                   setListingFor(entry.itemKey)
                 }}
               >
-                فروش در بازار
+                {/* V21 — فعلِ V20 ربات: «به فروش بگذار» (قبلاً «فروش در بازار») */}
+                به فروش بگذار
               </ActionButton>
             ) : null}
           </div>
@@ -439,14 +414,17 @@ export function BagScreen() {
         onOpenChange={(v) => {
           if (!v) setListingFor(null)
         }}
-        title="🏷 آگهی بذار"
+        title={
+          /* V21 — فعلِ V20 ربات: «به فروش گذاشتنِ …» (قبلاً «آگهی بذار») */
+          listingFor && entry ? `🏷 به فروش گذاشتنِ ${entry.name}` : "🏷 به فروش گذاشتن"
+        }
         footer={
           <div className="flex gap-2">
             <ActionButton variant="ghost" fullWidth onClick={() => setListingFor(null)}>
               بی‌خیال
             </ActionButton>
             <ActionButton variant="primary" fullWidth loading={listing} onClick={() => void createListing()}>
-              آگهی بگذار
+              به فروش بگذار
             </ActionButton>
           </div>
         }
@@ -624,22 +602,5 @@ function MiniBar({ label, value, barClassName }: { label: string; value: number;
       <ProgressBar value={value} barClassName={barClassName} label={label} className="flex-1" />
       <span className="w-6 shrink-0 text-end text-[11px] font-bold tabular-nums text-foreground/60">{faNum(value)}</span>
     </div>
-  )
-}
-
-function CatChip(props: { label: string; activeKey: string; cat: string; setCat: (c: string) => void }) {
-  const { label, activeKey, cat, setCat } = props
-  const on = activeKey === cat
-  return (
-    <button
-      type="button"
-      onClick={() => setCat(cat)}
-      className={cn(
-        "shrink-0 rounded-full border px-3 py-1 text-[11px] transition-colors",
-        on ? "border-primary/30 bg-primary/10 font-bold text-primary" : "border-white/10 text-muted-foreground hover:text-foreground",
-      )}
-    >
-      {label}
-    </button>
   )
 }

@@ -15,7 +15,8 @@ import { expireRumors } from "./safety"
 import { expireStaleChallenges } from "./challenges"
 import { getGroupSettings, eventFreqMultiplier } from "./admin"
 import { SOCIAL_GAMES, STYLE_SHOW } from "./content"
-import { SEP, chip, esc } from "./text"
+import { WEATHER_VOICE, CHAOS_VOICE } from "./content/misc"
+import { emblem, quote, chip, esc } from "./text"
 
 // ─── ریتمِ روزانه (به وقتِ تهران) ──────────────────────────────────────────────
 
@@ -27,13 +28,15 @@ const RHYTHMS: Record<string, { hours: [number, number]; label: string }> = {
 
 /** متنِ ریتم — از داده‌های واقعیِ همین گروه */
 
-/** کارتِ صبح — سازنده‌ی خالص (تست‌پذیر؛ V11) */
+/** کارتِ صبح — سازنده‌ی خالص (تست‌پذیر؛ V11)
+ *  V25 «کارت‌های ماندنی»: نشانِ ☀️ در مرکزِ جداکننده + زمزمه‌ی پایانی زیرِ نقل‌قول. */
 export function morningCardText(title: string, weather: string, activeCount: number): string {
   // عنوانِ گروه esc (پارَسِ HTML مقدّس است)؛ شمارش تراش می‌خورد
-  return `☀️ <b>گزارشِ صبحِ ${esc(title)}</b>\n${SEP}\n\n${chip(activeCount)} شهروندِ فعال امروز.\nآسمون: ${weather === "clear" ? "صاف" : "عجیب"}. هنوز چیزی منفجر نشده.\n\n<i>روزِ خوبی برای خراب‌کاریِ قانونی است.</i>`
+  return `☀️ <b>گزارشِ صبحِ ${esc(title)}</b>\n${emblem("☀️")}\n\n${chip(activeCount)} شهروندِ فعال امروز.\nآسمون: ${weather === "clear" ? "صاف" : "عجیب"}. هنوز چیزی منفجر نشده.\n\n${quote("روزِ خوبی برای خراب‌کاریِ قانونی است.")}`
 }
 
-/** کارتِ خواب — سازنده‌ی خالص (تست‌پذیر؛ V11) */
+/** کارتِ خواب — سازنده‌ی خالص (تست‌پذیر؛ V11)
+ *  V25 «کارت‌های ماندنی»: نشانِ 💤 + خداحافظیِ شب زیرِ نقل‌قول. */
 export function nightCardText(active: number, resolvedEvents: number, games: number, wanted: number): string {
   const lines = [
     `👥 ${chip(active)} شهروند امروز این‌جا بودند.`,
@@ -42,7 +45,7 @@ export function nightCardText(active: number, resolvedEvents: number, games: num
     `🚨 ${chip(wanted)} نفر زیرِ نظر.`,
     "هیچ‌کس چیزی یاد نگرفت.",
   ]
-  return `💤 <b>گزارشِ خوابِ شهر</b>\n${SEP}\n\n${lines.join("\n")}\n\n<i>فردا شاید بدتر باشد.</i>`
+  return `💤 <b>گزارشِ خوابِ شهر</b>\n${emblem("💤")}\n\n${lines.join("\n")}\n\n${quote("فردا شاید بدتر باشد.")}`
 }
 
 async function rhythmCard(group: GroupWorld, key: string): Promise<void> {
@@ -191,14 +194,20 @@ export async function tickGroup(group: GroupWorld, now = new Date()): Promise<vo
   await decayMemories(group)
   await expireRumors(db, group.id, now)
 
-  // ۱۱) هواشناسی/مود — رانِ آرام
+  // ۱۱) هواشناسی/مود — رانِ آرام + V23: وقتی آسمون عوض می‌شود شهر یک‌بار می‌گوید
   const rng = mulberry32(seedFrom("wx", group.id, day))
   if (chance(0.3, rng)) {
-    const weathers = ["clear", "clear", "rain", "fog", "storm", "red_moon"]
-    const weather = weathers[Math.floor(rng() * weathers.length)]!
-    const socialTemp = clamp(group.socialTemp + randInt(-4, 4, rng), 0, 100)
-    const mood = socialTemp >= 70 ? "tense" : socialTemp <= 30 ? "calm" : group.mood
-    await db.groupWorld.update({ where: { id: group.id }, data: { weather, socialTemp, mood } })
+    const roll = rollWeather(group, rng)
+    if (roll) {
+      await db.groupWorld.update({ where: { id: group.id }, data: { weather: roll.weather, socialTemp: roll.socialTemp, mood: roll.mood } })
+      // V23 — صدای جهان: تغییرِ هوای زنده، بی‌کارت — فقط یک خط روی outbox
+      // (ساعاتِ بیداری؛ شب که شهر می‌خوابد آسمون هم بی‌سروصدا عوض می‌شود)
+      const hour = tehranHour(now)
+      if (roll.weather !== group.weather && hour >= 8 && hour < 23) {
+        const pool = WEATHER_VOICE[roll.weather] ?? WEATHER_VOICE.clear!
+        await pushOutbox(group, { kind: "system", text: pool[Math.floor(rng() * pool.length)]!, priority: 3 })
+      }
+    }
   }
 
   // ۱۲) بازمحاسبه‌ی فرهنگ
@@ -218,9 +227,26 @@ export async function tickGroup(group: GroupWorld, now = new Date()): Promise<vo
         reputation: clamp(fresh.reputation, 0, 100),
       },
     })
+    // V23 — صدای آشوب: شاخص ≥ ۷۰ → شهر یک‌بار در روز یادآوری می‌کند
+    // (بی‌سروصدا رها نمی‌شود؛ اما اسپم هم نیست — سقفِ روزانه با کلیدِ culture)
+    if (fresh.chaos >= 70 && cultureOf(fresh).chaosVoiceDay !== day) {
+      await pushOutbox(fresh, { kind: "system", text: CHAOS_VOICE[Math.floor(rng() * CHAOS_VOICE.length)]!, priority: 4 })
+      await bumpCulture(db, fresh.id, { chaosVoiceDay: day })
+    }
   }
 
   await db.groupWorld.update({ where: { id: group.id }, data: { lastTickAt: now } })
+}
+
+/** V23 — رانِ هواشناسی به‌عنوانِ تابعِ خالص (تست‌پذیر): خودِ رول را با rngِ
+ *  تیک می‌زند (دروازه‌ی ۳۰٪ در tickGroup می‌مانَد و قبلش یک بار rng مصرف
+ *  می‌کند — همان ترتیبِ مصرفِ بلوکِ قدیمی، رفتارِ زنده تغییر نکرد). */
+export function rollWeather(group: GroupWorld, rng: () => number): { weather: string; socialTemp: number; mood: string } | null {
+  const weathers = ["clear", "clear", "rain", "fog", "storm", "red_moon"]
+  const weather = weathers[Math.floor(rng() * weathers.length)]!
+  const socialTemp = clamp(group.socialTemp + randInt(-4, 4, rng), 0, 100)
+  const mood = socialTemp >= 70 ? "tense" : socialTemp <= 30 ? "calm" : group.mood
+  return { weather, socialTemp, mood }
 }
 
 function daysBetween(dayA: string, dayB: string): number {

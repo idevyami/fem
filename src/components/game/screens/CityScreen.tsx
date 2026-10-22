@@ -8,14 +8,18 @@ import type { CityNewsResponse, DistrictDTO, LeaderRowDTO, NpcDTO } from "@/lib/
 import type { CatalogResponse } from "@/lib/game/client"
 import { api } from "@/lib/game/client"
 import { useGame } from "../store"
+import { haptic } from "../telegram"
 import { faNum } from "../fa"
 import { ActionButton, Chip, EmptyState, GlassCard, GlassSheet, ProgressBar, SectionTitle } from "../ui"
 import { cn } from "@/lib/utils"
 
 export function CityScreen() {
   const snapshot = useGame((s) => s.snapshot)
-  const active = useGame((s) => s.activeTab === "city")
+  // V22 — واکشی فقط وقتی لنزِ محله‌ها فعال است (تبِ «شهر» + لنزِ محله‌ها)
+  const active = useGame((s) => s.activeTab === "city" && s.cityMode === "districts")
   const runAction = useGame((s) => s.runAction)
+  // V22 — پیوندِ لنزها: ردیفِ آخرِ صفحه، لنزِ شهرِ گروه را در همان تب روشن می‌کند
+  const setCityMode = useGame((s) => s.setCityMode)
 
   const [catalog, setCatalog] = React.useState<CatalogResponse | null>(null)
   const [catLoading, setCatLoading] = React.useState(true)
@@ -179,55 +183,61 @@ export function CityScreen() {
           <div className="flex flex-col gap-3">
             {(catalog?.districts ?? []).map((d) => {
               const here = d.key === player.district
+              const body = (
+                <div className="flex items-start gap-3">
+                  <span aria-hidden className="mt-0.5 text-3xl leading-none">
+                    {d.emoji}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-sm font-bold">{d.name}</h3>
+                      {/* V21 — محله‌ی فعلی دیگر دکمه‌ی مرده نیست: چیپِ «همین‌جایی» می‌گوید */}
+                      {here ? <Chip tone="pink">📍 همین‌جایی</Chip> : null}
+                    </div>
+                    <p className="mt-1 text-[11.5px] leading-5 text-muted-foreground">{d.description}</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-foreground/60">
+                      <span>حال‌وهوا: {d.mood}</span>
+                      <span className="flex items-center gap-1" title={`خطر: ${faNum(d.risk)} از 4`}>
+                        خطر:
+                        <span aria-hidden className="flex items-center gap-0.5">
+                          {[1, 2, 3, 4].map((i) => (
+                            <span
+                              key={i}
+                              className={cn(
+                                "inline-block size-1.5 rounded-full",
+                                i <= d.risk ? "bg-rose-400" : "bg-white/15",
+                              )}
+                            />
+                          ))}
+                        </span>
+                      </span>
+                      <span>{faNum(d.playerCount)} بازیکن</span>
+                    </div>
+                    {d.activeFlavor ? (
+                      <p className="mt-2 rounded-lg border border-amber-400/20 bg-amber-500/10 px-2 py-1 text-[11px] font-medium leading-4 text-amber-300">
+                        ✨ {d.activeFlavor}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              )
+              // V21 — محله‌ی فعلی: نه دکمه (لمسِ مرده برداشته شد)، فقط همان کارت با چیپِ «همین‌جایی»
+              if (here) {
+                return (
+                  <div key={d.key} className="glass w-full p-4 text-start border-primary/50 bg-primary/[0.06] glow-pink">
+                    {body}
+                  </div>
+                )
+              }
               return (
                 <motion.button
                   key={d.key}
                   type="button"
                   whileTap={{ scale: 0.985 }}
-                  onClick={() => {
-                    if (here) return
-                    setTravelTarget(d)
-                  }}
-                  className={cn(
-                    "glass w-full p-4 text-start transition-colors",
-                    here ? "border-primary/50 bg-primary/[0.06] glow-pink" : "hover:bg-white/[0.06]",
-                  )}
+                  onClick={() => setTravelTarget(d)}
+                  className="glass w-full p-4 text-start transition-colors hover:bg-white/[0.06]"
                 >
-                  <div className="flex items-start gap-3">
-                    <span aria-hidden className="mt-0.5 text-3xl leading-none">
-                      {d.emoji}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-sm font-bold">{d.name}</h3>
-                        {here ? <Chip tone="pink">اینجایی</Chip> : null}
-                      </div>
-                      <p className="mt-1 text-[11.5px] leading-5 text-muted-foreground">{d.description}</p>
-                      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-foreground/60">
-                        <span>حال‌وهوا: {d.mood}</span>
-                        <span className="flex items-center gap-1" title={`خطر: ${faNum(d.risk)} از 4`}>
-                          خطر:
-                          <span aria-hidden className="flex items-center gap-0.5">
-                            {[1, 2, 3, 4].map((i) => (
-                              <span
-                                key={i}
-                                className={cn(
-                                  "inline-block size-1.5 rounded-full",
-                                  i <= d.risk ? "bg-rose-400" : "bg-white/15",
-                                )}
-                              />
-                            ))}
-                          </span>
-                        </span>
-                        <span>{faNum(d.playerCount)} بازیکن</span>
-                      </div>
-                      {d.activeFlavor ? (
-                        <p className="mt-2 rounded-lg border border-amber-400/20 bg-amber-500/10 px-2 py-1 text-[11px] font-medium leading-4 text-amber-300">
-                          ✨ {d.activeFlavor}
-                        </p>
-                      ) : null}
-                    </div>
-                  </div>
+                  {body}
                 </motion.button>
               )
             })}
@@ -323,6 +333,29 @@ export function CityScreen() {
           )}
         </GlassCard>
       </section>
+
+      {/* V22 — پیوندِ لنزها (جانشینِ پیوندِ تب‌های V21): شهرِ گروه دیگر تبِ جدا
+          نیست؛ همین ردیف، لنز را در همان تبِ شهر عوض می‌کند — پروژه‌ها، رأی‌ها و
+          اتفاق‌های مشترک سرِ جایشان‌اند */}
+      <button
+        type="button"
+        onClick={() => {
+          haptic("light")
+          setCityMode("group")
+        }}
+        className="glass flex min-h-12 w-full items-center gap-2.5 rounded-2xl px-3 text-start transition-colors hover:bg-white/[0.06]"
+        aria-label="شهرِ گروه — پروژه‌ها، رأی‌ها و اتفاق‌های مشترک"
+      >
+        <span aria-hidden className="text-lg leading-6">
+          🌍
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-xs font-bold leading-5">شهرِ گروه</span>
+          <span className="mt-0.5 block text-[11px] leading-4 text-muted-foreground">
+            پروژه‌ها، رأی‌ها و اتفاق‌های مشترک
+          </span>
+        </span>
+      </button>
 
       {/* شیت تایید سفر */}
       <GlassSheet

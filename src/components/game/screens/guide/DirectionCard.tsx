@@ -1,7 +1,9 @@
 "use client"
 
-// «مسیرِ زندگی» — مقطع، جهت، هدف‌ها و قدمِ بعدی از راهنمای V4
+// «قدمِ بعدی» — مقطع، جهت، هدف‌ها و قدمِ بعدی از راهنمای V4
 // + نوارِ «فرصت‌ها» با شیتِ جزئیات و گرفتنِ واقعی
+// V21: برچسب با کیبوردِ ربات یکی شد («🎯 قدمِ بعدی») و سفر دیگر از همین‌جا شلیک
+// نمی‌شود — تبِ شهر هزینه‌ی هر رفت‌وآمد را در شیتِ تأیید نشان می‌دهد (V20).
 // V17-2 (ممیزیِ ②): حالتِ focusMode برای جلسه‌ی اول — چیپِ پیمان حذف می‌شود تا
 // پیشخوانِ متمرکز (پنلِ پیمان) تنها صدای پیمان باشد؛ حداکثر دو پیشنهادِ دیگر.
 // نوارِ فرصت‌ها جدا شد (OpportunitiesStrip) تا پیشخوان بتواند آن را در حالتِ
@@ -15,18 +17,6 @@ import { haptic } from "../../telegram"
 import { faNum } from "../../fa"
 import { ActionButton, Chip, GlassCard, GlassSheet, ProgressBar, SectionTitle } from "../../ui"
 import { cn } from "@/lib/utils"
-
-/** ایموجیِ محله → کلیدِ محله (برای سفرِ مستقیم از قدمِ بعدی) */
-const DISTRICT_BY_EMOJI: Record<string, string> = {
-  "🏛": "center",
-  "🏚": "old_town",
-  "🏪": "bazaar",
-  "🏭": "industrial",
-  "💎": "luxury",
-  "🌳": "park",
-  "🌾": "suburbs",
-  "☢": "forbidden",
-}
 
 const OPP_RISK: Record<OpportunityDTO["claimStyle"], { marks: string; label: string; hint: string }> = {
   safe: { marks: "", label: "بی‌خطر", hint: "شهر تضمینش کرده. به قدر کافی." },
@@ -56,6 +46,10 @@ export function DirectionCard({ onDrawEvent, focusMode = false }: { onDrawEvent:
   // کارتِ نتیجه می‌گیرد (runActionReveal)، نه توستِ گذرا
   const runActionReveal = useGame((s) => s.runActionReveal)
   const setActiveTab = useGame((s) => s.setActiveTab)
+  // V22 — تب‌های ادغام‌شده: قدم‌ها مقصد را با نما/لنزِ خودش می‌گویند
+  // (بازار = نمایِ تبِ «کیف»، سفر = لنزِ محله‌های تبِ «شهر»)
+  const setCityMode = useGame((s) => s.setCityMode)
+  const setEconomyView = useGame((s) => s.setEconomyView)
   // V17-W3 (F5) — deep-linkِ سکشنِ فمبوی: پیشنهادهای توصیه‌گر مستقیم به سکشنِ خودش می‌روند
   const setPendingSoulSection = useGame((s) => s.setPendingSoulSection)
   // V17-W3 (hotfixِ runNext) — مسیرِ «پس بده» به شیتِ بدهیِ تبِ «من» deep-link می‌شود
@@ -97,11 +91,11 @@ export function DirectionCard({ onDrawEvent, focusMode = false }: { onDrawEvent:
     }
   }, [setGuide, activeTab, worldVersion, dayCount])
 
-  // راهنما هنوز نیامده — اسکلتونِ هم‌قدِ کارتِ مسیر، نه ناپدیدشدگیِ خاموش
+  // راهنما هنوز نیامده — اسکلتونِ هم‌قدِ کارتِ قدمِ بعدی، نه ناپدیدشدگیِ خاموش
   if (!guide) {
     return (
-      <GlassCard aria-busy="true" aria-label="در حالِ خواندنِ مسیرِ زندگی">
-        <SectionTitle icon="🧭" title="مسیرِ زندگی" />
+      <GlassCard aria-busy="true" aria-label="در حالِ خواندنِ قدمِ بعدی">
+        <SectionTitle icon="🎯" title="قدمِ بعدی" />
         <div className="flex flex-col gap-2.5">
           <div className="h-5 w-28 animate-pulse rounded-full bg-white/10" />
           <div className="h-4 w-3/4 animate-pulse rounded-full bg-white/10" />
@@ -147,8 +141,10 @@ export function DirectionCard({ onDrawEvent, focusMode = false }: { onDrawEvent:
       return
     }
 
-    // حیوانِ گرسنه → کیف (توصیه‌گر فقط «feedPet» می‌فرستد)
+    // حیوانِ گرسنه → کیف (توصیه‌گر فقط «feedPet» می‌فرستد) — V22: تبِ «کیف»
+    // با نمایِ «کیفم» (غذا/بازی/اسم حیوان همان‌جاست)
     if (a.id === "feedPet") {
+      setEconomyView("bag")
       setActiveTab("bag")
       return
     }
@@ -181,9 +177,10 @@ export function DirectionCard({ onDrawEvent, focusMode = false }: { onDrawEvent:
       return
     }
 
-    // بازار → تبِ بازار
+    // بازار → V22: نمایِ «بازار»ی تبِ «کیف و بازار» (دیگر تبِ جدا نیست)
     if (a.id === "market") {
-      setActiveTab("market")
+      setEconomyView("market")
+      setActiveTab("bag")
       return
     }
 
@@ -195,30 +192,26 @@ export function DirectionCard({ onDrawEvent, focusMode = false }: { onDrawEvent:
       return
     }
 
-    // سفر — «travel» یا «travel:{district}»؛ کلید از ایموجیِ برچسب درمی‌آید
+    // سفر — V21: «travel» یا «travel:{district}» دیگر بی‌واسطه شلیک نمی‌شود؛
+    // V22: تبِ «شهر» با لنزِ «محله‌ها» باز می‌شود و شیتِ تأیید را با هزینه‌ی
+    // انرژیِ هر رفت‌وآمد نشان می‌دهد (V20 — هزینه پیش از لمس؛ چیپِ قدمِ بعدی
+    // هرگز انرژی را خاموش مصرف نمی‌کند)
     if (a.id === "travel" || a.id.startsWith("travel:")) {
-      const inline = a.id.startsWith("travel:") ? a.id.slice("travel:".length) : null
-      const fromEmoji = DISTRICT_BY_EMOJI[a.actionLabel.trim().split(/\s+/)[0] ?? ""]
-      const district = inline ?? fromEmoji
-      if (district) {
-        setActing(a.id)
-        await runActionReveal("travel", { district })
-        finish()
-      } else {
-        setActiveTab("city")
-      }
+      setCityMode("districts")
+      setActiveTab("city")
       return
     }
 
-    // ناشناخته — حداقل بگذار شهر را ببیند
+    // ناشناخته — حداقل بگذار شهر را ببیند (V22: لنزِ محله‌های تبِ «شهر»)
+    setCityMode("districts")
     setActiveTab("city")
   }
 
   return (
     <>
-      {/* ─── کارتِ مسیرِ زندگی ─── */}
+      {/* ─── کارتِ قدمِ بعدی ─── */}
       <GlassCard>
-        <SectionTitle icon="🧭" title="مسیرِ زندگی" />
+        <SectionTitle icon="🎯" title="قدمِ بعدی" />
 
         <div className="flex flex-wrap items-center gap-1.5">
           <Chip tone="violet" className="font-bold">

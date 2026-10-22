@@ -5,7 +5,8 @@
 // V16-2 (ممیزیِ ⑫): تک‌بلوکِ ۱۳-بخشی شکسته شد — سلسله‌مراتبِ روشن:
 //   شناسنامه (فشرده) → آمار (۴ِ اصلی + «جزئیات بیشتر») → زندگی (خانه/وسیله/شغل/بدهی
 //   زیر یک سقف — شیت‌های موجود دست‌نخورده) → دستاوردها → عنوان‌ها → داستان → گذشته
-//   → تنظیمات (ویرایشِ نام و آواتار [تازه] + آموزش + کدکس + اشتراک).
+//   → تنظیمات (ویرایشِ نام و آواتار [تازه] + آموزش + اشتراک — V22: خبرها/راهنما به
+//   زنگ و کتابِ دائمیِ هدرِ پوسته رفتند، ردیف نمی‌خواهند).
 // V16-2 (ممیزیِ ⑦): خطای پروفایل دیگر شوخیِ عمومی نیست — همان صدای واقعیِ ApiErr.
 import * as React from "react"
 import { motion } from "framer-motion"
@@ -22,7 +23,6 @@ import { copyText, faNum } from "../fa"
 import { ActionOutcomeCard } from "../ActionOutcomeCard"
 import { buildSnapshotNextStep, STAT_MEANING, type OutcomeNextStep } from "../ui/outcomeMeta"
 import { ActionButton, Chip, EmptyState, GlassCard, GlassSheet, MoneyBadge, ProgressBar, SectionTitle } from "../ui"
-import { CodexSheet } from "./codex/CodexSheet"
 import { AVATARS } from "../IntroFlow"
 import { cn } from "@/lib/utils"
 
@@ -99,18 +99,18 @@ export function MeScreen() {
   const [vehicleSheet, setVehicleSheet] = React.useState(false)
   const [jobSheet, setJobSheet] = React.useState(false)
   const [debtSheet, setDebtSheet] = React.useState(false)
-  // V17-W3 (hotfixِ runNext): «پس بده» از مسیرِ زندگی → شیتِ بدهی همین‌جا باز می‌شود؛
-  // انتخابِ مبلغ جزئی از خودِ کنش است — دیگر شلیکِ بی‌مبلغ (۱ سکه‌ایِ موتور) نداریم
+  // V17-W3 (hotfixِ runNext) — «پس بده» از مسیرِ زندگی → شیتِ بدهی همین‌جا باز می‌شود؛
+  // انتخابِ مبلغ جزئی از خودِ کنش است — دیگر شلیکِ بی‌مبلغ (۱ سکه‌ایِ موتور) نداریم.
+  // V21 — «شغل‌ها» از فعالیت‌ها → آگهی‌های استخدام (همان شیتِ موجود)
   React.useEffect(() => {
     if (!active || pendingMeSheet === null) return
-    if (pendingMeSheet === "debt" && (profile?.player.debt ?? snapshot?.player.debt ?? 0) > 0) setDebtSheet(true)
+    if (pendingMeSheet === "jobs") setJobSheet(true)
+    else if (pendingMeSheet === "debt" && (profile?.player.debt ?? snapshot?.player.debt ?? 0) > 0) setDebtSheet(true)
     setPendingMeSheet(null)
   }, [active, pendingMeSheet, setPendingMeSheet, profile, snapshot])
   const [payAmount, setPayAmount] = React.useState("")
   const [paying, setPaying] = React.useState(false)
   const [busyKey, setBusyKey] = React.useState<string | null>(null)
-  /** کدکسِ راهنما — مرورگرِ سه‌سطحی (V14 موجِ 16b) */
-  const [codexOpen, setCodexOpen] = React.useState(false)
   /** ویرایشِ نام و آواتار (V16-2 — ممیزیِ ⑫) */
   const [identitySheet, setIdentitySheet] = React.useState(false)
   /** جزئیاتِ آمار — افشایِ تدریجی (۴ِ اصلی همیشه پیدا) */
@@ -655,7 +655,8 @@ export function MeScreen() {
             </GlassCard>
           </section>
 
-          {/* ── ۸. تنظیمات (V16-2 — ممیزیِ ⑫): هویت + آموزش + کدکس + اشتراک ── */}
+          {/* ── ۸. تنظیمات (V16-2 — ممیزیِ ⑫): هویت + آموزش + اشتراک
+               (V22: خبرها و راهنما — زنگ و کتابِ دائمیِ هدرِ پوسته؛ ردیفِ تکراری حذف شد) ── */}
           <section aria-label="تنظیمات">
             <SectionTitle icon="⚙️" title="تنظیمات" />
             <GlassCard pad="sm">
@@ -700,27 +701,6 @@ export function MeScreen() {
                     </span>
                   </span>
                 </motion.button>
-
-                {/* کدکسِ راهنما */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    haptic("light")
-                    setCodexOpen(true)
-                  }}
-                  className="glass flex min-h-12 w-full items-center gap-2.5 rounded-2xl px-3 text-start transition-colors hover:bg-white/[0.06]"
-                  aria-label="باز کردن کدکسِ راهنما"
-                >
-                  <span aria-hidden className="text-lg leading-6">
-                    📖
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-xs font-bold leading-5">راهنمای بازی (کدکس)</span>
-                    <span className="mt-0.5 block text-[11px] leading-4 text-muted-foreground">
-                      قوانینِ شهر، فمبوی‌ها، دوئل‌ها و عبارت‌هایی که بازی می‌فهمد.
-                    </span>
-                  </span>
-                </button>
               </div>
             </GlassCard>
 
@@ -757,9 +737,6 @@ export function MeScreen() {
           void load()
         }}
       />
-
-      {/* کدکسِ راهنما — مرورگرِ سه‌سطحی (دسته‌ها → موضوع‌ها → محتوا) */}
-      <CodexSheet open={codexOpen} onOpenChange={setCodexOpen} />
 
       {/* تأییدِ خرید — خانه/وسیله (گران‌ترین خریدها): اسم، قیمت، جیبِ الان و بعدِ خرید */}
       <GlassSheet

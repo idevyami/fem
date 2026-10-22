@@ -16,7 +16,7 @@
 
 import type { GroupWorld } from "@prisma/client"
 import { cultureOf } from "./domain"
-import { SEP, SUB, chip, toLatinDigits } from "./text"
+import { chip, toLatinDigits } from "./text"
 
 // ─── ثابت‌های ریتم ─────────────────────────────────────────────────────────────
 
@@ -101,7 +101,10 @@ function needsPhrase(info: EventPacingInfo): string {
   return parts.join(" و ")
 }
 
-/** کارتِ «شهر نفس تازه می‌کشد» — جوابِ درخواستِ زودهنگامِ ماجرای شهروند (HTML) */
+/** کارتِ «شهر نفس تازه می‌کشد» — جوابِ درخواستِ زودهنگامِ ماجرای شهروند (HTML).
+ *  V20 (مأموریت §8.4 — حذفِ نویزِ گروه): دیروز کارتِ ۱۱-خطیِ قانون‌خوانی برای یک
+ *  جوابِ منفی می‌آمد و برای همیشه در چت می‌ماند. حالا همان صدای صادقانه در ۳ خط —
+ *  قانونِ کامل همان‌جایی است که تعلق دارد (راهنما/کدکس)، نه وسطِ چتِ گروه. */
 export function pacingCardText(info: EventPacingInfo): string {
   const needs = needsPhrase(info)
   const middle = needs
@@ -109,16 +112,9 @@ export function pacingCardText(info: EventPacingInfo): string {
     : "شهر آماده است — همین حالا دوباره بگو."
   return [
     "⏳ <b>شهر نفس تازه می‌کشد</b>",
-    SEP,
     "",
-    `از آخرین ماجرا ${chip(info.minutesSince)} دقیقه و ${chip(info.msgsSince)} پیامِ گفت‌وگو گذشته.`,
-    middle,
-    "",
-    SUB,
-    "",
-    `<i>قانونِ شهر: بینِ دو ماجرا حداقلِ ${chip(EVENT_GAP_MINUTES)} دقیقه و ${chip(EVENT_MSG_QUOTA)} پیام —`,
-    `در شهرِ آرام‌تر ${chip(EVENT_SLOW_GAP_MINUTES)} دقیقه و ${chip(EVENT_SLOW_MSG_QUOTA)} پیام.`,
-    `مهلتِ هر ماجرا هم ${chip(45)} تا ${chip(120)} دقیقه است؛ کسی عقب نمی‌ماند.</i>`,
+    `${middle}`,
+    `<i>مهلتِ هر ماجرا ${chip(45)} تا ${chip(120)} دقیقه است؛ کسی عقب نمی‌ماند.</i>`,
   ].join("\n")
 }
 

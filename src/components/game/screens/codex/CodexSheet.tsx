@@ -190,7 +190,7 @@ export function CodexSheet({ open, onOpenChange }: CodexSheetProps) {
       ? `${catList.category.icon} ${catList.category.titleFa}`
       : level === "topic" && topicData
         ? `${topicData.topic.icon} ${topicData.topic.titleFa}`
-        : "📚 کدکسِ راهنما"
+        : "📚 راهنما"
 
   return (
     <GlassSheet
@@ -310,14 +310,14 @@ function CatsLevel({
     <div className="flex flex-col gap-3 pt-1">
       <div>
         <label htmlFor="codex-search" className="sr-only">
-          جست‌وجو در کدکس
+          جست‌وجو در راهنما
         </label>
         <Input
           id="codex-search"
           type="text"
           value={query}
           onChange={(e) => onQuery(e.target.value)}
-          placeholder="جست‌وجو در کدکس… مثلاً «دوئل»"
+          placeholder="جست‌وجو در راهنما… مثلاً «دوئل»"
           className="h-11 rounded-2xl border-white/10 bg-white/[0.04] text-xs"
           autoComplete="off"
         />
@@ -327,7 +327,7 @@ function CatsLevel({
       {searching ? (
         <p className="flex items-center justify-center gap-2 text-[11px] text-muted-foreground" aria-live="polite">
           <span aria-hidden className="size-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-          داریم در برگه‌های کدکس می‌گردیم…
+          داریم در برگه‌های راهنما می‌گردیم…
         </p>
       ) : null}
 
@@ -336,7 +336,7 @@ function CatsLevel({
         <div role="region" aria-label="نتایجِ جست‌وجو" className="flex flex-col gap-2">
           {results.length === 0 ? (
             <p className="py-2 text-center text-xs leading-6 text-muted-foreground">
-              چیزی پیدا نشد — با کلمه‌ی دیگری امتحان کن. کدکس بزرگ است.
+              چیزی پیدا نشد — با کلمه‌ی دیگری امتحان کن. راهنما بزرگ است.
             </p>
           ) : (
             results.map((r, i) => (
@@ -369,7 +369,7 @@ function CatsLevel({
       {error ? (
         <EmptyState
           emoji="🫥"
-          text="کدکس پشتِ مه گم شد."
+          text="راهنما پشتِ مه گم شد."
           hint={error}
           action={
             <ActionButton variant="soft" size="sm" onClick={onRetry}>
@@ -388,7 +388,7 @@ function CatsLevel({
           <p className="mb-2.5 text-[11px] leading-5 text-muted-foreground">
             هر دسته یک راهنمایِ واقعی است — عددها از خودِ بازی، نه شایعه.
           </p>
-          <div role="list" aria-label="دسته‌های کدکس" className="grid grid-cols-2 gap-2">
+          <div role="list" aria-label="دسته‌های راهنما" className="grid grid-cols-2 gap-2">
             {cats.map((c, i) => (
               <motion.div
                 key={c.id}
@@ -505,7 +505,7 @@ function TopicLevel({
     return (
       <EmptyState
         emoji="🫥"
-        text="این برگه از کدکس پیدا نشد."
+        text="این برگه از راهنما پیدا نشد."
         hint={error}
         action={
           <ActionButton variant="soft" size="sm" onClick={onRetry}>
@@ -598,7 +598,7 @@ function TopicLevel({
 
 function CodexSkeleton({ rows }: { rows: number }) {
   return (
-    <div className="flex flex-col gap-2" aria-busy="true" aria-label="در حال آوردنِ کدکس">
+    <div className="flex flex-col gap-2" aria-busy="true" aria-label="در حال آوردنِ راهنما">
       {Array.from({ length: rows }, (_, i) => (
         <Skeleton key={i} className={cn("h-14 rounded-2xl bg-white/[0.05]", i % 3 === 2 && "h-10")} />
       ))}

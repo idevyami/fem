@@ -32,15 +32,19 @@
 
 import { db } from "../../src/lib/db"
 import { getServiceKey } from "../../src/lib/game/secrets"
-import { mulberry32, seedFrom, randInt, weightedPick, clamp } from "../../src/lib/game/rng"
+import { mulberry32, seedFrom, randInt, weightedPick, clamp, chance } from "../../src/lib/game/rng"
 import { getEventTemplate, eventCardText } from "../../src/lib/game/group/events"
-import { eventPacingInfo, eventWindowMinutes, EVENT_GAP_MINUTES, EVENT_MSG_QUOTA } from "../../src/lib/game/group/pacing"
+import { eventPacingInfo, eventWindowMinutes, EVENT_GAP_MINUTES, EVENT_MSG_QUOTA, pacingCardText } from "../../src/lib/game/group/pacing"
+import { bumpCulture, tehranDayKey } from "../../src/lib/game/group/domain"
+import { voteCardText } from "../../src/lib/game/group/presentation"
 import { playableGames } from "../../src/lib/game/group/games"
 import type { GroupEventTemplate } from "../../src/lib/game/group/types"
 import { CLASSES, validateClasses } from "../../src/lib/game/content/classes"
 import { awardSoulProgress, SOUL_GROUP_XP_DAY_CAP } from "../../src/lib/game/group/awards"
 import { duelCharacters, simulateDuel, type DuelSheet } from "../../src/lib/game/combat"
 import { interactWithCharacter, soulCardDTO } from "../../src/lib/game/character"
+import { rollWeather, tickGroup } from "../../src/lib/game/group/tick"
+import { WEATHER_VOICE, CHAOS_VOICE } from "../../src/lib/game/group/content/misc"
 
 const API = process.env.API_BASE || "http://localhost:3000"
 const KEY = getServiceKey()
@@ -1247,10 +1251,15 @@ async function main(): Promise<void> {
       await fixture(async () => {
         await db.groupVote.update({ where: { id: vote.id }, data: { closesAt: new Date(Date.now() - 60_000) } })
         await db.groupWorld.update({ where: { id: gQ }, data: { lastTickAt: new Date(Date.now() - 90_000) } })
+        // V21 — پادفرهنگِ ساعتِ ۲۰: انتخاباتِ خودکارِ هفتگی وسطِ §Q باز نمی‌شود
+        // (فازِ ۵ تیک وقتی می‌زند که lastElectionDay=امروز نباشد). دترمینیست در هر ساعتی.
+        await bumpCulture(db, gQ, { lastElectionDay: tehranDayKey() })
       })
       await command(cQ, uQ1, "help") // بیداریِ شهر
       await tick()
       ok((await db.groupVote.findUniqueOrThrow({ where: { id: vote.id } })).status === "closed", "Q: election closed by lifecycle (closesAt + tick)")
+      const openAfterClose = await db.groupVote.count({ where: { groupId: gQ, status: "open" } })
+      ok(openAfterClose === 0, "Q: no auto election stole the window (weekly-election hour guard, V21)")
       const court = await callback(cQ, uQ2, "gm:court")
       const courtVote = await db.groupVote.findFirst({ where: { groupId: gQ, status: "open" }, orderBy: { createdAt: "desc" } })
       ok(court.body.data?.ok === true && Boolean(courtVote) && courtVote!.kind === "court", "Q: court panel opened after election closed")
@@ -1524,13 +1533,13 @@ async function main(): Promise<void> {
       ok(card?.persona?.key === "sunny" && (card?.affinityRows?.length ?? 0) === 2, "V19-3: SoulCardDTO carries persona + 2 affinity rows")
       ok(card?.story?.status === "available" && card?.story?.chaptersTotal === 5, "V19-3: story slot available at birth (ch1, 5 chapters)")
       ok(typeof card?.rechargeCostPer === "number" && card.rechargeCostPer >= 60, "V19-3: rechargeCostPer surfaced (>=60 floor)")
-      ok((created.body.data?.message ?? "").includes("طبعِ"), "V19-3: create message announces the persona")
+      ok((created.body.data?.message ?? "").includes("شخصیتِ"), "V19-3: create message announces the persona (V21 label «شخصیت»)")
 
       // طبعِ نامعتبر → خطای فارسیِ صریح
       const uBad = tid(71)
       await post("/api/auth", { telegramId: uBad, name: "طبع‌بطل" })
       const bad = await post("/api/game/character", { telegramId: uBad, action: "create", payload: { name: "فمبوی بطل", classKey: "ranger", personaKey: "grumpy" } })
-      ok(bad.body.ok === false && (bad.body.error ?? "").includes("طبع"), "V19-3: invalid personaKey rejected in Persian")
+      ok(bad.body.ok === false && (bad.body.error ?? "").includes("شخصیت"), "V19-3: invalid personaKey rejected in Persian (V21 label «شخصیت»)")
     }
 
     // V19-4 — چرخه‌ی داستان: خواندن → انتخاب → ایدمپوتنت → قفلِ صادق → گشایش با اعتماد
@@ -1750,6 +1759,132 @@ async function main(): Promise<void> {
       const logsM = await db.characterLog.findMany({ where: { characterId: (await db.soulCharacter.findUniqueOrThrow({ where: { playerId: pidM } })).id }, orderBy: { createdAt: "desc" }, take: 5 })
       ok(logsM.some((l) => l.type === "story"), "V19-9: story memory lands inside the 5-slot memory window")
     }
+
+    // ═══ §V23 — رباتِ زنده در شهر: واکنشِ ایموجی · شمارشِ خاموش · راهنمایِ
+    // «بازی» · خداحافظیِ عضوِ حرف‌زن · صدای هوا/آشوب (VOICES زنده شد) ════════
+    section("§V23 living city: emoji reactions · silent pulse · game nudge · farewell · world voices")
+    {
+      const cW = chat(91), uW = tid(91), uW2 = tid(92)
+      await member(cW, "شهرِ وی۲۳", uW, "پیسِ واکنش")
+      await member(cW, "شهرِ وی۲۳", uW2, "پیسِ دوم")
+      const gW = await gidOf(cW)
+      const hourNow = Number(new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: false, timeZone: "Asia/Tehran" }).format(new Date())) % 24
+      const awake = hourNow < 1 || hourNow >= 7
+
+      // A) واکنشِ ایموجی — دوستانه → ❤ (قطعی؛ نرخ را سقف/فاصله می‌سازند)
+      const r1 = await post<{ action: string; reaction?: string }>("/api/group/observe", { chatId: cW, chatTitle: "شهرِ وی۲۳", chatType: "group", telegramId: uW, text: "مرسی بچه‌ها، عشقید", addressedToBot: false })
+      if (awake) {
+        ok(r1.body.data?.action === "none" && r1.body.data?.reaction === "❤", "V23: friendly message → ❤ emoji reaction, no text", JSON.stringify(r1.body.data))
+      } else {
+        ok(r1.body.data?.action === "none" && !r1.body.data?.reaction, "V23: quiet hours → no reaction (city sleeps)")
+      }
+      // فاصله‌ی ۱۰دقیقه‌ای: واکنشِ دومی نمی‌آید (نرخ، نه رگبار)
+      const r2 = await post<{ action: string; reaction?: string }>("/api/group/observe", { chatId: cW, chatTitle: "شهرِ وی۲۳", chatType: "group", telegramId: uW2, text: "ممنون داداش، محبتت دلم رو گرم کرد", addressedToBot: false })
+      ok(r2.body.data?.reaction === undefined, "V23: second friendly within 10min → no second reaction (spacing cap)")
+
+      // B) سیگنالِ میم → 🤣 (فاصله را با fixture دور می‌زنیم — ردیفِ آزمونی)
+      if (awake) {
+        await fixture(async () => {
+          const g = await db.groupWorld.findUniqueOrThrow({ where: { id: gW } })
+          const c2 = JSON.parse(g.cultureJson ?? "{}") as Record<string, unknown>
+          c2.lastReactionAt = new Date(Date.now() - 11 * 60000).toISOString()
+          await db.groupWorld.update({ where: { id: gW }, data: { cultureJson: JSON.stringify(c2) } })
+        })
+        const r3 = await post<{ action: string; reaction?: string }>("/api/group/observe", { chatId: cW, chatTitle: "شهرِ وی۲۳", chatType: "group", telegramId: uW, text: "قورباغه دیدم تو بازار", addressedToBot: false })
+        ok(r3.body.data?.reaction === "🤣", "V23: meme-signal → 🤣 reaction (the city knows its jokes)", JSON.stringify(r3.body.data))
+      }
+
+      // C) شمارشِ خاموش — پیامِ مصرف‌شده توسط مسیریابِ نیت: شمرده، بی‌جواب
+      const gBeforeC = await db.groupWorld.findUniqueOrThrow({ where: { id: gW } })
+      const msgsBefore = (JSON.parse(gBeforeC.cultureJson ?? "{}") as { msgsSinceEvent?: number }).msgsSinceEvent ?? 0
+      const s1 = await post<{ action: string; reaction?: string; text?: string }>("/api/group/observe", { chatId: cW, chatTitle: "شهرِ وی۲۳", chatType: "group", telegramId: uW, text: "سلام ربات، منو رو نشون بده", addressedToBot: true, silent: true })
+      ok(s1.body.data?.action === "none" && !s1.body.data?.text && !s1.body.data?.reaction, "V23: silent observe → counted, zero reply (the intent card is the answer)")
+      const gAfterC = await db.groupWorld.findUniqueOrThrow({ where: { id: gW } })
+      const msgsAfter = (JSON.parse(gAfterC.cultureJson ?? "{}") as { msgsSinceEvent?: number }).msgsSinceEvent ?? 0
+      ok(msgsAfter === msgsBefore + 1, "V23: silent observe still bumps the pulse (V18 counter intact)")
+      const memberRow = await db.groupMember.findUniqueOrThrow({ where: { groupId_playerId: { groupId: gW, playerId: await pidOf(uW) } } })
+      ok(memberRow.lastSeenAt.getTime() > Date.now() - 60_000, "V23: silent observe refreshes member lastSeen")
+
+      // D) «بازی» بدونِ فرمان → راهنماییِ کوتاه (نه سکوتِ محض) — بودجه‌ی مداخله
+      // V24 — ساعت‌آگاه: در ساعاتِ سکوتِ شهر (۰۱–۰۷ تهران) موتور عمداً واکنشِ
+      // اولویتِ عادی را خاموش می‌کند (قانونِ V23) — تست باید همین را هم اثبات کند،
+      // نه اینکه شب‌ها قرمز شود. بودجه را برای هر دو شاخه از قبل باز می‌کنیم.
+      const quietNow = (() => {
+        const h = Number(new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: false, timeZone: "Asia/Tehran" }).format(new Date()))
+        return h >= 1 && h < 7
+      })()
+      await fixture(async () => {
+        await db.groupWorld.update({ where: { id: gW }, data: { lastBotMsgAt: new Date(Date.now() - 30 * 60000) } })
+      })
+      const gWord = await post<{ action: string; text?: string }>("/api/group/observe", { chatId: cW, chatTitle: "شهرِ وی۲۳", chatType: "group", telegramId: uW2, text: "مسابقه", addressedToBot: false })
+      if (quietNow) {
+        ok(gWord.body.data?.action === "none" && !gWord.body.data?.text, "V23: bare game-word at quiet hours → honest silence (01-07 Tehran law)", JSON.stringify(gWord.body.data))
+      } else {
+        ok(gWord.body.data?.action === "react" && (gWord.body.data?.text ?? "").includes("بازی‌های گروه"), "V23: bare game-word gets a nudge line toward «بازی‌های گروه»", JSON.stringify(gWord.body.data))
+      }
+      // دومینی — کفِ ۲۰دقیقه‌ایِ بودجه ساکتش می‌کند (نرخ)
+      const gWord2 = await post<{ action: string; text?: string }>("/api/group/observe", { chatId: cW, chatTitle: "شهرِ وی۲۳", chatType: "group", telegramId: uW2, text: "تورنومنت", addressedToBot: false })
+      ok(gWord2.body.data?.action === "none", "V23: second game-word right after → silence (intervention floor)")
+
+      // E) خداحافظی — عضوِ حرف‌زن (۵+ پیام) خط می‌گیرد؛ رهگذرِ خاموش نمی‌گیرد
+      const uL = tid(93)
+      await member(cW, "شهرِ وی۲۳", uL, "رفتنی")
+      const mL = await db.groupMember.findUniqueOrThrow({ where: { groupId_playerId: { groupId: gW, playerId: await pidOf(uL) } } })
+      await db.groupMember.update({ where: { id: mL.id }, data: { messageCount: 6 } })
+      const leftRes = await groupCommand<{ left: boolean; farewell?: string }>("member_left", { chatId: cW, chatTitle: "شهرِ وی۲۳", telegramId: uL })
+      ok(leftRes.body.data?.left === true && (leftRes.body.data?.farewell ?? "").includes("رفتنی"), "V23: leaving talker (6 msgs) gets a farewell line", JSON.stringify(leftRes.body.data))
+      const uQ = tid(94)
+      await member(cW, "شهرِ وی۲۳", uQ, "رهگذر")
+      const quietRes = await groupCommand<{ left: boolean; farewell?: string }>("member_left", { chatId: cW, chatTitle: "شهرِ وی۲۳", telegramId: uQ })
+      ok(quietRes.body.data?.left === true && !quietRes.body.data?.farewell, "V23: silent passer-by leaves without a line (no leave-spam)")
+
+      // F) صدای جهان — رولِ هوا خالص + tick یکپارچه (خانواده‌ی VOICES زنده شد)
+      const cT = chat(92)
+      await member(cT, "شهرِ هواسنج", tid(95), "پیسِ هوا")
+      const gT = await gidOf(cT)
+      const gRow = await db.groupWorld.findUniqueOrThrow({ where: { id: gT } })
+      const dayKey = tehranDayKey()
+      const rngT = mulberry32(seedFrom("wx", gT, dayKey))
+      const willRoll = chance(0.3, rngT)
+      let rolledWeather: string | null = null
+      if (willRoll) rolledWeather = rollWeather(gRow, rngT)!.weather
+      const hourOk = hourNow >= 8 && hourNow < 23
+      const expectVoice = willRoll && rolledWeather !== null && rolledWeather !== gRow.weather && hourOk
+      await fixture(async () => {
+        await db.groupWorld.update({ where: { id: gT }, data: { lastTickAt: new Date(Date.now() - 60_000) } })
+      })
+      const freshRow = await db.groupWorld.findUniqueOrThrow({ where: { id: gT } })
+      await tickGroup(freshRow)
+      const allOutT = await db.groupOutbox.findMany({ where: { groupId: gT } })
+      const weatherVoiceTexts = allOutT.filter((r) => Object.values(WEATHER_VOICE).some((p) => p.includes(r.text)))
+      if (expectVoice) {
+        const pool = WEATHER_VOICE[rolledWeather!] ?? []
+        ok(weatherVoiceTexts.some((r) => pool.includes(r.text)), `V23: weather change → world voice on outbox (${gRow.weather}→${rolledWeather})`)
+      } else {
+        ok(weatherVoiceTexts.length === 0, `V23: no weather voice without a real daytime change (${willRoll ? `roll=${rolledWeather}` : "no-roll"}; hour=${hourNow}) — honest silence`)
+      }
+
+      // G) صدای آشوب — شاخصِ ۸۰ → یک خط در روز؛ دوباره‌اش نه
+      const cC = chat(93)
+      await member(cC, "شهرِ آشوب‌سنج", tid(96), "پیسِ آشوب")
+      const gC = await gidOf(cC)
+      await fixture(async () => {
+        await db.groupWorld.update({ where: { id: gC }, data: { chaos: 80, lastTickAt: new Date(Date.now() - 60_000) } })
+      })
+      const rowC = await db.groupWorld.findUniqueOrThrow({ where: { id: gC } })
+      await tickGroup(rowC)
+      const chaosRows1 = await db.groupOutbox.findMany({ where: { groupId: gC } })
+      ok(chaosRows1.some((r) => CHAOS_VOICE.includes(r.text)), "V23: chaos ≥70 → the city speaks once")
+      const cultC = JSON.parse((await db.groupWorld.findUniqueOrThrow({ where: { id: gC } })).cultureJson ?? "{}") as Record<string, unknown>
+      ok(cultC.chaosVoiceDay === dayKey, "V23: chaos voice day-key stamped (once per day)")
+      await fixture(async () => {
+        await db.groupWorld.update({ where: { id: gC }, data: { lastTickAt: new Date(Date.now() - 60_000) } })
+      })
+      const rowC2 = await db.groupWorld.findUniqueOrThrow({ where: { id: gC } })
+      await tickGroup(rowC2)
+      const chaosRows2 = await db.groupOutbox.findMany({ where: { groupId: gC } })
+      ok(chaosRows2.filter((r) => CHAOS_VOICE.includes(r.text)).length === chaosRows1.filter((r) => CHAOS_VOICE.includes(r.text)).length, "V23: second tick same day → no second chaos voice")
+    }
   }
 }
 
@@ -1848,6 +1983,25 @@ try {
   try { await cleanup() } catch (e) { fail++; failures.push(`CLEANUP FAILED: ${String(e)}`); console.error("CLEANUP FAILED:", e) }
   try { await finalGuards(basePlayerIds, baseGroupIds) } catch (e) { fail++; failures.push(`FINAL GUARD FAILED: ${String(e)}`); console.error("FINAL GUARD FAILED:", e) }
   await db.$disconnect().catch(() => undefined)
+}
+
+// ═══ §V20 — بازطراحیِ گروه: کارتِ ریتمِ فشرده + خطِ مهلتِ زنده‌ی رأی ═════════
+// (مأموریت V20 §8.4/ممتیز ۲/۱۴ — توابعِ خالص؛ رفتارِ سیمی در §V18/§Q همین فایل)
+{
+  console.log("── §V20 group presentation: compact pacing card + live vote window ──")
+  // کارتِ «شهر نفس تازه می‌کشد» — دیروز ۱۱ خط؛ حالا ≤ ۴ خط (نویزِ چتِ گروه)
+  const pacing = pacingCardText({ gateOpen: false, minutesSince: 30, msgsSince: 40, minutesLeftToGap: 90, msgsLeftToQuota: 60, lane: "fast", windowMinutes: 75, laneLabel: "سریع" } as any)
+  const pacingLines = pacing.split("\n").filter((l: string) => l.trim() !== "")
+  ok(pacingLines.length <= 4, `V20-1: pacing refusal card is compact (≤4 lines; got ${pacingLines.length})`)
+  ok(pacing.includes("90") && pacing.includes("60") && pacing.includes("دقیقه") && pacing.includes("پیام"), "V20-1: honest needs line survives the compaction")
+  ok(!pacing.includes("قانونِ شهر"), "V20-1: the full rulebook left the group chat (codex owns it)")
+  // کارتِ رأی — همان خطِ زنده‌ی «⏳ N دقیقه»ی ماجراها (V18) روی رأی هم هست
+  const in25 = new Date(Date.now() + 25 * 60000).toISOString()
+  const vote = voteCardText({ subject: "نامِ پارک", options: [{ label: "الف", count: 2 }], closesAt: in25 })
+  ok(vote.includes("⏳") && vote.includes("دقیقه وقت داری"), "V20-2: vote card carries the live countdown line")
+  const past = new Date(Date.now() - 60000).toISOString()
+  const votePast = voteCardText({ subject: "نامِ پارک", options: [{ label: "الف", count: 1 }], closesAt: past })
+  ok(!votePast.includes("⏳"), "V20-2: expired vote drops the countdown line (no negative minutes)")
 }
 
 console.log(`\n══ RESULT: ${pass} PASS / ${fail} FAIL ══`)

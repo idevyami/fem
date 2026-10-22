@@ -9,8 +9,10 @@
 //   • فرمان‌ها با cmd() مونو می‌شوند: <code>/guide</code>.
 //   • رازها و جایزه‌ها با spoiler() زیرِ پرده‌ی لمس‌و‌آشکا می‌روند (tg-spoiler).
 //   • متن‌های بلندِ روایی با expand() جمع می‌شوند (blockquote expandable).
-//   • سطرِ هدرِ هر صفحه: «emoji عنوانِ بولد» + SEP ━━━؛ زیربخش‌ها با SUB ─── یا
-//     DOTS · · · جدا می‌شوند؛ بینِ بلوک‌ها همیشه یک سطرِ خالی برای نفس‌کشیدن.
+//   • سطرِ هدرِ هر کارت (V24 — زبانِ بصریِ ۲٫۰): «emoji عنوانِ بولد» + زیرعنوانِ
+//     ایتالیک + نشانِ کارت emblem(«ایموجیِ خودِ کارت») ━━━ 🎀 ━━━؛ سطرهایِ وضعیتِ
+//     دارایِ سقفِ واقعی نوار می‌گیرند (barRow)؛ زیربخش‌ها با SUB ─── یا DOTS · · ·
+//     جدا می‌شوند؛ بینِ بلوک‌ها همیشه یک سطرِ خالی برای نفس‌کشیدن.
 //   • علامتِ دلتا بعد از عدد داخلِ تراش می‌نشیند: <code>3,000+</code> — قاعده‌ی
 //     مالیِ فارسی که در RTL هم درست دیده می‌شود.
 //
@@ -44,6 +46,27 @@ export const SUB = "──────────────────"
 
 /** جداسازِ هواییِ نقطه‌ای — بینِ آیتم‌های هم‌ردیف */
 export const DOTS = "· · · · · · · · · ·"
+
+// ─── V24 — زبانِ بصریِ ۲٫۰: نشانِ مرکز‌دار و نوارهایِ زنده ────────────────────
+
+/** نشانِ کارت — تقسیم‌کننده با ایموجیِ خودِ کارت در مرکز:
+ *  `━━━━━━━━━ 🎀 ━━━━━━━━━` — هر کارت هویتِ بصریِ خودش را می‌گیرد. */
+export function emblem(emoji: string, width = 11): string {
+  return `${"━".repeat(width)} ${emoji} ${"━".repeat(width)}`
+}
+
+/** سطرِ وضعیتِ نوارِدار — «❤️ روحیه ▓▓▓▓▓▓▓▓░░ <code>80%</code>»
+ *  نوار همیشه ۱۰ سلول؛ chipText متنِ دلخواهِ تراش را می‌گیرد (۵/۹ برای مخزنی‌ها). */
+export function barRow(
+  emoji: string,
+  label: string,
+  value: number,
+  max: number,
+  chipText?: string,
+): string {
+  const p = max > 0 ? Math.round((value / max) * 100) : 0
+  return `${emoji} ${label} ${bar(p)} ${chip(chipText ?? `${p}%`)}`
+}
 
 // ─── V16-3 — بینگو: آینهِ قواعدِ هزینه‌ی موتور (actions.ts gamble) ─────────────
 // فقط برای صداقتِ نمایش: کدام شرط‌ها دکمه شوند و کارت چه چیزی را «نمی‌کشد»
@@ -189,7 +212,7 @@ export function homeText(opts: {
   const f = snapshot?.femboy ?? null
   const name = p?.name ?? opts.name
 
-  const lines: string[] = ["🎀 <b>FEMBOY WAR</b>", "<i>خانه‌ی زندگی</i>", SEP, ""]
+  const lines: string[] = ["🎀 <b>FEMBOY WAR</b>", "<i>خانه‌ی زندگی</i>", emblem("🎀"), ""]
 
   // V17-W2 (§4/§6، آینه‌ی پنلِ متمرکزِ مینی‌اپ): بازیکنِ پیش از پیمان یک صدایِ اصلی
   // می‌خواهد، نه یازده دکمه‌ی هم‌وزن. یک خطِ «قدمِ بعدی» بالای کارت — همان الگویِ
@@ -197,7 +220,7 @@ export function homeText(opts: {
   const journeyStage = snapshot?.journey?.stage
   const preBound = journeyStage ? journeyStage === "new" || journeyStage === "awakened" : !f
   if (preBound) {
-    lines.push(`🌱 <b>قدمِ بعدیِ تو:</b> پیمانِ فمبوی را ببند — دکمه‌ی «👑 فمبویِ من» همین کارت است.`)
+    lines.push(`🌱 <b>قدمِ بعدیِ تو:</b> پیمانِ فمبوی را ببند — دکمه‌ی «🎀 فمبویِ من» همین کارت است.`)
     lines.push("")
   }
 
@@ -212,8 +235,8 @@ export function homeText(opts: {
       lines.push(`🎓 ${f.mastery.emoji} ${esc(f.mastery.label)} — تسلطِ سطحِ ${chip(f.mastery.level)}`)
     }
     lines.push("")
-    lines.push(`❤️ روحیه ${pct(f.spirit)} (${f.condition.emoji} ${esc(f.condition.label)})`)
-    lines.push(`⚡ استقامت ${chip(`${faNum(f.stamina)}/${faNum(f.staminaMax)}`)}`)
+    lines.push(`${barRow("❤️", "روحیه", f.spirit, 100)} · ${f.condition.emoji} ${esc(f.condition.label)}`)
+    lines.push(barRow("⚡", "استقامت", f.stamina, f.staminaMax, `${faNum(f.stamina)}/${faNum(f.staminaMax)}`))
     lines.push(`🤝 جنگ ${chip(`${faNum(f.wins)}W/${faNum(f.losses)}L`)}`)
     if (f.nextMilestone) {
       lines.push(`🎯 ${esc(clampText(f.nextMilestone, 90))}`)
@@ -226,9 +249,9 @@ export function homeText(opts: {
     lines.push("<i>شهر بدونِ او زندگی‌ات را جدی نمی‌گیرد.</i>")
   }
 
-  lines.push("", SUB, "")
+  lines.push("", DOTS, "")
 
-  // بازیکن و جهان
+  // بازیکن و جهان — V24: انرژی نوارِ خودش را می‌گیرد (تصمیمِ روزانه دیده می‌شود)
   const stage = guide?.stage ?? p?.stageBadge ?? null
   lines.push(`👤 <b>${esc(name)}</b>${stage ? ` · ${stage.emoji} ${esc(stage.name)}` : ""}`)
   if (p) {
@@ -238,27 +261,28 @@ export function homeText(opts: {
     lines.push(
       `💰 ${chip(p.money)} سکه${p.debt > 0 ? ` · 💳 ${chip(p.debt)} بدهی` : ""}`,
     )
-    lines.push(`⚡ ${chip(p.energy)} · 🌀 ${chip(p.chaos)} · ⭐ ${chip(p.fame)}`)
+    lines.push(`${barRow("⚡", "انرژی", p.energy, 100)} · 🌀 ${chip(p.chaos)} · ⭐ ${chip(p.fame)}`)
   }
-  lines.push("", SEP, "")
 
-  // راهنما — الان چه کنم؟
+  // راهنما — «الان چه کنم؟» زیرِ پرده‌ی نقل‌قول: صدایِ شهر با حاشیه‌ی خودش (V24)
+  lines.push("", emblem("📌"), "")
+  const guideLines: string[] = []
   if (guide) {
-    lines.push(`📌 <b>الان:</b> ${esc(clampText(guide.headline, 120))}`)
+    guideLines.push(`📌 <b>الان:</b> ${esc(clampText(guide.headline, 120))}`)
     const dir = guide.direction
     if (dir) {
-      lines.push(`🎯 <b>مسیرِ فعلی:</b> ${dir.emoji} ${esc(dir.name)}`)
-      lines.push(`<i>${esc(clampText(dir.description, 80))}</i>`)
+      guideLines.push(`🎯 <b>مسیرِ فعلی:</b> ${dir.emoji} ${esc(dir.name)}`)
+      guideLines.push(`<i>${esc(clampText(dir.description, 80))}</i>`)
     } else {
       const g0 = guide.goals.find((g) => g.category === "immediate") ?? guide.goals[0]
-      lines.push(
+      guideLines.push(
         g0
           ? `🎯 <b>مسیرِ فعلی:</b> ${g0.icon} ${esc(clampText(g0.title, 48))}`
           : `🎯 <b>مسیرِ فعلی:</b> هنوز مسیر نساخته‌ای — ${chip("قدمِ بعدی")}`,
       )
     }
     const top = guide.opportunities[0]
-    lines.push(
+    guideLines.push(
       top
         ? `⚡ <b>فرصت:</b> ${top.icon} ${esc(clampText(top.title, 48))} · ⏳ ${chip(top.minutesLeft)} دقیقه${riskMark(top.claimStyle)}`
         : `⚡ <b>فرصت:</b> فعلاً ساکت است…`,
@@ -270,10 +294,44 @@ export function homeText(opts: {
       : w.globalEvent
         ? `${w.globalEvent.emoji} ${esc(w.globalEvent.name)}`
         : "شهر نفس تازه می‌کند…"
-    lines.push(`📌 <b>الان:</b> ${now}`)
-    lines.push(`🎯 <b>مسیرِ فعلی:</b> هنوز مسیر نساخته‌ای — ${chip("قدمِ بعدی")} را بپرس.`)
-    lines.push(`⚡ <b>فرصت:</b> فعلاً ساکت است…`)
+    guideLines.push(`📌 <b>الان:</b> ${now}`)
+    guideLines.push(`🎯 <b>مسیرِ فعلی:</b> هنوز مسیر نساخته‌ای — ${chip("قدمِ بعدی")} را بپرس.`)
+    guideLines.push(`⚡ <b>فرصت:</b> فعلاً ساکت است…`)
   }
+  if (guideLines.length > 0) lines.push(quote(guideLines.join("\n")))
+  return lines.join("\n")
+}
+
+// ─── ⚡ فعالیت‌ها (V20 — مقصدِ «انجامِ کارِ مفید»: کار/استراحت/سفر/شغل) ───────────
+
+/** کارتِ فعالیت‌ها — مأموریت §4.2: قبل از کنش، هزینه‌ها روشن است؛ بعد از کنش،
+ *  نتیجه از outcomeShow می‌آید. این‌جا فقط «چه چیزی، چه هزینه‌ای» را می‌گوییم:
+ *  انرژی/شغل/جیب وضعیتِ فعلی و هر کنش یک خطِ صادقانه دارد. */
+export function activitiesText(snapshot: GameSnapshot): string {
+  const p = snapshot.player
+  // V24 — نشانِ کارت: ⚡ خودِ کارت؛ انرژی نوارِ زنده می‌گیرد (قیدِ موتور: 0..100)
+  const lines: string[] = [
+    "⚡ <b>فعالیت‌ها</b>",
+    "<i>کار، استراحت، سفر و شغل — با هزینه‌ی روشنِ هر کدام</i>",
+    emblem("⚡"),
+    "",
+  ]
+  // وضعیتِ فعلی — همان چیزی که برای انتخاب لازم است (§3.1: «کجایم؟»)
+  lines.push(`👤 ${esc(p.name)} · 💰 ${chip(p.money)} سکه`)
+  lines.push(barRow("⚡", "انرژی", p.energy, 100))
+  if (p.debt > 0) {
+    lines.push(`💳 بدهی: ${chip(p.debt)} سکه — شیفتِ کار پول می‌آورد`)
+  }
+  if (p.job) {
+    lines.push(`💼 شغلِ فعلی: ${p.job.emoji} ${esc(p.job.name)}`)
+  } else {
+    lines.push(`💼 شغلی نداری — «شغل‌ها» را ببین یا شیفتِ بی‌شغلی بزن`)
+  }
+  lines.push("", SUB, "", "هر کدام را همین‌جا انجام بده:", "")
+  lines.push(`💼 <b>شیفتِ کار</b> — پول می‌آورد؛ انرژی می‌برد`)
+  lines.push(`😴 <b>استراحت</b> — انرژی را پر می‌کند؛ وقت می‌برد`)
+  lines.push(`🗺 <b>سفرِ بین محله‌ها</b> — هر محله اتفاقاتِ خودش را دارد`)
+  lines.push(`💼 <b>شغل‌ها</b> — عوضش کن (شرطِ سطح دارد)؛ بی‌کاری هم انتخاب است`)
   return lines.join("\n")
 }
 
@@ -282,17 +340,18 @@ export function homeText(opts: {
 /** نمای قدمِ بعدی: چه خبر شده / الان چه کنم / در حال ساختنِ چی / فرصت‌ها / آرزوها
  *  (V16-3: فرصت‌ها و آرزوها بخشِ همین کارت‌اند — دکمه‌ی سطحِ خانه نیستند). */
 export function guideText(g: GuideResponse): string {
-  const lines: string[] = ["🎯 <b>قدمِ بعدی</b>", SEP, ""]
+  const lines: string[] = ["🎯 <b>قدمِ بعدی</b>", "<i>شهر چه می‌گوید و تو الان چه می‌کنی</i>", emblem("🎯"), ""]
 
   lines.push("📰 <b>چه خبر شده؟</b>")
-  lines.push(esc(clampText(g.headline, 140)))
+  // V24 — صدایِ شهر با حاشیه‌ی نقل‌قولِ خودش (همان زبانِ هاب)
+  lines.push(quote(esc(clampText(g.headline, 140))))
   if (g.whatsHappening.trim()) {
     lines.push(expand(`<i>${esc(clampText(g.whatsHappening, 320))}</i>`))
   }
 
   lines.push("", "🎯 <b>الان چه کنم؟</b>", "")
   if (g.nextActions.length === 0) {
-    lines.push("<i>راهنما فعلاً ساکت است… خودت انتخاب کن؛ این هم زندگی است.</i>")
+    lines.push(quote("<i>راهنما فعلاً ساکت است… خودت انتخاب کن؛ این هم زندگی است.</i>"))
   } else {
     for (const [i, na] of g.nextActions.slice(0, 5).entries()) {
       lines.push(`${chip(i + 1)}. ${na.icon} <b>${esc(clampText(na.title, 48))}</b>`)
@@ -306,7 +365,7 @@ export function guideText(g: GuideResponse): string {
 
   lines.push("🏗 <b>در حال ساختنِ چی؟</b>", "")
   if (g.goals.length === 0) {
-    lines.push("<i>هنوز هدفی انتخاب نکرده‌ای. قدم بزن؛ شهر هدف می‌سازد.</i>")
+    lines.push(quote("<i>هنوز هدفی انتخاب نکرده‌ای. قدم بزن؛ شهر هدف می‌سازد.</i>"))
   } else {
     for (const goal of g.goals.slice(0, 4)) {
       lines.push(`${goal.icon} <b>${esc(clampText(goal.title, 44))}</b>`)
@@ -323,7 +382,7 @@ export function guideText(g: GuideResponse): string {
 
   lines.push("⚡ <b>فرصت‌ها</b>", "")
   if (g.opportunities.length === 0) {
-    lines.push("<i>فعلاً ساکت است…</i>")
+    lines.push(quote("<i>فعلاً ساکت است…</i>"))
   } else {
     for (const o of g.opportunities.slice(0, 4)) {
       lines.push(`${o.icon} <b>${esc(clampText(o.title, 44))}</b> · ⏳ ${chip(o.minutesLeft)} دقیقه`)
@@ -338,7 +397,7 @@ export function guideText(g: GuideResponse): string {
   // V16-3 — آرزوها هم بخشِ کارتِ «قدمِ بعدی» است (ممیزی ⑨: از هویِ خانه آمد بیرون)
   lines.push("✨ <b>آرزوها</b>", "")
   if (g.aspirations.length === 0) {
-    lines.push("<i>آرزوهایت هنوز خواب‌اند…</i>")
+    lines.push(quote("<i>آرزوهایت هنوز خواب‌اند…</i>"))
   } else {
     for (const a of g.aspirations.slice(0, 3)) {
       lines.push(`${a.emoji} <b>${esc(clampText(a.name, 40))}</b> — ${pct(a.progressPct)} ${bar(a.progressPct, 8)}`)
@@ -361,10 +420,10 @@ const GOAL_CAT: Record<GoalDTO["category"], string> = {
 
 /** فهرست کامل اهداف با نوار پیشرفت */
 export function goalsText(g: GuideResponse): string {
-  const lines: string[] = ["🎯 <b>اهداف</b>", SEP, ""]
+  const lines: string[] = ["🎯 <b>اهداف</b>", "<i>آنچه شهر برایت ساخته — تا آخرین قدم</i>", emblem("🎯"), ""]
   if (g.goals.length === 0) {
     lines.push("هنوز هدفی نداری.")
-    lines.push("", "<i>یک قدم بزن؛ شهر برایت هدف می‌سازد.</i>")
+    lines.push("", quote("<i>یک قدم بزن؛ شهر برایت هدف می‌سازد.</i>"))
     return lines.join("\n")
   }
   const order: GoalDTO["category"][] = ["immediate", "short", "medium", "long"]
@@ -387,16 +446,17 @@ export function goalsText(g: GuideResponse): string {
 
 /** فهرست فرصت‌ها با پیش‌نمایشِ پاداشِ زیرِ پرده و نشانه‌ی ریسک */
 export function opsText(g: GuideResponse): string {
-  const lines: string[] = ["⚡ <b>فرصت‌ها</b>", SEP, ""]
+  const lines: string[] = ["⚡ <b>فرصت‌ها</b>", "<i>شهر همین حالا حرف می‌زند — هر کدام ضرب‌الاجل دارد</i>", emblem("⚡"), ""]
   if (g.opportunities.length === 0) {
     lines.push("فعلاً هیچ فرصتی نیست.")
-    lines.push("", "<i>شهر ساکت است — ولی نه برای همیشه…</i>")
+    lines.push("", quote("<i>شهر ساکت است — ولی نه برای همیشه…</i>"))
     return lines.join("\n")
   }
   g.opportunities.slice(0, 6).forEach((o, i) => {
     if (i > 0) lines.push("", DOTS, "")
     lines.push(`${o.icon} <b>${esc(clampText(o.title, 52))}</b>${riskMark(o.claimStyle)}`)
-    lines.push(`<i>${esc(clampText(o.description, 160))}</i>`)
+    // V24 — شرحِ فرصت، صدایِ شهر است: با حاشیه‌ی نقل‌قول
+    lines.push(quote(`<i>${esc(clampText(o.description, 160))}</i>`))
     lines.push(`🪙 ${esc(o.sourceLabel)} · ⏳ ${chip(o.minutesLeft)} دقیقه`)
     lines.push(`🎁 ${spoiler(esc(clampText(o.rewardPreview, 90)))}`)
   })
@@ -410,10 +470,10 @@ export function opsText(g: GuideResponse): string {
 
 /** هر ۱۰ آرزو: ایموجی، نوار، مرحله‌ی فعلی و لقبِ پایان راه */
 export function dreamsText(g: GuideResponse): string {
-  const lines: string[] = ["✨ <b>آرزوها</b>", SEP, ""]
+  const lines: string[] = ["✨ <b>آرزوها</b>", "<i>مسیرهای بلندِ زندگی‌ات — قدم‌به‌قدم</i>", emblem("✨"), ""]
   if (g.aspirations.length === 0) {
     lines.push("<i>آرزوهایت هنوز خواب‌اند…</i>")
-    lines.push("", `<i>با ${chip("قدمِ بعدی")} بیدارشان کن.</i>`)
+    lines.push("", quote(`<i>با ${chip("قدمِ بعدی")} بیدارشان کن.</i>`))
     return lines.join("\n")
   }
   for (const a of g.aspirations) {
@@ -431,14 +491,16 @@ export function dreamsText(g: GuideResponse): string {
 /** پروفایل ۲.۰ — ترکیبِ ProfileResponse موتور + زمینه‌های V4 از guide */
 export function profileText(p: ProfileResponse, g: GuideResponse | null): string {
   const pl = p.player
-  const lines: string[] = [`👤 <b>${esc(pl.name)}</b> — سطح ${chip(pl.level)}`]
+  const lines: string[] = [`👤 <b>${esc(pl.name)}</b> — سطح ${chip(pl.level)}`, "<i>کارنامه‌ی تو در این شهر</i>"]
   // V17-W2 (§12): سیمِ XP که V17-1 وصل کرد حالا دیده هم می‌شود — «چقدر تا سطحِ بعد».
   // همین نوار در مینی‌اپ (MeScreen) هست؛ §11: یک حقیقت، یک زبان، همه‌ی سطح‌ها.
+  // V24 — نوارِ زنده‌ی XP: مقدار/سقف در تراشِ خودش، نوار در میانِ سطر
   if (pl.xp !== undefined && pl.xpToNext !== undefined && pl.xpToNext > 0) {
-    const xpPct = Math.min(100, Math.round((pl.xp / pl.xpToNext) * 100))
-    lines.push(`✨ ${chip(faNum(pl.xp))}/${chip(faNum(pl.xpToNext))} تا سطحِ ${chip(faNum(pl.level + 1))} — ${bar(xpPct, 8)}`)
+    lines.push(
+      barRow("✨", `تا سطحِ ${chip(faNum(pl.level + 1))}`, pl.xp, pl.xpToNext, `${faNum(pl.xp)}/${faNum(pl.xpToNext)}`),
+    )
   }
-  lines.push(SEP, "")
+  lines.push(emblem("👤"), "")
 
   if (g) {
     const st = g.stage
@@ -471,7 +533,9 @@ export function profileText(p: ProfileResponse, g: GuideResponse | null): string
     pl.vehicle ? `${pl.vehicle.emoji} ${esc(pl.vehicle.name)}` : "🚶 پیاده",
   ]
   lines.push(assets.join(" · "))
-  lines.push(`📍 ${pl.districtEmoji} ${esc(pl.districtName)} · 💰 ${chip(pl.money)} سکه · ⚡ ${chip(pl.energy)}`)
+  // V24 — انرژی نوارِ خودش را می‌گیرد (قیدِ موتور: 0..100)؛ جیب و محله چیپ می‌مانند
+  lines.push(`📍 ${pl.districtEmoji} ${esc(pl.districtName)} · 💰 ${chip(pl.money)} سکه`)
+  lines.push(barRow("⚡", "انرژی", pl.energy, 100))
   // V17-W3 (W3-F4) — پیوستگیِ کار (پاداشِ تا +۳۰٪ دستمزد) — همان چیزی که نتیجه‌ی
   // شیفت می‌گوید حالا در پروفایل هم دیده می‌شود؛ §11: یک حقیقت، یک زبان، همه‌ی سطح‌ها.
   if (pl.workStreak !== undefined && pl.workStreak > 0 && pl.job) {
@@ -533,14 +597,19 @@ export function achievementsText(p: ProfileResponse): string {
   const m = p.achievementsTotal
   const lines: string[] = [
     "🏆 <b>دستاوردها</b>",
+    "<i>افتخارهایی که شهر برایت نگه داشته</i>",
+    emblem("🏆"),
     "",
     m ? `${chip(faNum(n))} از ${chip(faNum(m))} باز شده` : `${chip(faNum(n))} دستاوردِ باز شده`,
-    SEP,
-    "",
   ]
+  // V24 — نوارِ کامل‌شدنِ تالار: N از M حالا دیده می‌شود، نه فقط خوانده
+  if (m && m > 0) {
+    lines.push(`${bar((n / m) * 100)} ${pct((n / m) * 100)}`)
+  }
+  lines.push("")
   if (n === 0) {
     lines.push("<i>هنوز هیچ افتخاری نگرفته‌ای.</i>")
-    lines.push("", "<i>شهر کسی را فراموش نمی‌کند که چیزی انجام داده باشد.</i>")
+    lines.push("", quote("<i>شهر کسی را فراموش نمی‌کند که چیزی انجام داده باشد.</i>"))
   } else {
     lines.push("آخرین‌ها:", "")
     for (const a of latestAchievements(pl.achievements, 8)) {
@@ -568,7 +637,7 @@ export function eventText(e: ActiveEventDTO): string {
   return [
     `${e.emoji} <b>${esc(e.title)}</b>`,
     `<i>${esc(e.rarityLabel)} · ${esc(e.categoryLabel)}${chain}</i>`,
-    SEP,
+    emblem(e.emoji),
     "",
     q,
   ].join("\n")
@@ -580,7 +649,7 @@ export function outcomeText(o: OutcomeDTO): string {
   const good = o.deltas.filter((d) => d.tone === "good").length
   const head = bad > good ? "💫" : "✅"
 
-  const lines: string[] = [`${head} ${esc(o.text)}`, ""]
+  const lines: string[] = [`${head} <b>${esc(o.text)}</b>`, emblem(head), ""]
   lines.push(...deltaLines(o.deltas))
 
   // فمبوی — XPِ این تجربه‌ی شهری (اگر پیمان بسته باشد)
@@ -613,8 +682,9 @@ export function outcomeText(o: OutcomeDTO): string {
 
 /** پیام کار/سفر/استراحت/فرصت: «✅ {message}\n{flavor}\n{deltas}» */
 export function actionText(res: ActionResponse): string {
-  const lines: string[] = [`✅ <b>${esc(res.message)}</b>`]
-  if (res.flavor) lines.push("", `<i>${esc(clampText(res.flavor, 200))}</i>`)
+  // V24 — کارتِ لحظه هم نشانِ خودش را دارد؛ طعمِ کار در نقل‌قول
+  const lines: string[] = [`✅ <b>${esc(res.message)}</b>`, emblem("✅")]
+  if (res.flavor) lines.push("", quote(`<i>${esc(clampText(res.flavor, 200))}</i>`))
   if (res.deltas.some((d) => d.amount !== 0)) lines.push("", ...deltaLines(res.deltas))
   return lines.join("\n")
 }
@@ -624,16 +694,19 @@ export function actionText(res: ActionResponse): string {
 /** «🏙 شهر» — محله‌ی فعلی + هوا (نمای خصوصی با دکمه‌های سفر) */
 export function cityText(s: GameSnapshot): string {
   const p = s.player
+  // V24 — نشانِ 🏙؛ آشوبِ شهر نوارِ زنده می‌گیرد (قیدِ موتور: 0..100)
   return [
     "🏙 <b>شهر</b>",
-    SEP,
+    "<i>محله‌ی تو، هوای امروز و راه‌های رفتن</i>",
+    emblem("🏙"),
     "",
     `📍 الان اینجایی: ${p.districtEmoji} <b>${esc(p.districtName)}</b>`,
-    `${s.world.weatherEmoji} ${esc(s.world.weatherLabel)} · 🌀 آشوبِ شهر: ${chip(s.world.chaosLevel)}`,
+    `${s.world.weatherEmoji} ${esc(s.world.weatherLabel)}`,
+    barRow("🌀", "آشوبِ شهر", s.world.chaosLevel, 100),
     "",
     SUB,
     "",
-    "<i>برای سفر، محله‌ی مقصد را از دکمه‌های پایین انتخاب کن.</i>",
+    quote("<i>برای سفر، محله‌ی مقصد را از دکمه‌های پایین انتخاب کن.</i>"),
   ].join("\n")
 }
 
@@ -642,14 +715,21 @@ export function cityText(s: GameSnapshot): string {
 /** خبرنامه‌ی شهر — دیجست کامل برای /news (بدون بازیکن هم کار می‌کند).
  *  شایعه‌ها زیرِ اسپویلرند: لمس کن تا لو بروند. */
 export function cityNewsText(cn: CityNewsResponse): string {
-  const lines: string[] = [`🏙 <b>شهرِ ما</b> — روز ${chip(cn.dayCount)}`, SEP, ""]
+  const lines: string[] = [
+    `🏙 <b>شهرِ ما</b> — روز ${chip(cn.dayCount)}`,
+    "<i>نبضِ جمعیِ شهرِ گروه</i>",
+    emblem("🏙"),
+    "",
+  ]
   lines.push(`${cn.weatherEmoji} ${esc(cn.weatherLabel)} · ${esc(cn.moodLabel)}`)
-  lines.push(`🌀 آشوب ${chip(cn.chaosLevel)} · 💹 اقتصاد ${chip(cn.economyIndex)}`)
+  // V24 — آشوب نوارِ زنده می‌گیرد (قیدِ موتور: 0..100)؛ اقتصاد شاخص است نه مخزن
+  lines.push(barRow("🌀", "آشوب", cn.chaosLevel, 100))
+  lines.push(`💹 اقتصادِ شهر: ${chip(cn.economyIndex)}`)
   if (cn.globalEvent) {
     lines.push(
       "",
       `${cn.globalEvent.emoji} <b>${esc(clampText(cn.globalEvent.name, 60))}</b>`,
-      `<i>${esc(clampText(cn.globalEvent.description, 160))}</i>`,
+      quote(`<i>${esc(clampText(cn.globalEvent.description, 160))}</i>`),
       `⏳ ${chip(cn.globalEvent.endsInMinutes)} دقیقه دیگر…`,
     )
   }
@@ -680,10 +760,10 @@ const MEDALS = ["🥇", "🥈", "🥉"] as const
 
 /** برترین‌های شهر — /top */
 export function topText(cn: CityNewsResponse): string {
-  const lines: string[] = ["🏆 <b>مردمِ شهر — برترین‌ها</b>", SEP, ""]
+  const lines: string[] = ["🏆 <b>مردمِ شهر — برترین‌ها</b>", "<i>اسم‌هایی که شهر حفظ کرده</i>", emblem("🏆"), ""]
   if (cn.topPlayers.length === 0) {
     lines.push("<i>هنوز کسی اسمی از خودش نگذاشته…</i>")
-    lines.push("", "<i>اولین افسانه تو باش.</i>")
+    lines.push("", quote("<i>اولین افسانه تو باش.</i>"))
     return lines.join("\n")
   }
   cn.topPlayers.slice(0, 5).forEach((p, i) => {
@@ -698,10 +778,12 @@ export function topText(cn: CityNewsResponse): string {
   return lines.join("\n").trim()
 }
 
-/** نوار فشرده‌ی وضعیت شهر — /status */
+/** نوار فشرده‌ی وضعیت شهر — /status (کارت‌های قدیمی)
+ *  V24 — نشانِ 🏙 در میانِ دو سطر: همان هویتِ بصری، بدونِ سنگینیِ کارت */
 export function cityStatusText(cn: CityNewsResponse): string {
   const lines = [
     `🏙 روز ${chip(cn.dayCount)} · ${cn.weatherEmoji} ${esc(cn.weatherLabel)} · ${esc(cn.moodLabel)}`,
+    emblem("🏙"),
     `🌀 ${chip(cn.chaosLevel)} · 💹 ${chip(cn.economyIndex)}`,
   ]
   if (cn.globalEvent) {
@@ -729,9 +811,16 @@ export function bagText(p: ProfileResponse, prices: Map<string, number>, page = 
   const pageCount = Math.max(1, Math.ceil(live.length / BAG_PER_PAGE))
   const safePage = Math.max(0, Math.min(page, pageCount - 1))
   const top = live.slice(safePage * BAG_PER_PAGE, safePage * BAG_PER_PAGE + BAG_PER_PAGE)
-  const lines: string[] = [`🎒 <b>کیف</b>`, "", `${chip(live.length)} آیتم · 💰 ${chip(pl.money)} سکه`, SEP, ""]
+  const lines: string[] = [
+    `🎒 <b>کیف</b>`,
+    "<i>هرچه داری، همین‌جاست</i>",
+    emblem("🎒"),
+    "",
+    `${chip(live.length)} آیتم · 💰 ${chip(pl.money)} سکه`,
+    "",
+  ]
   if (live.length === 0) {
-    lines.push("<i>کیفت خالیه. هنوز.</i>")
+    lines.push(quote("<i>کیفت خالیه. هنوز.</i>"))
     // V17-W3 (W3-F9) — بن‌بستِ شاعرانه حذف نشد، اما یک خطِ صادق هم آمد: چیزها از
     // کجا می‌آیند + دکمه‌ی «🎲 اتفاق امروز» زیر کارت — همان الگوی CTAی مینی‌اپ (§14/§15)
     lines.push("", "چیزها از <b>اتفاق‌ها</b>، <b>فرصت‌ها</b> و <b>بازار</b> می‌آیند — «🎲 اتفاق امروز» اولین‌شان است.")
@@ -760,14 +849,15 @@ export function bagText(p: ProfileResponse, prices: Map<string, number>, page = 
 
 /** «📜 تاریخچه» — ۵ ردیفِ آخر + دنباله‌ی شمارشی */
 export function historyText(p: ProfileResponse): string {
-  const lines: string[] = ["📜 <b>تاریخچه</b>", SEP, ""]
+  const lines: string[] = ["📜 <b>تاریخچه</b>", "<i>چیزهایی که شهر درباره‌ات نوشته</i>", emblem("📜"), ""]
   if (p.history.length === 0) {
     lines.push("<i>هنوز چیزی ننوشته.</i>")
-    lines.push("", "<i>این شهر درباره‌ات ساکت است.</i>")
+    lines.push("", quote("<i>این شهر درباره‌ات ساکت است.</i>"))
     return lines.join("\n")
   }
+  // V24 — هر رویداد، ورودیِ دفترِ شهر است: با حاشیه‌ی نقل‌قولِ خودش
   for (const h of p.history.slice(0, 5)) {
-    lines.push(`${h.icon} ${esc(h.text)} · روز ${chip(h.day)}`)
+    lines.push(quote(`${h.icon} ${esc(h.text)} · روز ${chip(h.day)}`))
   }
   if (p.history.length > 5) {
     lines.push("", `<i>… و ${chip(p.history.length - 5)} رویدادِ دیگر</i>`)
@@ -777,28 +867,29 @@ export function historyText(p: ProfileResponse): string {
 
 // ─── بدهی / عنوان‌ها / شغل‌ها / بازار / خبرها / بینگو ───────────────────────
 
-/** 💳 بدهی — مبلغ + وضعیتِ جیب + بهای تعلل */
+/** 💳 بدهی — مبلغ + وضعیتِ جیب + بهای تعلل (نشانِ کارت: ⛓ زنجیرِ فرهاد) */
 export function debtText(s: GameSnapshot): string {
   const p = s.player
   return [
     "💳 <b>بدهی</b>",
-    SEP,
+    "<i>حسابِ تو با دایی فرهاد</i>",
+    emblem("⛓"),
     "",
     `دایی فرهاد صبور است: <b>${chip(p.debt)} سکه</b>`,
     `💰 کیفِ تو: ${chip(p.money)} سکه`,
     "",
     SUB,
     "",
-    "<i>بدهی سود جمع می‌کند. فرهاد لبخند می‌زند؛ خیلی.</i>",
+    quote("<i>بدهی سود جمع می‌کند. فرهاد لبخند می‌زند؛ خیلی.</i>"),
   ].join("\n")
 }
 
 /** 🏷 عنوان‌ها — مالکیت‌ها + فعال ✅ */
 export function titlesText(p: { activeTitle: string | null; titles: { key: string; name: string; emoji: string; description: string }[] }): string {
-  const lines: string[] = ["🏷 <b>عنوان‌ها</b>", SEP, ""]
+  const lines: string[] = ["🏷 <b>عنوان‌ها</b>", "<i>اسم‌هایی که کنارِ اسمت می‌نشینند</i>", emblem("🏷"), ""]
   if (p.titles.length === 0) {
     lines.push("هنوز هیچ عنوانی نگرفته‌ای.")
-    lines.push("", "<i>شهر هنوز اسمی برای تو ندارد.</i>")
+    lines.push("", quote("<i>شهر هنوز اسمی برای تو ندارد.</i>"))
     return lines.join("\n")
   }
   for (const t of p.titles.slice(0, 8)) {
@@ -817,7 +908,7 @@ export function titlesText(p: { activeTitle: string | null; titles: { key: strin
 
 /** 💼 شغل‌ها — کاتالوگ + شرایط + شغلِ فعلی */
 export function jobsText(cat: CatalogResponse, p: { level: number; job: { key: string; name: string; emoji: string } | null }): string {
-  const lines: string[] = ["💼 <b>شغل‌های شهر</b>", SEP, ""]
+  const lines: string[] = ["💼 <b>شغل‌های شهر</b>", "<i>هر کدام شرط و دستمزدِ خودش را دارد</i>", emblem("💼"), ""]
   if (p.job) {
     lines.push(`الان: ${p.job.emoji} <b>${esc(p.job.name)}</b> · سطح ${chip(p.level)}`)
   } else {
@@ -836,7 +927,7 @@ export function jobsText(cat: CatalogResponse, p: { level: number; job: { key: s
     lines.push(`<i>… و ${chip(cat.jobs.length - 9)} شغلِ دیگر</i>`)
     lines.push("")
   }
-  lines.push("<i>🔒 یعنی سطحش را نداری؛ شهر هنوز به تو اعتماد نکرده.</i>")
+  lines.push(quote("<i>🔒 یعنی سطحش را نداری؛ شهر هنوز به تو اعتماد نکرده.</i>"))
   return lines.join("\n")
 }
 
@@ -863,7 +954,7 @@ export function livingText(opts: {
   economyIndex: number
 }): string {
   const { which, player } = opts
-  const lines: string[] = ["🏠 <b>خانه و وسیله</b>", SEP, ""]
+  const lines: string[] = ["🏠 <b>خانه و وسیله</b>", "<i>سقفِ تو و راهِ رفتنت</i>", emblem("🏠"), ""]
 
   // مالِ فعلی — همان دو خطی که کارتِ «من» جمع‌وجور نشان می‌دهد
   const house = opts.houses.find((h) => h.key === (player.house?.key ?? "attic")) ?? null
@@ -884,7 +975,8 @@ export function livingText(opts: {
     }
     for (const h of rest) {
       lines.push(`${h.emoji} <b>${esc(h.name)}</b> — ${chip(h.price)} سکه`)
-      lines.push(`<i>${esc(clampText(h.description, 70))}</i>`)
+      // V24 — شخصیتِ هر خانه، با حاشیه‌ی نقل‌قول
+      lines.push(quote(`<i>${esc(clampText(h.description, 70))}</i>`))
       lines.push(`· اجاره‌ی روزانه ${chip(h.rent)} · آسایش ${chip(h.comfort)} · امنیت ${chip(h.security)}`)
       lines.push("")
     }
@@ -896,11 +988,12 @@ export function livingText(opts: {
     }
     for (const v of rest) {
       lines.push(`${v.emoji} <b>${esc(v.name)}</b> — ${chip(vehiclePriceOf(v.basePrice, opts.economyIndex))} سکه`)
-      lines.push(`<i>${esc(clampText(v.quirk || v.description, 70))}</i>`)
+      // V24 — عادتِ هر وسیله، با حاشیه‌ی نقل‌قول
+      lines.push(quote(`<i>${esc(clampText(v.quirk || v.description, 70))}</i>`))
       lines.push("")
     }
   }
-  lines.push("<i>خریدِ بزرگ است — قبل از ثبت، کارتِ تأیید قیمتِ نهایی را نشان می‌دهد.</i>")
+  lines.push(quote("<i>خریدِ بزرگ است — قبل از ثبت، کارتِ تأیید قیمتِ نهایی را نشان می‌دهد.</i>"))
   return lines.join("\n")
 }
 
@@ -915,18 +1008,19 @@ export function livingConfirmText(opts: {
   tail: string
 }): string {
   const title = opts.which === "house" ? "خریدِ خانه" : "خریدِ وسیله"
+  // V24 — کارتِ واخواهی هم نشانِ خودش را دارد؛ جمله‌ی پیوسته در نقل‌قول
   const lines = [
     `🏠 <b>${title}</b>`,
-    SEP,
+    "<i>واخواهیِ آخر قبل از امضای خرید</i>",
+    emblem("🏠"),
     "",
     `${opts.item.emoji} <b>${esc(opts.item.name)}</b>`,
     `💵 قیمتِ واقعی: <b>${chip(opts.price)} سکه</b>`,
     `💰 جیبِ تو: ${chip(opts.money)} سکه`,
-    opts.tail ? `<i>${esc(opts.tail)}</i>` : "",
-    "",
-    SUB,
   ]
-  return lines.filter((l) => l !== "").join("\n")
+  if (opts.tail) lines.push(quote(`<i>${esc(opts.tail)}</i>`))
+  lines.push("", SUB)
+  return lines.join("\n")
 }
 
 /** 🏪 بازار — مغازه‌ی محله + آگهی‌های مردم + آگهی‌های خودِ تو (V16-4) + جیب */
@@ -936,8 +1030,15 @@ export function marketText(m: MarketSnapshot): string {
   const mine = m.listings.filter((l) => l.mine && l.quantity > 0)
   const shop = shopAll.slice(0, 6)
   const players = playersAll.slice(0, 6)
-  const lines: string[] = ["🏪 <b>بازارِ شهر</b>", "", `💰 کیفِ تو: ${chip(m.playerMoney)} سکه`, SEP, ""]
-  lines.push("🏬 <b>مغازه‌ی محله:</b>", "")
+  // V24 — نشانِ کارت: 💰 (نقشِ بازار)؛ جیب بالای کارت، بعد از نشان
+  const lines: string[] = [
+    "🏪 <b>بازارِ شهر</b>",
+    "<i>مغازه‌ی محله و آگهی‌های مردم — کنارِ هم</i>",
+    emblem("💰"),
+    "",
+    `💰 کیفِ تو: ${chip(m.playerMoney)} سکه`,
+  ]
+  lines.push("", "🏬 <b>مغازه‌ی محله:</b>", "")
   if (shop.length === 0) {
     lines.push("<i>قفسه‌ها فعلاً خالی‌اند. بعداً بیا.</i>")
   } else {
@@ -969,11 +1070,11 @@ export function marketText(m: MarketSnapshot): string {
     }
     lines.push(`<i>پس‌گرفتن: دکمه‌ی ${chip("برداشتن")} زیر همین پیام.</i>`)
   }
-  lines.push("", SUB, "", "<i>قیمت‌ها مثلِ حرفِ مردم، مدام عوض می‌شوند.</i>")
+  lines.push("", SUB, "", quote("<i>قیمت‌ها مثلِ حرفِ مردم، مدام عوض می‌شوند.</i>"))
   return lines.join("\n")
 }
 
-// ─── 🛍 فهرست‌کردن در بازار (V16-4 — ممیزی ⑪: createListing فقطِ مینی‌اپ بود) ──
+// ─── 🛍 فروش در بازار (V16-4؛ V20: «فهرست‌کردن» → «به فروش بگذار» — فعلِ روشن) ──
 
 /** قیمت‌های پیشنهادیِ آگهی — ۰.۹/۱.۰/۱.۱ برابرِ قیمتِ روزِ بازار (کفِ ۱) */
 export function suggestedPrices(reference: number): number[] {
@@ -985,16 +1086,16 @@ export function suggestedPrices(reference: number): number[] {
 export function marketSellText(
   sellable: { emoji: string; name: string; quantity: number; reference: number | null }[],
 ): string {
+  // V24 — نشانِ 🛍؛ جمله‌ی راهنما ایتالیک و بالای نشان نشست
   const lines: string[] = [
-    "🛍 <b>فهرست‌کردن در بازار</b>",
-    SEP,
-    "",
-    "چیزی از کیفت را برای فروش بگذار — آگهی‌ات بینِ آگهی‌های مردم می‌نشیند.",
+    "🛍 <b>چه چیزی را به فروش بگذاری؟</b>",
+    "<i>چیزی از کیفت را برای فروش بگذار — آگهی‌ات بینِ آگهی‌های مردم می‌نشیند.</i>",
+    emblem("🛍"),
     "",
   ]
   if (sellable.length === 0) {
     lines.push("<i>چیزِ قابلِ‌فروشی در کیف نداری.</i>")
-    lines.push("", `<i>قفل/علاقه‌مندی‌ها و غیرقابلِ‌معامله‌ها آگهی نمی‌شوند. ${chip("کیف")} را ببین.</i>`)
+    lines.push("", quote(`<i>قفل/علاقه‌مندی‌ها و غیرقابلِ‌معامله‌ها آگهی نمی‌شوند. ${chip("کیف")} را ببین.</i>`))
     return lines.join("\n")
   }
   lines.push(...sellable.map((i) => `${i.emoji} <b>${esc(i.name)}</b> ${chip(`x${faNum(i.quantity)}`)}${i.reference ? ` · روز: ${chip(i.reference)}` : ""}`))
@@ -1014,9 +1115,11 @@ export function marketPriceText(
   reference: number | null,
   suggestions: number[],
 ): string {
+  // V24 — نشانِ 🏷 (برچسبِ قیمت)؛ همان اعدادِ صادقانه، چیدمانِ تازه
   const lines: string[] = [
     "🏷 <b>قیمتِ آگهی</b>",
-    SEP,
+    "<i>قیمتِ خودت را انتخاب کن — یا پیشنهادِ شهر را</i>",
+    emblem("🏷"),
     "",
     `${item.emoji} <b>${esc(item.name)}</b> ${chip(`x${faNum(1)}`)} — از ${chip(faNum(item.quantity))} عددِ کیفت`,
     reference ? `📊 قیمتِ روزِ بازار: ${chip(reference)} سکه` : "📊 قیمتِ روزِ بازار در دسترس نیست.",
@@ -1034,10 +1137,15 @@ export function marketPriceText(
 /** 🔔 خبرها — خوانده‌نشده‌ها + دعوت به خواندن */
 export function notifyText(s: GameSnapshot): string {
   const unread = s.notifications.filter((n) => !n.read).slice(0, 5)
-  const lines: string[] = [`🔔 <b>خبرها</b> — ${chip(s.unreadNotifications)} خوانده‌نشده`, SEP, ""]
+  const lines: string[] = [
+    `🔔 <b>خبرها</b> — ${chip(s.unreadNotifications)} خوانده‌نشده`,
+    "<i>زنگی که شهر برای تو به صدا درآورده</i>",
+    emblem("🔔"),
+    "",
+  ]
   if (unread.length === 0) {
     lines.push("همه را خوانده‌ای.")
-    lines.push("", "<i>بعضی‌ها را بهتر بود نمی‌خواندی.</i>")
+    lines.push("", quote("<i>بعضی‌ها را بهتر بود نمی‌خواندی.</i>"))
     return lines.join("\n")
   }
   for (const n of unread) {
@@ -1059,9 +1167,11 @@ export function bingoText(s: GameSnapshot): string {
   const cap = bingoCap(p.money)
   const affordable = affordableStakes(p.money)
   const unavailable = BINGO_STAKES.filter((st) => !affordable.includes(st))
+  // V24 — نشانِ 🎲؛ سقف و جیب بالای کارت، شانس همچنان زیرِ پرده
   const lines = [
     "🎲 <b>بینگوی مخرب</b>",
-    SEP,
+    "<i>شرط‌بندیِ شهر، با سقفِ جیبِ تو</i>",
+    emblem("🎲"),
     "",
     `💰 کیفِ تو: ${chip(p.money)} سکه`,
     `📊 سقفِ شرطِ الان: ${chip(cap)} سکه`,

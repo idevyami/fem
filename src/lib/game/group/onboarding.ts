@@ -17,7 +17,7 @@ import { db } from "@/lib/db"
 import type { GroupWorld, Player, Prisma } from "@prisma/client"
 import { getClass } from "../content/classes"
 import { esc, pushOutbox, bumpCulture } from "./domain"
-import { SEP, chip } from "./text"
+import { chip, quote, emblem } from "./text"
 import { FEMBOY_START_URL } from "./challenges"
 
 export type OnbDb = Prisma.TransactionClient
@@ -51,16 +51,17 @@ export interface FemboyIdentity {
   level: number
 }
 
-/** کارتِ خوش‌آمدِ بدونِ فمبوی — ۳-۴ خطِ شیشه‌ای + پلِ پی‌وی */
+/** کارتِ خوش‌آمدِ بدونِ فمبوی — ۳-۴ خطِ شیشه‌ای + پلِ پی‌وی.
+ *  V24 «ظاهرِ شهر»: نشانِ 🎀 در مرکزِ جداکننده + روایتِ شهر زیرِ quote.
+ *  جمله‌های لنگر (جست‌وجوی outbox در verify) عیناً مانده‌اند. */
 export function welcomeNoCharCardText(playerName: string, groupTitle: string, activityHtml: string): string {
   return [
     `🎀 <b>شهروندِ جدیدِ شناسایی شد</b>`,
-    SEP,
+    emblem("🎀"),
     "",
     `<b>${esc(playerName)}</b> واردِ «${esc(groupTitle)}» شد.`,
     "",
-    "این گروه خودش یک شهر است: اتفاق می‌افتد، رأی گرفته می‌شود، پروژه ساخته می‌شود، دوئل می‌شود — و همه‌اش عاقبتِ واقعی دارد.",
-    "بدونِ فمبوی فقط تماشاگری؛ تماشاچی هم عزیز است، ولی شمشیر نمی‌گیرد.",
+    quote("این گروه خودش یک شهر است: اتفاق می‌افتد، رأی گرفته می‌شود، پروژه ساخته می‌شود، دوئل می‌شود — و همه‌اش عاقبتِ واقعی دارد.\nبدونِ فمبوی فقط تماشاگری؛ تماشاچی هم عزیز است، ولی شمشیر نمی‌گیرد."),
     "",
     `الان: ${activityHtml}`,
     "",
@@ -68,16 +69,16 @@ export function welcomeNoCharCardText(playerName: string, groupTitle: string, ac
   ].join("\n")
 }
 
-/** کارتِ خوش‌آمدِ دارایِ فمبوی — هویت + خوش‌آمد + تیزر */
+/** کارتِ خوش‌آمدِ دارایِ فمبوی — هویت + خوش‌آمد + تیزر (V24: نشانِ 🎀 + بدرقه زیرِ quote) */
 export function welcomeHasCharCardText(playerName: string, groupTitle: string, id: FemboyIdentity, activityHtml: string): string {
   return [
     `🎀 <b>شهروندِ جدیدِ شناسایی شد</b>`,
-    SEP,
+    emblem("🎀"),
     "",
     `<b>${esc(playerName)}</b> واردِ «${esc(groupTitle)}» شد.`,
     "",
     `${id.classEmoji} <b>${esc(id.femboyName)}</b> · ${esc(id.className)} · سطح ${chip(id.level)} — همراهِ اوست.`,
-    "خوش اومدی به شهر. فمبویت این‌جا خانه دارد.",
+    quote("خوش اومدی به شهر. فمبویت این‌جا خانه دارد."),
     "",
     `الان: ${activityHtml}`,
   ].join("\n")

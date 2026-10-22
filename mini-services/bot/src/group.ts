@@ -264,46 +264,83 @@ export async function sendEngineCommand(ctx: Context, command: string, opts: Car
 
 const OBSERVE_MAX = 500
 
-/** مشاهده‌گرِ V5: متنِ غیرفرمانیِ گروه را برای موتور می‌برد و اگر موتور گفت،
- *  جواب می‌دهد (به‌عنوانِ reply به همان پیام). هرگز فرمان/سرویس/رسانه نمی‌بیند. */
-export async function observeGroupText(ctx: Context): Promise<void> {
-  if (!isGroupChat(ctx)) return
+/** بارِ ناظر — سازنده‌ی خالصِ مشترکِ ناظرِ کامل و شمارشِ خاموشِ V23 */
+function buildObservePayload(ctx: Context): {
+  chatId: string
+  chatTitle: string
+  chatType: string
+  telegramId: string
+  playerName: string
+  text: string
+  addressedToBot: boolean
+  replyToTelegramId?: string
+} | null {
+  if (!isGroupChat(ctx)) return null
   const from = ctx.from
-  if (!from || from.is_bot) return // خودِ ربات و ربات‌های دیگر هرگز
+  if (!from || from.is_bot) return null // خودِ ربات و ربات‌های دیگر هرگز
   const text = (ctx.message?.text ?? "").trim()
-  if (!text || text.startsWith("/")) return // فرمان‌ها به موتورِ حضور نمی‌روند
-  if (text.length > OBSERVE_MAX) return // متنِ بلند = اسپم
+  if (!text || text.startsWith("/")) return null // فرمان‌ها به موتورِ حضور نمی‌روند
+  if (text.length > OBSERVE_MAX) return null // متنِ بلند = اسپم
 
-  const chatId = ctx.chat?.id
   const uname = botUsername().toLowerCase()
   const mentioned = uname ? text.toLowerCase().includes(`@${uname}`) : false
   const reply = ctx.message?.reply_to_message
   const replyToBot =
-    Boolean(reply) && (reply?.from?.id === ctx.me.id || isBotMessage(chatId, reply?.message_id))
-  const addressedToBot = mentioned || replyToBot
-
-  let replyToTelegramId = ""
-  if (reply?.from && !reply.from.is_bot && reply.from.id !== ctx.me.id) {
-    replyToTelegramId = String(reply.from.id)
+    Boolean(reply) && (reply?.from?.id === ctx.me.id || isBotMessage(ctx.chat?.id, reply?.message_id))
+  const payload = {
+    chatId: String(ctx.chat?.id ?? ""),
+    chatTitle: ctx.chat?.title ?? "",
+    chatType: ctx.chat?.type ?? "group",
+    telegramId: String(from.id),
+    playerName: from.first_name || from.username || "",
+    text,
+    addressedToBot: mentioned || replyToBot,
   }
+  if (reply?.from && !reply.from.is_bot && reply.from.id !== ctx.me.id) {
+    return { ...payload, replyToTelegramId: String(reply.from.id) }
+  }
+  return payload
+}
+
+/** V23 — شمارشِ خاموش: پیام‌هایی که مسیریابِ نیت مصرف کرده (فرمان‌گونه/نیت/
+ *  راهنمایِ کوتاه) نباید از نبضِ شهر و حضورِ عضو جا بمانند — شمارش می‌روند،
+ *  جواب نه (جوابِشان خودِ کارت است). هرگز زنجیره را نمی‌شکند؛ خطا بی‌صدا می‌ماند. */
+export async function countGroupPulse(ctx: Context): Promise<void> {
+  const p = buildObservePayload(ctx)
+  if (!p) return
+  try {
+    await api.groupObserve({ ...p, silent: true })
+  } catch {
+    /* شمارشِ بی‌جواب هرگز مسیرِ اصلی را نمی‌شکند */
+  }
+}
+
+/** مشاهده‌گرِ V5: متنِ غیرفرمانیِ گروه را برای موتور می‌برد و اگر موتور گفت،
+ *  جواب می‌دهد (به‌عنوانِ reply به همان پیام). هرگز فرمان/سرویس/رسانه نمی‌بیند.
+ *  V23 — موتور می‌تواند به‌جای متن، واکنشِ ایموجی بخواهد (Bot API 7.0). */
+export async function observeGroupText(ctx: Context): Promise<void> {
+  const p = buildObservePayload(ctx)
+  if (!p) return
 
   stats.observed++
   let r: ObserveResponse
   try {
-    r = await api.groupObserve({
-      chatId: String(chatId ?? ""),
-      chatTitle: ctx.chat?.title ?? "",
-      chatType: ctx.chat?.type,
-      telegramId: String(from.id),
-      playerName: from.first_name || from.username || "",
-      text,
-      addressedToBot,
-      ...(replyToTelegramId ? { replyToTelegramId } : {}),
-    })
+    r = await api.groupObserve(p)
   } catch (e) {
     bumpError(e instanceof Error ? e.message : String(e))
     log(`group observe: ${stats.lastError}`)
     return
+  }
+  // V23 — واکنشِ ایموجی: بی‌صدا روی همان پیام (خطای تلگرام = بی‌صدا)
+  const reactChatId = ctx.chat?.id
+  if (r.reaction && reactChatId !== undefined && ctx.message?.message_id !== undefined) {
+    try {
+      await ctx.api.setMessageReaction(reactChatId, ctx.message.message_id, [
+        { type: "emoji", emoji: r.reaction },
+      ])
+    } catch {
+      /* واکنشِ نرسیده = سکوت؛ پیامِ بعدی دوباره تلاش می‌کند */
+    }
   }
   // قانونِ ضداسپم: بدونِ تصمیمِ موتور هیچ جوابی نیست
   if (r.action === "none" || !r.text?.trim()) return
@@ -419,15 +456,33 @@ export async function onGroupLeftMember(ctx: Context): Promise<void> {
   const leaver = ctx.message?.left_chat_member
   if (!leaver || leaver.is_bot) return
   try {
-    await api.groupCommand<{ left: boolean }>("member_left", {
+    const r = await api.groupCommand<{ left: boolean; farewell?: string }>("member_left", {
       chatId: String(ctx.chat?.id ?? ""),
       chatTitle: ctx.chat?.title ?? "",
       telegramId: String(leaver.id),
     })
+    // V23 — خداحافظیِ عضوی که حرف زده بود (موتور صلاحیتش را می‌سنجد؛ متن هم او)
+    // پنجره‌ی نرخ: خروجِ دسته‌جمعی نباید رگبارِ خداحافظی بسازد
+    if (r.farewell && admitFarewell(ctx.chat?.id)) {
+      await ctx.reply(r.farewell)
+    }
   } catch (e) {
     bumpError(e instanceof Error ? e.message : String(e))
     log(`group member_left: ${stats.lastError}`)
   }
+}
+
+/** نرخِ خداحافظی — حداکثر یکی در هر ۵ دقیقه برای هر گروه (خروجِ گروهی = یک خط) */
+const FAREWELL_GAP_MS = 5 * 60_000
+const gFarewell = globalThis as typeof globalThis & { __femwarFarewellAt?: Map<number, number> }
+const farewellAt: Map<number, number> = gFarewell.__femwarFarewellAt ?? new Map()
+gFarewell.__femwarFarewellAt = farewellAt
+
+function admitFarewell(chatId: number | undefined): boolean {
+  const key = chatId ?? 0
+  if ((farewellAt.get(key) ?? 0) > Date.now() - FAREWELL_GAP_MS) return false
+  farewellAt.set(key, Date.now())
+  return true
 }
 
 // ─── تاییدِ زنده‌ی ادمین (V13 Part 9 — قراردادِ isAdmin) ──────────────────────

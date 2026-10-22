@@ -257,7 +257,7 @@ export function storyView(char: SoulCharacter): StoryCardDTO {
 export async function storyRead(player: Player, char: SoulCharacter): Promise<{ ok?: { message: string; story: StoryCardDTO }; error?: string }> {
   const persona = personaOf(char)
   const story = getStory(persona.key)
-  if (!story) return { error: "برای این طبع هنوز قصه‌ای نوشته نشده." }
+  if (!story) return { error: "برای این شخصیت هنوز قصه‌ای نوشته نشده." }
   const st = storyStateOf(char)
   if (st.ch >= STORY_TOTAL_CHAPTERS) {
     const memories = await db.characterLog.findMany({ where: { characterId: char.id, type: "story" }, orderBy: { createdAt: "desc" }, take: 5 })
@@ -283,7 +283,7 @@ export async function storyChoose(
 ): Promise<{ ok?: { message: string; story: StoryCardDTO }; error?: string }> {
   const persona = personaOf(char)
   const story = getStory(persona.key)
-  if (!story) return { error: "برای این طبع هنوز قصه‌ای نوشته نشده." }
+  if (!story) return { error: "برای این شخصیت هنوز قصه‌ای نوشته نشده." }
   const st = storyStateOf(char)
   if (st.ch >= STORY_TOTAL_CHAPTERS) return { error: `قصه‌ی «${story.title}» تمام شده — پایانش مالِ خودتان است.` }
   const chapter = story.chapters[st.ch]!
@@ -796,7 +796,7 @@ export async function createCharacter(
   let persona: PersonaDef | null = null
   if (opts.personaKey !== undefined && opts.personaKey !== "") {
     persona = getPersona(opts.personaKey)
-    if (!persona) return { error: "چنین طبعی در این شهر نمی‌روید — یکی از هشت طبعِ شهر را انتخاب کن." }
+    if (!persona) return { error: "چنین شخصیتی در این شهر نمی‌روید — یکی از هشت شخصیتِ شهر را انتخاب کن." }
   } else {
     // قطعی از بذرِ بازیکن — همان بازیکن همیشه همان طبعِ پیش‌فرض را می‌گیرد
     const rng = mulberry32(seedFrom("persona", player.id))
@@ -831,7 +831,7 @@ export async function createCharacter(
         char.id,
         "creation",
         cls.emoji,
-        `پیمانِ فمبوی بسته شد: ${char.name}، ${cls.name} با طبعِ ${chosenPersona.emoji} «${chosenPersona.name}».`,
+        `پیمانِ فمبوی بسته شد: ${char.name}، ${cls.name} با شخصیتِ ${chosenPersona.emoji} «${chosenPersona.name}».`,
         true,
       )
       await tx.historyEntry.create({

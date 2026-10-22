@@ -18,7 +18,7 @@ import { adjustRelationship, adjustMemberRep } from "./social"
 import { revealMysteryClueTx } from "./world"
 import { resolveStyleShowEvent, STYLE_SHOW_ID } from "./style"
 import { eventWindowMinutes, eventWindowLine, pacingOf } from "./pacing"
-import { SEP, SUB, DOTS, chip, spoiler, expand, toLatinDigits } from "./text"
+import { SUB, DOTS, chip, spoiler, expand, quote, emblem, toLatinDigits } from "./text"
 
 export type Tx = import("@prisma/client").Prisma.TransactionClient
 
@@ -168,16 +168,18 @@ export function eventCardText(
 ): string {
   // title/body/label ذخیره‌شده از render() می‌آیند (HTML-safe در نوشتن) — بدون esc دوباره؛
   // نامِ بازیکن خام است → esc در همین‌جا (لایه‌ی امنیت: domain.ts)
-  const lines = participants.map((p) => `• <b>${esc(p.name)}</b> ← ${p.choiceLabel}`)
-  // کارتِ باز: هدر + SEP + بدنه‌ی هوادار؛ رسترِ انتخاب‌ها با DOTS از متن جدا می‌شود
+  // V24 «ظاهرِ شهر»: نشانِ رویداد در مرکزِ جداکننده + ردیف‌های ▪ + مهلت زیرِ quote
+  const lines = participants.map((p) => `▪ <b>${esc(p.name)}</b> ← ${p.choiceLabel}`)
+  // کارتِ باز: هدر + نشانِ خودِ رویداد + بدنه‌ی هوادار؛ رسترِ انتخاب‌ها با DOTS از متن جدا می‌شود
   const who = lines.length
     ? `\n\n${DOTS}\n\n👥 انتخاب‌ها:\n${lines.join("\n")}`
-    : `\n\n${DOTS}`
+    : ""
   // V18 — خطِ مهلتِ هوشمند: پنجره‌ی ۴۵ تا ۱۲۰ دقیقه‌ای روی خود کارت اعلام می‌شود
-  // (هر رندرِ تازه — تولد یا انتخابِ شهروند — زمانِ مانده را تازه می‌کند)
+  // (هر رندرِ تازه — تولد یا انتخابِ شهروند — زمانِ مانده را تازه می‌کند)؛
+  // V24 — مهلت حالا بلوکِ وضعیتِ نقل‌قولی است: چشم را می‌گیرد و از روایت جدا می‌شود
   const windowLine = eventWindowLine(event.expiresAt, now)
-  const windowBlock = windowLine ? `\n\n${windowLine}` : ""
-  return `<b>${event.emoji} ${event.title}</b>\n${SEP}\n\n${event.body}${who}${windowBlock}\n\n<i>هر کس دکمه‌ی خودش را بزند؛ نتیجه برای خودش است. شهر نتیجه‌ی جمعی را هم خواهد دید.</i>`
+  const windowBlock = windowLine ? `\n\n${quote(windowLine)}` : ""
+  return `<b>${event.emoji} ${event.title}</b>\n${emblem(event.emoji)}\n\n${event.body}${who}${windowBlock}\n\n<i>هر کس دکمه‌ی خودش را بزند؛ نتیجه برای خودش است. شهر نتیجه‌ی جمعی را هم خواهد دید.</i>`
 }
 
 export function eventCardButtons(event: GroupEvent): OutboxButton[] {
@@ -460,7 +462,7 @@ export async function resolveGroupEvent(event: GroupEvent, now = new Date(), opt
         if (!player?.telegramId) continue
         await pushOutboxTx(tx, group, {
           kind: "clue",
-          text: `🕯 <b>سرنخ</b>\n${SEP}\n\n${spoiler(t.clue)}\n\n<i>این را هر جا که خواستی بگو. یا نگهش دار. شهر تشخیص می‌دهد.</i>`,
+          text: `🕯 <b>سرنخ</b>\n${emblem("🕯")}\n\n${spoiler(t.clue)}\n\n<i>این را هر جا که خواستی بگو. یا نگهش دار. شهر تشخیص می‌دهد.</i>`,
           targetChatId: player.telegramId,
           priority: 8,
         })
@@ -648,7 +650,7 @@ export function buildResultText(
   winningLabel: string,
 ): string {
   // V11: روایت‌های بلندِ هر بازیکن زیرِ نقل‌قولِ بازشدنی؛ حکمِ شهر با SUB جدا
-  const lines = resolved.map((r) => `• <b>${esc(r.name)}</b>: ${r.outcomeText}`)
+  const lines = resolved.map((r) => `▪ <b>${esc(r.name)}</b>: ${r.outcomeText}`)
   const BUDGET = 3200
   const shown: string[] = []
   let used = 0
@@ -661,14 +663,16 @@ export function buildResultText(
     shown.push(l)
     used += l.length + 1
   }
-  const tail = hidden > 0 ? `\n<i>… و ${chip(hidden)} عاقبتِ دیگر — در دفترِ ثبتِ شهر موجود است.</i>` : ""
+  // V20 (ممتیز V20-۱۸: «دفترِ ثبت» که در دسترس نبود) — انتهای برش حالا به کارتِ
+  // تاریخچه‌ی همین گروه اشاره می‌کند («تاریخچه» را بگو)؛ قولِ نامرئی داده نمی‌شود.
+  const tail = hidden > 0 ? `\n<i>… و ${chip(hidden)} عاقبتِ دیگر — «تاریخچه» را بگو تا ببینیشان.</i>` : ""
   const body = shown.length
     ? `\n\n👥 <b>عاقبتِ تک‌تک‌تان:</b>\n${expand(`${shown.join("\n")}${tail}`)}`
     : "\n\n<i>هیچ‌کس انتخابی نکرد. اتفاق، بی‌تصمیم ماند.</i>"
   const win = winningLabel
-    ? `\n\n${SUB}\n\n🏆 حکمِ شهر: <b>${winningLabel}</b>${winningText ? `\n${winningText}` : ""}`
+    ? `\n\n${SUB}\n\n🏆 حکمِ شهر: <b>${winningLabel}</b>${winningText ? `\n${quote(winningText)}` : ""}`
     : ""
-  return `${event.emoji} <b>نتیجه‌ی «${event.title}»</b>\n${SEP}${body}${win}`
+  return `<b>${event.emoji} نتیجه‌ی «${event.title}»</b>\n${emblem(event.emoji)}${body}${win}`
 }
 
 // ─── بستنِ رویدادهای سرآمده ────────────────────────────────────────────────────

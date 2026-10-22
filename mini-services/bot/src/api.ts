@@ -554,6 +554,9 @@ export interface ObserveResponse {
   action: "none" | "reply" | "react"
   text?: string
   buttons?: OutboxButton[]
+  /** V23 — واکنشِ ایموجی (Bot API 7.0): پیام نمی‌فرستد؛ ربات setMessageReaction می‌زند.
+   *  واژگان = ایموجی‌های مجازِ تلگرام (آینه‌ی محلیِ ReactionTypeEmoji). */
+  reaction?: "❤" | "🤣"
 }
 
 /** پاسخِ فرمان گروهی — کارتِ تازه (HTML + دکمه‌ها)
@@ -592,7 +595,9 @@ export interface GroupTickResponse {
   groupsTicked: number
 }
 
-/** درخواستِ مشاهده — ربات پیامِ گروه را عیناً برای موتور می‌برد */
+/** درخواستِ مشاهده — ربات پیامِ گروه را عیناً برای موتور می‌برد
+ *  V23: silent = شمارشِ خاموش (پیامِ مصرف‌شده توسط مسیریابِ نیت) — شمارنده‌ها
+ *  می‌مانند، جواب/واکنش نمی‌آید. */
 export interface GroupObserveRequest {
   chatId: string
   chatTitle?: string
@@ -602,6 +607,7 @@ export interface GroupObserveRequest {
   text: string
   addressedToBot: boolean
   replyToTelegramId?: string
+  silent?: boolean
 }
 
 /** گزارشِ تحویل — تا موتور بتواند بعداً همان کارت را ویرایش کند */

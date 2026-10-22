@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
         // V10 — کارت را از ردیفِ پس از اعطای کیهاناتِ پیمان بساز (نه از ردیفِ خام)
         const fresh = await getSyncedCharacter(player.id)
         const card = soulCardDTO(fresh ?? res.char)
-        const personaLine = card.persona ? ` طبعِ ${card.persona.emoji} «${card.persona.name}» — ${card.persona.tagline}.` : ""
+        const personaLine = card.persona ? ` شخصیتِ ${card.persona.emoji} «${card.persona.name}» — ${card.persona.tagline}.` : ""
         return jsonOk({ message: `🎀 پیمان بسته شد — «${res.char.name}» از این‌به بعد فمبویِ اختصاصی توست. کلاسِ همیشگی‌اش: ${card.className}.${personaLine}`, card })
       }
       case "rename": {

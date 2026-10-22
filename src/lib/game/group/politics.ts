@@ -9,7 +9,7 @@ import type { OutboxButton } from "./types"
 import { esc, parseJson, pushOutbox, pushOutboxTx, addHistoryTx, addNewsTx, activeMembers, bumpCulture, cultureOf, checkAchievementsTx, grantGroupAchievementTx, isGroupMember, NOT_CITIZEN_MSG, toLatinDigits, withSectionLock } from "./domain"
 import { adjustMemberRep, adjustRelationship } from "./social"
 import { awardSoulProgress } from "./awards"
-import { SEP, faNum, chip, spoiler, pct } from "./text"
+import { faNum, chip, spoiler, quote, emblem, barRow } from "./text"
 
 export type Tx = import("@prisma/client").Prisma.TransactionClient
 
@@ -52,7 +52,12 @@ export async function openElection(group: GroupWorld, roleKey: string = "mayor")
   await pushOutbox(group, {
     kind: "vote",
     text: electionOpenCardText(group.title, role),
-    buttons: candidates.map((c) => ({ label: c.label, style: null, cb: `gv:${vote.id}:${c.key}` })),
+    // V20 (مأموریت §8.4/ممیتیز V20-۱۱): کارتِ انتخابات هم «↩ خانه» دارد — مثلِ
+    // بقیه‌ی کارت‌های شهر؛ رأی‌دادن بن‌بست نیست و خانه همیشه یک لمس دورتر است.
+    buttons: [
+      ...candidates.map((c) => ({ label: c.label, style: null, cb: `gv:${vote.id}:${c.key}` })),
+      { label: "↩ خانه", style: "primary", cb: "gm:game" },
+    ],
     refType: "vote",
     refId: vote.id,
     priority: 8,
@@ -100,14 +105,14 @@ export async function openCourt(group: GroupWorld, accusedId: string, charge: st
 
 // ─── سازنده‌های خالصِ کارت (تست‌پذیر؛ V11) ─────────────────────────────────────
 
-/** کارتِ افتتاحِ انتخابات — سازنده‌ی خالص */
+/** کارتِ افتتاحِ انتخابات — سازنده‌ی خالص (V24: نشانِ 🗳 + آیینِ رأی زیرِ quote) */
 export function electionOpenCardText(groupTitle: string, role: { emoji: string; name: string; description: string }): string {
-  return `🗳 <b>انتخاباتِ ${esc(groupTitle)}</b>\n${SEP}\n\nمنصب: <b>${role.emoji} ${role.name}</b>\n${role.description}\n\n<i>هر شهروند یک رأی. رأی‌ها مخفی‌اند تا شمارش — یعنی تا وقتی که بسه تقلب نکرد.</i>`
+  return `🗳 <b>انتخاباتِ ${esc(groupTitle)}</b>\n${emblem("🗳")}\n\nمنصب: <b>${role.emoji} ${role.name}</b>\n${role.description}\n\n${quote("هر شهروند یک رأی. رأی‌ها مخفی‌اند تا شمارش — یعنی تا وقتی که بسه تقلب نکرد.")}`
 }
 
-/** کارتِ افتتاحِ دادگاه — سازنده‌ی خالص؛ اتهام زیرِ اسپویلرِ لمس‌و‌آشکا */
+/** کارتِ افتتاحِ دادگاه — سازنده‌ی خالص؛ اتهام زیرِ اسپویلرِ لمس‌و‌آشکا (V24: نشانِ ⚖️ + حاشیه‌ی دادگاه زیرِ quote) */
 export function courtOpenCardText(groupTitle: string, accusedName: string, charge: string): string {
-  return `⚖️ <b>دادگاهِ ${esc(groupTitle)}</b>\n${SEP}\n\nمتهم: <b>${esc(accusedName)}</b>\nاتهام: ${spoiler(esc(charge))}\n\n<i>مدارک؟ مدارک همون‌جوری که همیشه، مشروط به رأی‌اند.</i>`
+  return `⚖️ <b>دادگاهِ ${esc(groupTitle)}</b>\n${emblem("⚖️")}\n\nمتهم: <b>${esc(accusedName)}</b>\nاتهام: ${spoiler(esc(charge))}\n\n${quote("مدارک؟ مدارک همون‌جوری که همیشه، مشروط به رأی‌اند.")}`
 }
 
 /** دادگاهِ خودجوش — متهم از اعضای فعال (ترجیحاً سوگنده‌تر)، اتهام از حوضه‌ی COURT_CHARGES.
@@ -149,6 +154,11 @@ export async function castVote(
   const vote = await db.groupVote.findFirst({ where: { id: voteId, groupId: group.id, status: "open" } })
   if (!vote) return { ok: false, ackText: "این رأی‌گیری بسته‌ست.", cardText: "", cardButtons: [] }
   if (vote.closesAt.getTime() < Date.now()) return { ok: false, ackText: "وقتش گذشته بود.", cardText: "", cardButtons: [] }
+  // V21 — صداقتِ برگه: گزینه‌ی خارج از optionsJson ثبت نمی‌شود. دکمه‌های واقعی همیشه
+  // از همین فهرست ساخته می‌شوند؛ کلیدِ ناشناس یعنی کارتِ کهنه/دست‌سازیِ API است.
+  const optionKeys = parseJson<{ key: string }[]>(vote.optionsJson, []).map((o) => o.key)
+  if (!optionKeys.includes(optionKey))
+    return { ok: false, ackText: "چنین گزینه‌ای روی این رأی نیست.", cardText: "", cardButtons: [] }
   // ثبت/تغییرِ رأی داخلِ تراکنش — خواندن-نوشتنِ هم‌زمانِ JSONِ رأی‌ها گم نمی‌شود.
   // V15-3 — قفلِ بخشیِ «همان رأی»: کاوشِ تجربی نشان داد ۶ فشارِ هم‌زمانِ gv:
   // بدونِ این قفل، خطای busy (500) و رأیِ گم‌شده می‌دهد (مأموریت §3B).
@@ -210,10 +220,11 @@ export async function votePanelCard(
     return { text: courtOpenCardText(group.title, accused?.name ?? "؟", payload.charge) + participation, buttons }
   }
   // رأیِ عمومی — شمارشِ گزینه‌ها عمومی است (همان قاعده‌ی کارتِ فرمانِ /vote)
-  const lines = options.map((o) => `• ${esc(o.label)} — ${chip((tally[o.key] ?? []).length)} رأی`)
+  // V24: نشانِ 🗳 + ردیف‌های ▪؛ سطرِ مشارکتِ بی‌نام همان لنگرِ متنِ قبلی است
+  const lines = options.map((o) => `▪ ${esc(o.label)} — ${chip((tally[o.key] ?? []).length)} رأی`)
   const text = [
     `🗳 <b>${esc(vote.subject)}</b>`,
-    SEP,
+    emblem("🗳"),
     "",
     ...lines,
     `🗳 ${chip(total)} رأی تا الان.`,
@@ -408,9 +419,10 @@ export async function startProject(group: GroupWorld, projectKey: string): Promi
   return { ok: true, message: "پروژه افتتاح شد." }
 }
 
-/** کارتِ افتتاحِ پروژه — سازنده‌ی خالص (تست‌پذیر؛ V11)؛ سودِ پروژه زیرِ اسپویلر */
+/** کارتِ افتتاحِ پروژه — سازنده‌ی خالص (تست‌پذیر؛ V11)؛ سودِ پروژه زیرِ اسپویلر.
+ *  V24: نشانِ خودِ پروژه + شرحِ پروژه زیرِ quote (روایتِ شهر). */
 export function projectOpenCardText(tpl: { emoji: string; name: string; description: string; benefit: string; cost: number }): string {
-  return `🏗 <b>پروژه‌ی جدید: ${tpl.emoji} ${tpl.name}</b>\n${SEP}\n\n${tpl.description}\n\n💰 هزینه: ${chip(tpl.cost)} سکه — از کمکِ داوطلبانه‌ی شهروندها.\n🎁 باز می‌کند: ${spoiler(tpl.benefit)}`
+  return `🏗 <b>پروژه‌ی جدید: ${tpl.emoji} ${tpl.name}</b>\n${emblem("🏗")}\n\n${quote(tpl.description)}\n\n💰 هزینه: ${chip(tpl.cost)} سکه — از کمکِ داوطلبانه‌ی شهروندها.\n🎁 باز می‌کند: ${spoiler(tpl.benefit)}`
 }
 
 export async function contribute(
@@ -521,21 +533,21 @@ export function contributeTiers(money: number): number[] {
 /** کارتِ انتخابگرِ مبلغ — سازنده‌ی خالص: پیشرفتِ واقعیِ پروژه + جیبِ واقعیِ بازیکن +
  *  دکمه‌های gp:{projectId}:{amount} (همان گرامرِ موجود) + بازگشت به پروژه‌ها.
  *  صادقانه: اگر جیب حتی کوچک‌ترین آجر را نمی‌دهد، همان را می‌گوید و دکمه‌ی مبلغ
- *  نمی‌سازد. برچسبِ دکمه = PLAIN (رقمِ انگلیسی). */
+ *  نمی‌سازد. برچسبِ دکمه = PLAIN (رقمِ انگلیسی).
+ *  V24: نشانِ خودِ پروژه + نوارِ زنده‌ی درصد (barRow) برای پیشرفت. */
 export function contributePickerCard(
   project: { id: string; name: string; emoji: string; goal: number },
   contributed: number,
   money: number,
 ): { text: string; buttons: OutboxButton[] } {
   const remaining = Math.max(0, project.goal - contributed)
-  const pctDone = Math.floor((contributed / Math.max(1, project.goal)) * 100)
   const tiers = contributeTiers(money)
   const lines = [
     `🏗 <b>کمک به ${project.emoji} ${esc(project.name)}</b>`,
-    SEP,
+    emblem("🏗"),
     "",
-    `پیشرفت: ${pct(pctDone)} — ${chip(contributed)}/${chip(project.goal)} سکه · باقی‌مانده: ${chip(remaining)} سکه`,
-    `💰 جیبِ تو: ${chip(money)} سکه`,
+    barRow("🧱", "پیشرفت", contributed, project.goal, `${faNum(contributed)}/${faNum(project.goal)}`),
+    `باقی‌مانده: ${chip(remaining)} سکه · 💰 جیبِ تو: ${chip(money)} سکه`,
     "",
   ]
   if (tiers.length === 0) {
@@ -555,24 +567,24 @@ export function contributePickerCard(
   return { text: lines.join("\n"), buttons }
 }
 
-/** کارتِ تکمیلِ پروژه — سازنده‌ی خالص (تست‌پذیر؛ V11)؛ سود زیرِ اسپویلر */
+/** کارتِ تکمیلِ پروژه — سازنده‌ی خالص (تست‌پذیر؛ V11)؛ سود زیرِ اسپویلر (V24: نشانِ خودِ پروژه) */
 export function projectDoneCardText(emoji: string, name: string, total: number, topPlayerName: string, benefit: string): string {
-  return `🎉 <b>«${emoji} ${name}» افتتاح شد!</b>\n${SEP}\n\nمجموع کمک‌ها: ${chip(total)} سکه.\nبزرگ‌ترین حامی: <b>${esc(topPlayerName)}</b>\n\n${benefit ? spoiler(benefit) : ""}\n\nشهر یکی بخشش را از یاد نمی‌برد.`
+  return `🎉 <b>«${emoji} ${name}» افتتاح شد!</b>\n${emblem(emoji)}\n\nمجموع کمک‌ها: ${chip(total)} سکه.\nبزرگ‌ترین حامی: <b>${esc(topPlayerName)}</b>\n\n${benefit ? spoiler(benefit) : ""}\n\n${quote("شهر یکی بخشش را از یاد نمی‌برد.")}`
 }
 
-/** کارتِ نتیجه‌ی انتخابات — سازنده‌ی خالص */
+/** کارتِ نتیجه‌ی انتخابات — سازنده‌ی خالص (V24: نشانِ 🗳) */
 export function electionResultCardText(role: { emoji: string; name: string; powers: string[] }, winnerName: string, votes: number): string {
-  return `🗳 <b>نتیجه‌ی انتخابات</b>\n${SEP}\n\n${role.emoji} <b>${esc(winnerName)}</b> با ${chip(votes)} رأی ${role.name} شد.\n\n<i>${role.powers[0]} — قدرتِ واقعی، همین‌قدرِ بی‌سروصدا شروع می‌شود.</i>`
+  return `🗳 <b>نتیجه‌ی انتخابات</b>\n${emblem("🗳")}\n\n${role.emoji} <b>${esc(winnerName)}</b> با ${chip(votes)} رأی ${role.name} شد.\n\n${quote(`${role.powers[0]} — قدرتِ واقعی، همین‌قدرِ بی‌سروصدا شروع می‌شود.`)}`
 }
 
-/** کارتِ حکمِ دادگاه — سازنده‌ی خالص؛ حکم زیرِ اسپویلر (verdictText خودش HTML-safe است) */
+/** کارتِ حکمِ دادگاه — سازنده‌ی خالص؛ حکم زیرِ اسپویلر (verdictText خودش HTML-safe است؛ V24: نشانِ ⚖️) */
 export function courtVerdictCardText(accusedName: string, charge: string, verdictText: string, totalVotes: number): string {
-  return `⚖️ <b>رأیِ دادگاه</b>\n${SEP}\n\nمتهم: <b>${esc(accusedName)}</b>\nاتهام: <i>${esc(charge)}</i>\nحکم: ${spoiler(verdictText)}\n\n${chip(totalVotes)} رأی ثبت شد.`
+  return `⚖️ <b>رأیِ دادگاه</b>\n${emblem("⚖️")}\n\nمتهم: <b>${esc(accusedName)}</b>\nاتهام: <i>${esc(charge)}</i>\nحکم: ${spoiler(verdictText)}\n\n${chip(totalVotes)} رأی ثبت شد.`
 }
 
-/** کارتِ نتیجه‌ی رأیِ عمومی — سازنده‌ی خالص */
+/** کارتِ نتیجه‌ی رأیِ عمومی — سازنده‌ی خالص (V24: نشانِ 🗳 + قانونِ تازه زیرِ quote) */
 export function genericVoteResultCardText(subject: string, label: string, votes: number): string {
-  return `🗳 <b>نتیجه: ${esc(subject)}</b>\n${SEP}\n\n«${esc(label)}» با ${chip(votes)} رأی.\n<i>از این‌جا به بعد، قانون — تا وقتی کسی یادش نره.</i>`
+  return `🗳 <b>نتیجه: ${esc(subject)}</b>\n${emblem("🗳")}\n\n«${esc(label)}» با ${chip(votes)} رأی.\n${quote("از این‌جا به بعد، قانون — تا وقتی کسی یادش نره.")}`
 }
 
 /** فهرستِ پروژه‌های موجود برای منو */

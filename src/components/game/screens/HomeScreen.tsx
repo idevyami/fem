@@ -1,16 +1,19 @@
 "use client"
 
-// خانه — «الان چه خبر است؟»
+// خانه — «الان چه باید بکنم؟» (جهت، نه دفترچه‌ی راهنما)
+// V22: از بالا به پایین — سلام → هویتِ فمبوی → قدمِ بعدی → اتفاق/فرصتِ الان →
+// فعل‌های امروز → سه‌تاییِ وضعیت (سکه/انرژی/بدهی). چیزی که این‌جا نیست، همان لحظه
+// در جای خودش زنده است: آب‌وهوا/مود/آشوب در چیپ‌های هدر، شانس داخلِ شیتِ بینگو،
+// شهرت در تبِ «من»، خبرها و نبضِ شهر در تبِ «شهر».
 // V17-2 (ممیزیِ ②): جلسه‌ی اولِ متمرکز — تا وقتی پیمان بسته نشده (journey.stage
 // «new»/«awakened» — قراردادِ server-authoritativeِ V17-1) خودِ صفحه یکی حرف
-// می‌زند: پیمانِ فمبوی، درشت و تنها. صدای شهر کارتِ فرعیِ جمع‌وجوری است و بقیه‌ی
-// پیشخوان (آمار، اکشن‌ها، فرصت‌ها، نبض شهر) پشتِ «بقیه‌ی شهر» جمع می‌شود. تب‌ها
-// دست‌نخورده‌اند — استیجینگ فقط روی تمرکزِ خودِ خانه است (§۲۱).
+// می‌زند: پیمانِ فمبوی، درشت و تنها؛ بقیه‌ی پیشخوان پشتِ «بقیه‌ی شهر» جمع می‌شود.
+// تب‌ها دست‌نخورده‌اند — استیجینگ فقط روی تمرکزِ خودِ خانه است (§۲۱).
 import * as React from "react"
 import { motion } from "framer-motion"
 import { ChevronDown, X } from "lucide-react"
 import { Slider } from "@/components/ui/slider"
-import type { FemboySummaryDTO, HistoryItemDTO, OutcomeDTO } from "@/lib/game/contract"
+import type { FemboySummaryDTO, OutcomeDTO } from "@/lib/game/contract"
 import { api } from "@/lib/game/client"
 import { useGame } from "../store"
 import { haptic } from "../telegram"
@@ -24,8 +27,6 @@ import { spiritBarClass } from "./soul/classMeta"
 import { cn } from "@/lib/utils"
 
 // ─── اسکرین ──────────────────────────────────────────────────────────────────
-// V16-2 (ممیزیِ ⑧): نمایشِ سه‌گانه‌یِ دنیا یکی کم شد — وضعیتِ شهر (آب‌وهوا/مود/آشوب/رویدادِ
-// جهانی) در چیپ‌های هدر و «نبض شهر» زنده است؛ زیرِ سلام دیگر تکرار نمی‌شود.
 
 export function HomeScreen() {
   const snapshot = useGame((s) => s.snapshot)
@@ -42,8 +43,6 @@ export function HomeScreen() {
   const activeTab = useGame((s) => s.activeTab)
   const returningWelcome = useGame((s) => s.returningWelcome)
   const dismissReturningWelcome = useGame((s) => s.dismissReturningWelcome)
-  // V16-2 (ممیزیِ ⑧): نسخه‌ی دنیا — با اکشن/رویدادِ موفق بالا می‌رود، نه با هر تیکِ serverTime
-  const worldVersion = useGame((s) => s.worldVersion)
   const bumpWorld = useGame((s) => s.bumpWorld)
 
   const [drawing, setDrawing] = React.useState(false)
@@ -54,29 +53,14 @@ export function HomeScreen() {
   const [bingoOpen, setBingoOpen] = React.useState(false)
   const [stake, setStake] = React.useState(50)
   const [gambling, setGambling] = React.useState(false)
-  const [lastHistory, setLastHistory] = React.useState<HistoryItemDTO | null>(null)
 
   // V17-W2 (F1): کارتِ نتیجه‌ی اکشن مثلِ توست رفتار می‌کند — با ترکِ خانه جمع می‌شود
   React.useEffect(() => {
     if (activeTab !== "home") setActionOutcome(null)
   }, [activeTab, setActionOutcome])
 
-  // آخرین خط تاریخچه — فقط وقتی خودِ خانه فعال است؛ فقط با اکشن/رویدادِ موفق
-  // (worldVersion)، عوض‌شدنِ روز، یا برگشتن به تب — نه با هر تیکِ serverTime (ممیزیِ ⑧)
-  const dayCount = snapshot?.world.dayCount
-  React.useEffect(() => {
-    if (activeTab !== "home") return
-    let alive = true
-    void api.history(0, 1).then((res) => {
-      if (res.ok && alive) setLastHistory(res.data.items[0] ?? null)
-    })
-    return () => {
-      alive = false
-    }
-  }, [activeTab, worldVersion, dayCount])
-
   if (!snapshot) return null
-  const { player, world, activeEvent } = snapshot
+  const { player, activeEvent } = snapshot
 
   // V17-2 — جلسه‌ی اولِ متمرکز: پیمان بسته نشده. مرحله از خودِ موتور می‌آید
   // (journey.stage)؛ نبودِ فمبوی هم همان شرط است — هیچ state جدی‌ای این‌جا ساخته نمی‌شود.
@@ -164,13 +148,13 @@ export function HomeScreen() {
 
   // ─── تکه‌های مشترکِ دو چیدمان (عادی/متمرکز) — همان JSXِ همیشگی ───
 
+  // V22 — سه‌تاییِ تصمیم‌گیر: سکه/انرژی/بدهی (بدهی فقط وقتی هست). آشوب در چیپِ هدرِ
+  // پوسته است، شانس داخلِ شیتِ بینگو دیده می‌شود (همان‌جا که شرط بسته می‌شود)،
+  // شهرت و بقیه‌ی شناسنامه در تبِ «من».
   const statPills = (
     <div className="no-scrollbar -mx-1 flex gap-2 overflow-x-auto px-1 pb-0.5">
       <StatPill icon="💰" label="سکه" value={faNum(player.money)} />
       <StatPill icon="⚡" label="انرژی" value={`${faNum(player.energy)}%`} tone={player.energy < 20 ? "danger" : "default"} />
-      <StatPill icon="🍀" label="شانس" value={faNum(player.luck)} />
-      <StatPill icon="🔥" label="آشوب" value={faNum(player.chaos)} tone={player.chaos > 60 ? "warning" : "default"} />
-      <StatPill icon="⭐" label="شهرت" value={faNum(player.fame)} />
       {player.debt > 0 ? <StatPill icon="⛓" label="بدهی" value={faNum(player.debt)} tone="danger" /> : null}
     </div>
   )
@@ -259,35 +243,6 @@ export function HomeScreen() {
       </p>
     ) : null
 
-  const lastHistoryCard = lastHistory ? (
-    <GlassCard pad="sm" className="flex items-center gap-2.5">
-      <span aria-hidden className="text-lg leading-none">
-        {lastHistory.icon}
-      </span>
-      <div className="min-w-0">
-        <p className="text-[11px] font-medium text-muted-foreground">آخرین چیزی که سرت اومد</p>
-        <p className="truncate text-xs font-semibold leading-5">{lastHistory.text}</p>
-      </div>
-    </GlassCard>
-  ) : null
-
-  const cityPulseCard =
-    world.feed.length > 0 ? (
-      <GlassCard>
-        <SectionTitle icon="📻" title="نبض شهر" />
-        <ul className="flex flex-col gap-2">
-          {world.feed.slice(0, 4).map((f) => (
-            <li key={f.id} className="flex items-start gap-2 text-xs leading-5 text-foreground/75">
-              <span aria-hidden className="mt-0.5 shrink-0">
-                {f.icon}
-              </span>
-              <span className="min-w-0">{f.text}</span>
-            </li>
-          ))}
-        </ul>
-      </GlassCard>
-    ) : null
-
   // ناحیه‌ی اتفاق — در حالتِ متمرکز، دکمه‌ی کشیدن کارتِ فرعیِ جمع‌وجور است (ممیزیِ ②:
   // دیگر دو CTAی هم‌وزن ندارد) و در حالتِ عادی همان دکمه‌ی درشتِ انیمیشنیِ همیشگی.
   // V17-W2 (F1): نتیجه‌ی اکشن‌های پیشخوان (کار/استراحت/بینگو/فرصت) هم همین‌جا می‌نشیند —
@@ -372,7 +327,7 @@ export function HomeScreen() {
         </motion.section>
       ) : null}
 
-      {/* سلام — فضا در هدر و «نبض شهر» زنده است؛ این‌جا فقط سلام (ممیزیِ ⑧) */}
+      {/* سلام — وضعیتِ شهر در چیپ‌های هدر و تبِ شهر زنده است؛ این‌جا فقط سلام (ممیزیِ ⑧) */}
       <header className="px-1">
         <h1 className="text-xl font-extrabold leading-8">
           سلام، {player.name}{" "}
@@ -387,7 +342,7 @@ export function HomeScreen() {
         <>
           <FirstSessionPanel onPact={() => setActiveTab("soul")} />
           {eventArea}
-          {/* مسیرِ زندگی می‌ماند (خوب است) — اما چیپِ پیمان را دیگر تکرار نمی‌کند */}
+          {/* V17-2 — کارتِ قدمِ بعدی می‌ماند (خوب است) — اما چیپِ پیمان را دیگر تکرار نمی‌کند */}
           <DirectionCard focusMode onDrawEvent={() => void draw()} />
           {/* بقیه‌ی پیشخوان — جمع‌شونده؛ پیشرفته‌ها پنهانِ همیشگی نیستند */}
           <FocusCityCollapse>
@@ -397,8 +352,6 @@ export function HomeScreen() {
               {/* V17-W3 (F4) — پیوستگیِ شیفت‌ها زیرِ اکشنِ کار */}
               {workStreakLine}
               <OpportunitiesStrip />
-              {lastHistoryCard}
-              {cityPulseCard}
             </div>
           </FocusCityCollapse>
         </>
@@ -408,27 +361,21 @@ export function HomeScreen() {
           {/* V9 — هویتِ مرکزی: کارتِ «فمبویِ من» */}
           <FemboyHomeCard femboy={snapshot.femboy} />
 
-          {/* مسیرِ زندگی — مقطع، جهت، هدف‌ها، قدمِ بعدی + فرصت‌ها */}
+          {/* قدمِ بعدی — مقطع، جهت، هدف‌ها + فرصت‌ها */}
           <DirectionCard onDrawEvent={() => void draw()} />
           <OpportunitiesStrip />
-
-          {/* نوار آمار */}
-          {statPills}
 
           {/* ناحیه‌ی اتفاق */}
           {eventArea}
 
-          {/* اکشن‌های سریع */}
+          {/* فعل‌های امروز — کار/استراحت/بینگو با هزینه‌های صادقانه */}
           {quickActions}
 
           {/* V17-W3 (F4) — پیوستگیِ شیفت‌ها زیرِ اکشنِ کار */}
           {workStreakLine}
 
-          {/* آخرین خبر */}
-          {lastHistoryCard}
-
-          {/* نبض شهر */}
-          {cityPulseCard}
+          {/* V22 — سه‌تاییِ وضعیت، آخرِ صفحه: بعد از فعل‌ها */}
+          {statPills}
         </>
       )}
 

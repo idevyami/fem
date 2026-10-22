@@ -10,7 +10,7 @@ import { esc, parseJson, pushOutbox, pushOutboxTx, addHistoryTx, addNewsTx, bump
 import { adjustMemberRep } from "./social"
 import { requireGroupMember, NOT_CITIZEN_MSG } from "./safety"
 import { awardPlayerStat } from "./awards"
-import { SEP, SUB, DOTS, faNum, chip, spoiler, expand, quote } from "./text"
+import { SUB, DOTS, faNum, chip, spoiler, expand, quote, emblem } from "./text"
 
 // ─── میم‌ها ────────────────────────────────────────────────────────────────────
 
@@ -90,9 +90,10 @@ async function materializeMeme(group: GroupWorld, memeKey: string, originPlayerI
   await grantGroupAchievementTx(db, group, "first_meme")
 }
 
-/** کارتِ میمِ رسیده — سازنده‌ی خالص (تست‌پذیر؛ V11)؛ safeLine از قبل HTML-safe است */
+/** کارتِ میمِ رسیده — سازنده‌ی خالص (تست‌پذیر؛ V11)؛ safeLine از قبل HTML-safe است.
+ *  V24 «ظاهرِ شهر»: نشانِ خودِ میم در مرکزِ جداکننده. */
 export function memeCardText(emoji: string, safeLine: string, originName: string): string {
-  return `${emoji} <b>میمِ رسمیِ شهر</b>\n${SEP}\n\n${quote(`«${safeLine}»`)}\n\n<i>از این‌جا به بعد این جمله بخشی از شهر است. مقصر: ${esc(originName)}.</i>`
+  return `${emoji} <b>میمِ رسمیِ شهر</b>\n${emblem(emoji)}\n\n${quote(`«${safeLine}»`)}\n\n<i>از این‌جا به بعد این جمله بخشی از شهر است. مقصر: ${esc(originName)}.</i>`
 }
 
 /** واکنشِ میمی — وقتی حضور می‌خواهد به میمِ موجود اشاره کند */
@@ -156,16 +157,18 @@ export async function spawnRumor(group: GroupWorld, originPlayerId?: string): Pr
   })
 }
 
-/** کارتِ شایعه‌ی تازه — سازنده‌ی خالص (تست‌پذیر؛ V11)؛ شانسِ راستی زیرِ اسپویلر */
+/** کارتِ شایعه‌ی تازه — سازنده‌ی خالص (تست‌پذیر؛ V11)؛ شانسِ راستی زیرِ اسپویلر.
+ *  V24: نشانِ 🗣 + متنِ شایعه زیرِ نقل‌قول. */
 export function rumorCardText(rumorText: string): string {
-  return `🗣 <b>شایعه</b>\n${SEP}\n\n«${esc(rumorText)}»\n\n${spoiler("🎲 احتمالِ درستی: نامعلوم. مثل همیشه.")}`
+  return `🗣 <b>شایعه</b>\n${emblem("🗣")}\n\n${quote(`«${esc(rumorText)}»`)}\n\n${spoiler("🎲 احتمالِ درستی: نامعلوم. مثل همیشه.")}`
 }
 
-/** کارتِ تحقیق — سازنده‌ی خالص (تست‌پذیر؛ V11)؛ حکم زیرِ اسپویلر */
+/** کارتِ تحقیق — سازنده‌ی خالص (تست‌پذیر؛ V11)؛ حکم زیرِ اسپویلر.
+ *  V24: نشانِ 🕵️. */
 export function investigatedCardText(playerName: string, rumorText: string, truth: boolean, revealed: boolean): string {
   return revealed
-    ? `🕵️ <b>${esc(playerName)} تحقیق کرد</b>\n${SEP}\n\n${quote(`«${esc(rumorText)}»`)}\n\nحکم: ${spoiler(`<b>${truth ? "درست است" : "دروغ است"}</b>. شواهد: شخصی.`)}`
-    : `🕵️ <b>${esc(playerName)} تحقیق کرد و به هیچ‌کاری نرسید.</b>\n${SEP}\n\n<i>شواهد: مشروط به حالِ روح.</i>`
+    ? `🕵️ <b>${esc(playerName)} تحقیق کرد</b>\n${emblem("🕵️")}\n\n${quote(`«${esc(rumorText)}»`)}\n\nحکم: ${spoiler(`<b>${truth ? "درست است" : "دروغ است"}</b>. شواهد: شخصی.`)}`
+    : `🕵️ <b>${esc(playerName)} تحقیق کرد و به هیچ‌کاری نرسید.</b>\n${emblem("🕵️")}\n\n<i>شواهد: مشروط به حالِ روح.</i>`
 }
 
 export async function rumorAction(
@@ -244,7 +247,8 @@ export async function pushCityNews(group: GroupWorld): Promise<void> {
   })
 }
 
-/** کارتِ خبرنامه — سازنده‌ی خالص (تست‌پذیر؛ V11)؛ ردیف‌های ذخیره‌شده HTML-safe بدون esc رندر می‌شوند */
+/** کارتِ خبرنامه — سازنده‌ی خالص (تست‌پذیر؛ V11)؛ ردیف‌های ذخیره‌شده HTML-safe بدون esc رندر می‌شوند.
+ *  V24: نشانِ 📰. */
 export function cityNewsCardText(
   title: string,
   hist: { icon: string; text: string }[],
@@ -252,7 +256,7 @@ export function cityNewsCardText(
   richest: { name: string; money: number } | null,
   population: number,
 ): string {
-  const lines: string[] = [`📰 <b>خبرنامه‌ی ${esc(title)}</b>`, SEP, ""]
+  const lines: string[] = [`📰 <b>خبرنامه‌ی ${esc(title)}</b>`, emblem("📰"), ""]
 
   // تاریخچه — سه خبرِ مهمِ روز، هر کدام نقل‌قول؛ بقیه با دُمِ شمارشی
   if (hist.length > 0) {
@@ -312,9 +316,10 @@ export async function ensureMysteryActive(group: GroupWorld): Promise<void> {
   await grantGroupAchievementTx(db, group, "first_mystery")
 }
 
-/** کارتِ تولدِ معما — سازنده‌ی خالص (تست‌پذیر؛ V11)؛ قلابِ روایی زیرِ expand */
+/** کارتِ تولدِ معما — سازنده‌ی خالص (تست‌پذیر؛ V11)؛ قلابِ روایی زیرِ expand.
+ *  V24: نشانِ خودِ معما + تیترِ آن زیرِ نقل‌قول. */
 export function mysterySpawnCardText(emoji: string, title: string, hook: string): string {
-  return `${emoji} <b>معمایی در هواست…</b>\n${SEP}\n\n«${title}»\n\n${expand(hook)}\n\n<i>سرنخ‌ها، آن‌ها که دنبالش بگردند، پیدا می‌کنند. کسانی که پیدایشان کنند، فقط برای خودشان پیدا می‌کنند.</i>`
+  return `${emoji} <b>معمایی در هواست…</b>\n${emblem(emoji)}\n\n${quote(`«${title}»`)}\n\n${expand(hook)}\n\n<i>سرنخ‌ها، آن‌ها که دنبالش بگردند، پیدا می‌کنند. کسانی که پیدایشان کنند، فقط برای خودشان پیدا می‌کنند.</i>`
 }
 
 /** آشکار کردنِ سرنخِ بعدی — داخلِ تراکنشِ حلِ رویداد/تحقیقِ شایعه صدا می‌شود.
@@ -364,19 +369,21 @@ export async function revealMysteryClueTx(tx: Tx, group: GroupWorld, player: Pla
   return true
 }
 
-/** پی‌ویِ سرنخ — سازنده‌ی خالص (تست‌پذیر؛ V11)؛ سرنخ زیرِ اسپویلر */
+/** پی‌ویِ سرنخ — سازنده‌ی خالص (تست‌پذیر؛ V11)؛ سرنخ زیرِ اسپویلر.
+ *  V24: نشانِ 🕯 (هم‌زبانِ کارتِ سرنخِ events). */
 export function clueDmText(progress: number, total: number, title: string, clueText: string): string {
-  return `🕯 <b>سرنخِ ${chip(`${faNum(progress)}/${faNum(total)}`)} از «${title}»</b>\n${SEP}\n\n${spoiler(clueText)}\n\n<i>بقیه فقط می‌دونن یه چیزی پیدا کردی. چیستی‌ش را نه.</i>`
+  return `🕯 <b>سرنخِ ${chip(`${faNum(progress)}/${faNum(total)}`)} از «${title}»</b>\n${emblem("🕯")}\n\n${spoiler(clueText)}\n\n<i>بقیه فقط می‌دونن یه چیزی پیدا کردی. چیستی‌ش را نه.</i>`
 }
 
-/** کارتِ سرنخِ پیدا‌شده در گروه — سازنده‌ی خالص (تست‌پذیر؛ V11) */
+/** کارتِ سرنخِ پیدا‌شده در گروه — سازنده‌ی خالص (تست‌پذیر؛ V11)؛ V24: نشانِ 🕵️. */
 export function clueFoundCardText(playerName: string, title: string, progress: number, total: number): string {
-  return `🕵️ <b>${esc(playerName)}</b> سرنخی درباره‌ی «${title}» پیدا کرد — ${chip(`${faNum(progress)}/${faNum(total)}`)}.\n${SEP}\n${spoiler("چی بوده؟ خودش می‌داند. شما فقط حسش می‌کنید.")}`
+  return `🕵️ <b>${esc(playerName)}</b> سرنخی درباره‌ی «${title}» پیدا کرد — ${chip(`${faNum(progress)}/${faNum(total)}`)}.\n${emblem("🕵️")}\n${spoiler("چی بوده؟ خودش می‌داند. شما فقط حسش می‌کنید.")}`
 }
 
-/** کارتِ حلِ معما — سازنده‌ی خالص (تست‌پذیر؛ V11)؛ عاقبت زیرِ expand */
+/** کارتِ حلِ معما — سازنده‌ی خالص (تست‌پذیر؛ V11)؛ عاقبت زیرِ expand.
+ *  V24: نشانِ خودِ معما. */
 export function mysterySolvedCardText(emoji: string, title: string, resolution: string, solverName: string): string {
-  return `${emoji} <b>معمای «${title}» حل شد</b>\n${SEP}\n\n${expand(resolution)}\n\n<i>حل‌کننده‌ی نهایی: ${esc(solverName)}.</i>`
+  return `${emoji} <b>معمای «${title}» حل شد</b>\n${emblem(emoji)}\n\n${expand(resolution)}\n\n<i>حل‌کننده‌ی نهایی: ${esc(solverName)}.</i>`
 }
 
 /** پوششِ بدونِ تراکنش — برای تحقیقِ شایعه */

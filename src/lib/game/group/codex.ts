@@ -21,7 +21,7 @@
 
 import type { CallbackResult, GroupCallCtx } from "./router"
 import type { OutboxButton } from "./types"
-import { SEP, chip } from "./text"
+import { chip, emblem, quote } from "./text"
 import {
   HELP_CATEGORIES, getHelpCategory, getHelpTopic, helpTopicsOf, helpTopicPage, HELP_BLOCKS_PER_PAGE,
 } from "../help/registry"
@@ -49,8 +49,10 @@ function card(body: string, buttons: OutboxButton[], ackText: string): CallbackR
 
 // ─── gh:m — منویِ دسته‌ها ──────────────────────────────────────────────────────
 
+// V24 «ظاهرِ شهر»: هر کارتِ کدکس نشانِ خودش را در مرکزِ جداکننده می‌گذارد و
+// مقدمه‌هایِ کوتاه زیرِ نقل‌قول می‌روند — هم‌زبانِ بقیه‌ی کارت‌های شهر.
 function categoryMenu(): CallbackResult {
-  const lines = ["", "📚 <b>راهنمای کاملِ FEMBOY WAR</b>", SEP, "", "هر دسته یک راهنمایِ واقعی است — عددها از خودِ بازی.", ""]
+  const lines = ["", "📚 <b>راهنمای کاملِ FEMBOY WAR</b>", emblem("📚"), "", quote("هر دسته یک راهنمایِ واقعی است — عددها از خودِ بازی."), ""]
   const buttons: OutboxButton[] = HELP_CATEGORIES.map((c) => ({
     label: `${c.icon} ${c.titleFa}`,
     style: "primary" as const,
@@ -71,7 +73,7 @@ function categoryList(catId: string, pageRaw: number): CallbackResult {
   const page = Math.max(0, Math.min(pageRaw, pageCount - 1))
   const slice = topics.slice(page * TOPICS_PER_CATEGORY_PAGE, page * TOPICS_PER_CATEGORY_PAGE + TOPICS_PER_CATEGORY_PAGE)
   const lines = [
-    "", `${cat.icon} <b>${cat.titleFa}</b>`, SEP, "", cat.descFa, "",
+    "", `${cat.icon} <b>${cat.titleFa}</b>`, emblem(cat.icon), "", cat.descFa, "",
     ...(slice.map((t, i) => `${page * TOPICS_PER_CATEGORY_PAGE + i + 1}. ${t.icon} <b>${t.titleFa}</b>`)),
   ]
   if (pageCount > 1) lines.push("", `<i>صفحه‌ی ${page + 1} از ${pageCount}</i>`)
@@ -99,15 +101,16 @@ function topicPage(topicId: string, pageRaw: number): CallbackResult {
   if (!topic) return STALE_CARD
   const cat = getHelpCategory(topic.cat)
   const { blocks, page, pageCount } = helpTopicPage(topic, pageRaw, HELP_BLOCKS_PER_PAGE)
-  const lines = ["", `${topic.icon} <b>${topic.titleFa}</b>`, `${cat ? `${cat.icon} ${cat.titleFa} · ` : ""}صفحه‌ی ${page + 1} از ${pageCount}`, SEP, ""]
+  const lines = ["", `${topic.icon} <b>${topic.titleFa}</b>`, `${cat ? `${cat.icon} ${cat.titleFa} · ` : ""}صفحه‌ی ${page + 1} از ${pageCount}`, emblem(topic.icon), ""]
   if (page === 0) lines.push(`<i>${topic.summaryFa}</i>`, "")
   for (const b of blocks) {
     if (b.h) lines.push(`<b>${b.h}</b>`)
     lines.push(...b.lines, "")
   }
   // عبارت‌های پشتیبانی‌شده — همان چیپِ مونو که کارت‌های شهر استفاده می‌کنند
+  // V24: ردیف‌های ▪ (هم‌زبانِ فهرست‌های شهر)
   if (page === pageCount - 1 && topic.phrases && topic.phrases.length > 0) {
-    lines.push("عبارت‌ها:", ...topic.phrases.map((p) => `• ${chip(p.fa)}${p.en ? ` · ${chip(p.en)}` : ""} — ${p.where === "private" ? "خصوصی" : p.where === "group" ? "گروه" : "خصوصی و گروه"}`), "")
+    lines.push("عبارت‌ها:", ...topic.phrases.map((p) => `▪ ${chip(p.fa)}${p.en ? ` · ${chip(p.en)}` : ""} — ${p.where === "private" ? "خصوصی" : p.where === "group" ? "گروه" : "خصوصی و گروه"}`), "")
   }
   if (page === pageCount - 1 && topic.examples && topic.examples.length > 0) {
     lines.push("مثال:", ...topic.examples.map((e) => `» ${e}`), "")

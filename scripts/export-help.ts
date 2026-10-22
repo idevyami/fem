@@ -74,10 +74,13 @@ function parseIntents(): { ids: string[]; byId: Map<string, ParsedAlias> } {
 // نیت‌هایی که routeGroupIntent در گروه هم به موتور/هندلر می‌فرستد؛ بقیه در گروه
 // فقط دعوت به خصوصی می‌شوند (nudge). منبع: mini-services/bot/src/handlers.ts.
 // V16-3 — سه‌گانه‌ی V15-2 (duels/economy/fame) اضافه شدند (آینه بودن، یادشان رفته بود).
+// V23 — نیت‌های اجتماعی هم در گروه جواب می‌گیرند (فقط با آدرس‌دهی: یک خطِ کوتاه
+// از social.ts — نه کارتِ موتور)؛ پس «both» می‌مانند تا کدکس صادق بماند.
 const GROUP_ROUTED = new Set([
   "menu", "start", "back", "help", "city", "status", "events", "players", "games",
   "leaderboard", "champ", "news", "femboy", "myfemboy", "duel", "vote", "court",
   "projects", "history", "gadmin", "cancel", "duels", "economy", "fame",
+  "greet", "howAreYou", "thanks", "bye", "laugh", "love", "tired",
 ])
 
 // ─── 3) ساختِ جدولِ عبارت‌ها ────────────────────────────────────────────────────
@@ -108,10 +111,9 @@ const rows: TableRow[] = ids.map((id) => {
   }
 })
 
-// شمارشِ واقعیِ نیت‌ها در intent.ts = 38 (35 تا V14 + سه‌گانه‌ی هابِ شهرِ V15-2:
-// duels/economy/fame — V16-3 سندشان کرد و این عدد به‌روز شد). اگر رجیستری رشد
-// کرد این عدد را به‌روز کن.
-const EXPECTED_INTENT_COUNT = 42
+// شمارشِ واقعیِ نیت‌ها در intent.ts = 50 (43 تا V20 + V23: هفت نیتِ اجتماعی). اگر
+// رجیستری رشد کرد این عدد را به‌روز کن.
+const EXPECTED_INTENT_COUNT = 50
 if (rows.length !== EXPECTED_INTENT_COUNT) {
   throw new Error(`intent.ts exposes ${rows.length} intents, expected ${EXPECTED_INTENT_COUNT} (update EXPECTED_INTENT_COUNT if the registry grew)`)
 }

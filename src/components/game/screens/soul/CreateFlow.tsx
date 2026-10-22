@@ -18,7 +18,7 @@ type Step = "intro" | "class" | "persona" | "name" | "confirm"
 const STEP_LABELS: { key: Step; label: string }[] = [
   { key: "intro", label: "پیمان" },
   { key: "class", label: "کلاس" },
-  { key: "persona", label: "طبع" },
+  { key: "persona", label: "شخصیت" },
   { key: "name", label: "اسم" },
   { key: "confirm", label: "قفل" },
 ]
@@ -156,7 +156,7 @@ export function CreateFlow({ classes, personas, onCreate }: CreateFlowProps) {
               <p className="mt-2 rounded-xl border border-primary/20 bg-primary/[0.06] px-3 py-2 text-[11px] leading-5 text-foreground/80">
                 <span aria-hidden>💡</span>{" "}
                 <span className="font-bold text-primary">راهنمای انتخاب: </span>
-                اولین‌بار است؟ «کمانگیرِ تاکتیکی» (آسان) برایِ شروعِ آزاد خوب است — هر کلاس راهِ خودش را دارد؛ بعداً با کدکس مقایسه کن.
+                اولین‌بار است؟ «کمانگیرِ تاکتیکی» (آسان) برایِ شروعِ آزاد خوب است — هر کلاس راهِ خودش را دارد؛ بعداً با راهنما مقایسه کن.
               </p>
             </header>
 
@@ -245,7 +245,7 @@ export function CreateFlow({ classes, personas, onCreate }: CreateFlowProps) {
           </motion.section>
         ) : null}
 
-        {/* ── 2.5) V19 — انتخابِ طبع ── */}
+        {/* ── 2.5) V19 — انتخابِ شخصیت ── */}
         {step === "persona" && chosen ? (
           <motion.section
             key="persona"
@@ -253,12 +253,12 @@ export function CreateFlow({ classes, personas, onCreate }: CreateFlowProps) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.28 }}
-            aria-label="انتخابِ طبعِ فمبوی"
+            aria-label="انتخابِ شخصیتِ فمبوی"
           >
             <header className="px-1">
-              <h1 className="text-lg font-extrabold leading-7">طبعش چطور باشد؟</h1>
+              <h1 className="text-lg font-extrabold leading-7">شخصیتش چطور باشد؟</h1>
               <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
-                کلاس می‌گوید «چه‌کاره است»؛ طبع می‌گوید «چطور رفتار می‌کند». طبع روی حرف‌هاش، داستانِ شخصی‌اش و استعدادهایش اثر می‌گذارد — و مثلِ کلاس، برای همیشه است.
+                کلاس می‌گوید «چه‌کاره است»؛ شخصیت می‌گوید «چطور رفتار می‌کند». شخصیت روی حرف‌هاش، داستانِ شخصی‌اش و استعدادهایش اثر می‌گذارد — و مثلِ کلاس، برای همیشه است.
               </p>
             </header>
 
@@ -296,14 +296,14 @@ export function CreateFlow({ classes, personas, onCreate }: CreateFlowProps) {
                     emoji="➡️"
                     onClick={() => go("name")}
                   >
-                    همین طبعش خوبه
+                    همین شخصیتش خوبه
                   </ActionButton>
                 </GlassCard>
               </motion.div>
             ) : (
               <GlassCard pad="sm" className="mt-3">
                 <p className="py-2 text-center text-xs leading-6 text-muted-foreground">
-                  یک طبع را لمس کن تا صدایش را بشنوی.
+                  یک شخصیت را لمس کن تا صدایش را بشنوی.
                 </p>
               </GlassCard>
             )}
@@ -390,7 +390,7 @@ export function CreateFlow({ classes, personas, onCreate }: CreateFlowProps) {
                   className={cn(GLASS_BLUE, "min-h-12")}
                   onClick={() => go("persona")}
                 >
-                  ↩️ طبع‌ها
+                  ↩️ شخصیت‌ها
                 </ActionButton>
                 <ActionButton
                   variant="primary"
@@ -593,7 +593,7 @@ const PersonaPickCard = React.memo(
         type="button"
         onClick={onSelect}
         aria-pressed={selected}
-        aria-label={`طبعِ ${persona.name}: ${persona.tagline}`}
+        aria-label={`شخصیتِ ${persona.name}: ${persona.tagline}`}
         className={cn(
           "flex min-h-11 flex-col gap-1.5 rounded-2xl border p-3 text-right transition-all",
           selected

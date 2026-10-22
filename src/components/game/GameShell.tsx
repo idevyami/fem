@@ -3,7 +3,7 @@
 // پوسته‌ی بازی — بوت، هدر، تب‌ها، ناو پایین، توست‌ها + بازیابیِ نشست (V16-2)
 import * as React from "react"
 import { AnimatePresence, MotionConfig, motion } from "framer-motion"
-import { Bell } from "lucide-react"
+import { Bell, BookOpen } from "lucide-react"
 import { api, onSessionExpired } from "@/lib/game/client"
 import type { OfflineRecapDTO } from "@/lib/game/contract"
 import {
@@ -21,11 +21,10 @@ import { IntroFlow, type IntroMode } from "./IntroFlow"
 import { OpeningSplash } from "./OpeningSplash"
 import { HomeScreen } from "./screens/HomeScreen"
 import { SoulScreen } from "./screens/SoulScreen"
-import { CityScreen } from "./screens/CityScreen"
-import { GroupScreen } from "./screens/GroupScreen"
-import { BagScreen } from "./screens/BagScreen"
-import { MarketScreen } from "./screens/MarketScreen"
+import { CityTabs } from "./screens/city/CityTabs"
+import { EconomyScreen } from "./screens/economy/EconomyScreen"
 import { MeScreen } from "./screens/MeScreen"
+import { CodexSheet } from "./screens/codex/CodexSheet"
 import { cn } from "@/lib/utils"
 
 type Phase = "booting" | "opening" | "intro" | "ready" | "error"
@@ -41,12 +40,11 @@ interface IntroCtx {
 }
 
 const TABS: { key: TabKey; emoji: string; label: string }[] = [
-  // «خونه» — صدای محاوره‌ای؛ «پیشخوان» در ستونِ ۴۰pxی تب‌بار جا نمی‌شد
-  { key: "home", emoji: "🏠", label: "خونه" },
+  // V22 (معماریِ اطلاعات): هفت تب پنج شد — بازار در «کیف» (دو نما) و شهرِ گروه
+  // در «شهر» (دو لنز) ادغام شدند؛ برچسبِ رسمی با هابِ رباتِ V20 یکی است («خانه»).
+  { key: "home", emoji: "🏠", label: "خانه" },
   { key: "soul", emoji: "🎀", label: "فمبوی" },
   { key: "city", emoji: "🌆", label: "شهر" },
-  { key: "group", emoji: "🌍", label: "گروه" },
-  { key: "market", emoji: "💰", label: "بازار" },
   { key: "bag", emoji: "🎒", label: "کیف" },
   { key: "me", emoji: "👤", label: "من" },
 ]
@@ -71,8 +69,14 @@ export default function GameShell() {
   /** غیرمستقیمِ امن برای رتریِ خودکار بدون رفرنسِ خودی (react-hooks/immutability) */
   const bootRef = React.useRef<(() => Promise<void>) | undefined>(undefined)
 
-  const [notifOpen, setNotifOpen] = React.useState(false)
+  // V21 — شیتِ خبرها در استور است (ردیفِ «خبرها»ی پروفایل همان شیت را باز می‌کند)؛
+  // unreadIds محلی می‌ماند — فقط خودِ شیت لازمش دارد
+  const notifOpen = useGame((s) => s.notifOpen)
+  const setNotifOpen = useGame((s) => s.setNotifOpen)
   const [unreadIds, setUnreadIds] = React.useState<Set<string>>(new Set())
+  // V21 — راهنما مقصدِ سطحِ خانه شد: نمونه‌ی واحدِ CodexSheet همین‌جا، باز/بسته از استور
+  const codexOpen = useGame((s) => s.codexOpen)
+  const setCodexOpen = useGame((s) => s.setCodexOpen)
 
   // ─── V16-2 (ممیزیِ ⑦): شیتِ بازیابیِ نشست — 401 وسطِ بازی ───
   const [sessionSheetOpen, setSessionSheetOpen] = React.useState(false)
@@ -236,18 +240,25 @@ export default function GameShell() {
   // ─── دکمه‌ی برگشتِ تلگرام ─────────────────────────────────────────────────
   // V16-2 (ممیزیِ ⑮): به‌جای «همیشه خانه»، تاریخِ تب‌ها را دنبال می‌کند — یک قدم
   // عقب؛ پشته‌ی خالی → خانه. دکمه‌ی سخت‌افزاریِ اندروید دیگر اپ را نمی‌بندد.
+  // V22: برگشتِ سخت‌افزاری اول بالاترین شیتِ باز را می‌بندد (پشته‌ی شیت‌های
+  // GlassSheet)، بعد تاریخِ تب‌ها را دنبال می‌کند — شیتِ باز هرگز پشتِ دکمه‌ی
+  // برگشت گم نمی‌شود و بعدش همان مسیرِ همیشگی ادامه می‌یابد.
   const tabStack = useGame((s) => s.tabStack)
   const goBackTab = useGame((s) => s.goBackTab)
+  const sheetClosers = useGame((s) => s.sheetClosers)
+  const closeTopSheet = useGame((s) => s.closeTopSheet)
   React.useEffect(() => {
     const bb = getWebApp()?.BackButton
     if (!bb) return
     const handler = () => {
       haptic("light")
+      // اول بالاترین شیتِ باز بسته شود؛ اگر شیتی نبود، یک قدم در تاریخِ تب‌ها
+      if (closeTopSheet()) return
       goBackTab()
     }
     try {
-      // جایی برای برگشتن هست: یا تبِ فعلی خانه نیست، یا از جایی آمده‌ایم
-      if (phase === "ready" && (activeTab !== "home" || tabStack.length > 0)) {
+      // جایی برای برگشتن هست: یا شیتِ بازی باز است، یا تبِ فعلی خانه نیست، یا از جایی آمده‌ایم
+      if (phase === "ready" && (sheetClosers.length > 0 || activeTab !== "home" || tabStack.length > 0)) {
         bb.onClick(handler)
         bb.show()
       } else {
@@ -263,7 +274,7 @@ export default function GameShell() {
         // بعضی نسخه‌ها offClick ندارند
       }
     }
-  }, [activeTab, phase, tabStack.length, goBackTab])
+  }, [activeTab, phase, tabStack.length, goBackTab, sheetClosers.length, closeTopSheet])
 
   /** ثبتِ هویت از اینترو — تلگرامی/جلسه‌دار: setIdentity · مهمانِ تازه: ساختِ بازیکن */
   async function submitIdentity(name: string, avatar: string): Promise<boolean> {
@@ -392,6 +403,17 @@ export default function GameShell() {
                   type="button"
                   onClick={() => {
                     haptic("light")
+                    setCodexOpen(true)
+                  }}
+                  aria-label="راهنما"
+                  className="flex size-11 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.05] text-foreground/80 transition-colors hover:text-primary"
+                >
+                  <BookOpen className="size-5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    haptic("light")
                     openNotifications()
                   }}
                   aria-label="اعلان‌ها"
@@ -420,10 +442,8 @@ export default function GameShell() {
                     >
                       {t.key === "home" ? <HomeScreen /> : null}
                       {t.key === "soul" ? <SoulScreen /> : null}
-                      {t.key === "city" ? <CityScreen /> : null}
-                      {t.key === "group" ? <GroupScreen /> : null}
-                      {t.key === "bag" ? <BagScreen /> : null}
-                      {t.key === "market" ? <MarketScreen /> : null}
+                      {t.key === "city" ? <CityTabs /> : null}
+                      {t.key === "bag" ? <EconomyScreen /> : null}
                       {t.key === "me" ? <MeScreen /> : null}
                     </motion.div>
                   </div>
@@ -436,7 +456,7 @@ export default function GameShell() {
               aria-label="ناوبری اصلی"
               className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-background/85 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl"
             >
-              <div className="mx-auto grid w-full max-w-md grid-cols-7">
+              <div className="mx-auto grid w-full max-w-md grid-cols-5">
                 {TABS.map((t) => {
                   const isActive = t.key === activeTab
                   return (
@@ -465,17 +485,18 @@ export default function GameShell() {
                       </span>
                       <span
                         className={cn(
-                          // V16-2 (§14): در 320px هفت ستون یعنی ~44px — برچسبِ بلند
-                          // با ellipsisِ نرم جمع می‌شود تا هم لمسِ 44px+ حفظ شود و هم
-                          // هیچ برچسبی بریده-نما نباشد. full label در aria-label می‌ماند.
+                          // V22: پنج ستون در 320px یعنی ~64px — برچسب‌ها کامل جا
+                          // می‌شوند؛ ellipsis فقط برای خیلی بلندی‌ها می‌ماند و
+                          // full label همیشه در aria-label است.
                           "w-full max-w-full truncate text-[11px] leading-4",
                           isActive ? "font-bold" : "font-medium",
                         )}
                       >
                         {t.label}
                       </span>
-                      {/* نشانِ دوئل‌های در انتظار — همان زبانِ بصریِ زنگِ اعلان‌ها */}
-                      {t.key === "group" && duelBadge > 0 ? (
+                      {/* نشانِ دوئل‌های در انتظار — همان زبانِ بصریِ زنگِ اعلان‌ها؛
+                          V22: نشان با خودِ شهرِ گروه به تبِ «شهر» آمد */}
+                      {t.key === "city" && duelBadge > 0 ? (
                         <span className="absolute top-0.5 end-1 grid min-w-5 place-items-center rounded-full bg-primary px-1 py-0.5 text-[10px] font-black leading-4 text-primary-foreground tabular-nums">
                           <span aria-hidden>{faNum(duelBadge)}</span>
                           <span className="sr-only">دعوتِ دوئلِ در انتظار</span>
@@ -527,6 +548,9 @@ export default function GameShell() {
                 </ul>
               )}
             </GlassSheet>
+
+            {/* ─── V21: شیتِ راهنما — نمونه‌ی واحد؛ مقصدها: ردیفِ راهنمای خانه + ردیفِ راهنمای پروفایل ─── */}
+            <CodexSheet open={codexOpen} onOpenChange={setCodexOpen} />
 
             {/* ─── V16-2: بازیابیِ نشست — 401 وسطِ بازی (ممیزیِ ⑦) ─── */}
             <SessionExpiredSheet

@@ -7,7 +7,17 @@ import type { GroupScreenData } from "@/lib/game/client"
 import type { ActionResponse, GameSnapshot, GuideResponse } from "@/lib/game/contract"
 import { haptic, hapticNotify } from "./telegram"
 
-export type TabKey = "home" | "soul" | "city" | "group" | "bag" | "market" | "me"
+export type TabKey = "home" | "soul" | "city" | "bag" | "me"
+
+// ─── V22 (معماریِ اطلاعات): تب‌بار ۷→۵ ───
+// «بازار» و «کیف» یک حلقه‌ی اقتصادی‌اند → یک تبِ «کیف» با دو نما (کیفم/بازار).
+// «شهر» و «شهرِ گروه» یک مفهوم‌اند → یک تبِ «شهر» با دو لنز (محله‌ها/شهرِ گروه).
+// برچسب‌ها با هابِ رباتِ V20 هم‌زبان‌اند («خانه» رسمی، «کیف و بازار» عنوانِ صفحه).
+
+/** لنزِ تبِ شهر — دنیایِ تنهاییِ محله‌ها یا دنیایِ مشترکِ گروه */
+export type CityMode = "districts" | "group"
+/** نمای تبِ کیف — دارایی‌های من یا بازارِ محله */
+export type EconomyView = "bag" | "market"
 
 export type ToastKind = "success" | "error" | "voice"
 
@@ -67,9 +77,42 @@ interface GameState {
   setPendingSoulSection: (s: string | null) => void
   /** V17-W3 (hotfixِ runNext): شیتِ مقصدِ تبِ «من» (deep-link) — «بدهی‌ات را پس
    *  بده» از مسیرِ زندگی به‌جایِ شلیکِ بی‌مبلغ (که موتور ۱ سکه می‌پرداخت!) به
-   *  شیتِ مبلغ می‌رود؛ null = ورودِ عادی. فقط کلیدهای شیت‌های موجود. */
-  pendingMeSheet: "debt" | null
-  setPendingMeSheet: (s: "debt" | null) => void
+   *  شیتِ مبلغ می‌رود؛ null = ورودِ عادی. فقط کلیدهای شیت‌های موجود.
+   *  V21: «شغل‌ها» هم deep-link می‌شود (فعالیت‌ها → آگهی‌های استخدام). */
+  pendingMeSheet: "debt" | "jobs" | null
+  setPendingMeSheet: (s: "debt" | "jobs" | null) => void
+  /** V21 (خبرها — مالکیتِ پروفایل): شیتِ اعلان‌ها به استور آمد تا ردیفِ «خبرها»ی
+   *  تبِ «من» همان شیتِ زنگِ سراسر را باز کند (یک نمونه، بدونِ state تازه‌ای غیر
+   *  از خودِ باز/بسته). unreadIds محلیِ GameShell می‌ماند — فقط شیت لازمش دارد. */
+  notifOpen: boolean
+  setNotifOpen: (v: boolean) => void
+  /** V21 (راهنما — مقصدِ سطحِ خانه): شیتِ راهنما به استور آمد تا خانه و پروفایل
+   *  هر دو همان یک نمونه‌ی CodexSheet (رندرشده در GameShell) را باز کنند. */
+  codexOpen: boolean
+  setCodexOpen: (v: boolean) => void
+  // ─── V22: شهرِ واحد — دو لنز زیرِ یک تب ───
+  /** لنزِ فعلیِ تبِ شهر؛ در جلسه می‌ماند تا برگشتن به تب، همان لنزِ آخر باشد */
+  cityMode: CityMode
+  setCityMode: (m: CityMode) => void
+  /** deep-link: لنزِ مقصدِ ورودِ بعدی به تبِ شهر (الگویِ pendingSoulSection)؛
+   *  مصرف‌شونده یک‌باره در ورودِ تب — null یعنی ورودِ عادی (لنزِ آخر) */
+  pendingCityMode: CityMode | null
+  setPendingCityMode: (m: CityMode | null) => void
+  // ─── V22: کیف و بازار — یک مقصدِ اقتصادی ───
+  /** نمای فعلیِ تبِ کیف؛ در جلسه می‌ماند */
+  economyView: EconomyView
+  setEconomyView: (v: EconomyView) => void
+  /** deep-link: نمای مقصدِ ورودِ بعدی به تبِ کیف — مصرف‌شونده یک‌باره در ورودِ تب */
+  pendingEconomyView: EconomyView | null
+  setPendingEconomyView: (v: EconomyView | null) => void
+  // ─── V22: پشته‌ی شیت‌های باز ───
+  /** شیتِ باز خودش را این‌جا ثبت می‌کند (GlassSheet)؛ دکمه‌ی برگشتِ تلگرام
+   *  اول بالاترین شیت را می‌بندد، بعد تاریخِ تب‌ها را دنبال می‌کند. */
+  sheetClosers: Array<() => void>
+  registerSheetCloser: (closer: () => void) => void
+  unregisterSheetCloser: (closer: () => void) => void
+  /** بستنِ بالاترین شیتِ باز. true یعنی شیتی بسته شد (برگشت مصرف شد) */
+  closeTopSheet: () => boolean
   // ─── V6: قولِ بازی روی این دستگاه ───
   /** درخواستِ پخشِ دوباره‌ی اینترو از تبِ «من» — GameShell مصرفش می‌کند */
   replayIntro: boolean
@@ -191,6 +234,33 @@ export const useGame = create<GameState>((set, get) => ({
   setPendingSoulSection: (s) => set({ pendingSoulSection: s }),
   pendingMeSheet: null,
   setPendingMeSheet: (s) => set({ pendingMeSheet: s }),
+  // ─── V21: شیت‌های سطحِ پوسته (خبرها/راهنما) — باز/بسته از هر جا، رندر فقط در GameShell ───
+  notifOpen: false,
+  setNotifOpen: (v) => set({ notifOpen: v }),
+  codexOpen: false,
+  setCodexOpen: (v) => set({ codexOpen: v }),
+  // ─── V22: شهرِ واحد ───
+  cityMode: "districts",
+  setCityMode: (m) => set({ cityMode: m }),
+  pendingCityMode: null,
+  setPendingCityMode: (m) => set({ pendingCityMode: m }),
+  // ─── V22: کیف و بازار ───
+  economyView: "bag",
+  setEconomyView: (v) => set({ economyView: v }),
+  pendingEconomyView: null,
+  setPendingEconomyView: (v) => set({ pendingEconomyView: v }),
+  // ─── V22: پشته‌ی شیت‌های باز ───
+  sheetClosers: [],
+  registerSheetCloser: (closer) => set((st) => ({ sheetClosers: [...st.sheetClosers, closer] })),
+  unregisterSheetCloser: (closer) =>
+    set((st) => ({ sheetClosers: st.sheetClosers.filter((c) => c !== closer) })),
+  closeTopSheet: () => {
+    const closers = get().sheetClosers
+    const top = closers[closers.length - 1]
+    if (!top) return false
+    top()
+    return true
+  },
   // ─── V5: شهرِ گروه ───
   groupData: null,
   groupLoading: false,

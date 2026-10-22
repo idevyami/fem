@@ -29,7 +29,7 @@ import {
   esc, parseJson, cultureOf, bumpCulture, pushOutbox, pushOutboxTx, addHistoryTx,
 } from "./domain"
 import { requireGroupMember, NOT_CITIZEN_MSG } from "./safety"
-import { SEP, SUB, DOTS, chip, spoiler, expand } from "./text"
+import { SUB, DOTS, chip, spoiler, expand, quote, emblem } from "./text"
 
 export type ChDb = Prisma.TransactionClient
 
@@ -104,20 +104,26 @@ function sideInfoOf(player: Player, char: SoulCharacter): DuelSideInfo {
 
 // ─── کارت‌سازهای خالص (تست‌پذیر؛ V11 «شیشه») ───────────────────────────────────
 
-/** کارتِ دعوت‌نامه — مهمانِ اصلیِ outbox با اولویتِ بالا */
+/** کارتِ دعوت‌نامه — مهمانِ اصلیِ outbox با اولویتِ بالا.
+ *  V24 «ظاهرِ شهر»: نشانِ ⚔️ در مرکزِ جداکننده + بلوکِ VS با ایموجیِ کلاسِ هر دو
+ *  طرف + مهلتِ جواب زیرِ بلوکِ نقل‌قولی (چشم را می‌گیرد). */
 export function invitationCardText(a: DuelSideInfo, b: DuelSideInfo, minutes: number): string {
   const mm = String(minutes).padStart(2, "0")
   return [
     "⚔️ <b>دعوتِ دوئل</b>",
-    SEP,
+    emblem("⚔️"),
     "",
-    `${a.classEmoji} <b>${esc(a.femboyName)}</b> · ${esc(a.className)} · سطح ${chip(a.level)}`,
-    "در برابرِ",
-    `${b.classEmoji} <b>${esc(b.femboyName)}</b> · ${esc(b.className)} · سطح ${chip(b.level)}`,
+    `${a.classEmoji} <b>${esc(a.femboyName)}</b> · ${esc(a.className)}`,
+    `سطح ${chip(a.level)}`,
+    "",
+    `${a.classEmoji} در برابرِ ${b.classEmoji}`,
+    "",
+    `${b.classEmoji} <b>${esc(b.femboyName)}</b> · ${esc(b.className)}`,
+    `سطح ${chip(b.level)}`,
     "",
     DOTS,
     "",
-    `⏳ مهلتِ جواب: ${chip(`${mm}:00`)}`,
+    quote(`⏳ مهلتِ جواب: ${chip(`${mm}:00`)}`),
     spoiler(`جایزه‌ی شهر: ${chip(250)}–${chip(420)} سکه به برنده — به انتخابِ شانس`),
     "",
     `<i>قبول/رد فقط از ${esc(b.playerName)}؛ پس‌گرفتن فقط از ${esc(a.playerName)}.</i>`,
@@ -125,7 +131,8 @@ export function invitationCardText(a: DuelSideInfo, b: DuelSideInfo, minutes: nu
   ].join("\n")
 }
 
-/** کارتِ حالتِ مرده — رد/لغو/انقضا؛ کوتاه و بسته‌شده */
+/** کارتِ حالتِ مرده — رد/لغو/انقضا؛ کوتاه و بسته‌شده.
+ *  V24: نشانِ ⚔️ + عبارتِ پایانی زیرِ quote. */
 export function challengeDeadCardText(
   a: DuelSideInfo,
   b: DuelSideInfo,
@@ -140,16 +147,17 @@ export function challengeDeadCardText(
   }
   return [
     "⚔️ <b>دعوتِ دوئل</b> — بسته شد",
-    SEP,
+    emblem("⚔️"),
     "",
     `${a.classEmoji} <b>${esc(a.femboyName)}</b> در برابرِ ${b.classEmoji} <b>${esc(b.femboyName)}</b>`,
     "",
-    lines[status] ?? "",
+    quote(lines[status] ?? ""),
     ...(note ? ["", `<i>${esc(note)}</i>`] : []),
   ].join("\n")
 }
 
-/** کارتِ نتیجه — بردِ برنده + خطِ هر بازیکن + مکالمه‌ی دوئل زیرِ expand */
+/** کارتِ نتیجه — بردِ برنده + خطِ هر بازیکن + مکالمه‌ی دوئل زیرِ expand.
+ *  V24: نشانِ ⚔️ + ردیف‌های مدال/XP با نشانگرِ ▪ (محتوا دست‌نخورده). */
 export function challengeResultCardText(
   a: DuelSideInfo,
   b: DuelSideInfo,
@@ -167,15 +175,15 @@ export function challengeResultCardText(
   const lines: string[] = []
   for (const s of [
     "⚔️ <b>نتیجه‌ی دوئلِ شهر</b>",
-    SEP,
+    emblem("⚔️"),
     "",
     `🏆 <b>${esc(w.femboyName)}</b> دوئل را برد — ${chip(r.rounds)} راند.`,
     "",
     DOTS,
     "",
-    `• ${w.classEmoji} <b>${esc(w.femboyName)}</b> · سطح ${chip(w.level)}: جایزه ${chip(r.prize)} سکه · روحیه ${chip("+6")}`,
-    `• ${l.classEmoji} <b>${esc(l.femboyName)}</b> · سطح ${chip(l.level)}: روحیه ${chip("-10")}`,
-    `• استقامتِ هر دو: ${chip(SOUL.DUEL_COST)}−`,
+    `▪ ${w.classEmoji} <b>${esc(w.femboyName)}</b> · سطح ${chip(w.level)}: جایزه ${chip(r.prize)} سکه · روحیه ${chip("+6")}`,
+    `▪ ${l.classEmoji} <b>${esc(l.femboyName)}</b> · سطح ${chip(l.level)}: روحیه ${chip("-10")}`,
+    `▪ استقامتِ هر دو: ${chip(SOUL.DUEL_COST)}−`,
     "",
     r.log.length > 0 ? expand(r.log.map((line) => esc(line)).join("\n")) : "",
     "",
@@ -189,31 +197,31 @@ export function challengeResultCardText(
   return lines.join("\n")
 }
 
-/** کارتِ راهنمای کوتاهِ دوئل بدونِ هدف */
+/** کارتِ راهنمای کوتاهِ دوئل بدونِ هدف — V24: نشانِ ⚔️ + قانونِ رضایت زیرِ quote */
 export function duelUsageCardText(): string {
   return [
     "⚔️ <b>دوئل</b>",
-    SEP,
+    emblem("⚔️"),
     "",
     `روی پیامِ رقیب reply بزن و ${chip("جنگ فمبوی")} بگو — یا از کارتِ عمومیِ فمبوی‌اش دکمه‌ی دوئل را بزن.`,
     `هزینه: ${chip(SOUL.DUEL_COST)} استقامت از هر دو فمبوی · مهلتِ جواب ${chip(EXPIRY_MIN)} دقیقه · هر دو باید فمبوی داشته باشند.`,
     `امضای کلاسِ هر دو فمبوی در میدان زنده است — نشانِ سایه، سپرِ عهد، کارتِ سلطنتی، گرگِ روح و…`,
     "",
-    "<i>بدونِ رضایتِ هدف، دوئلی در کار نیست — شهر دعوت‌نامه‌های بی‌جواب را دفن می‌کند.</i>",
+    quote("بدونِ رضایتِ هدف، دوئلی در کار نیست — شهر دعوت‌نامه‌های بی‌جواب را دفن می‌کند."),
   ].join("\n")
 }
 
-/** کارتِ ack برای فرستنده‌ی دعوت */
+/** کارتِ ack برای فرستنده‌ی دعوت — V24: نشانِ ⚔️ + سرنوشتِ دعوت زیرِ quote */
 export function challengeSentCardText(b: DuelSideInfo, minutes: number): string {
   const mm = String(minutes).padStart(2, "0")
   return [
     "⚔️ <b>دعوت‌نامه فرستاده شد</b>",
-    SEP,
+    emblem("⚔️"),
     "",
     `فمبویِ تو در برابرِ ${b.classEmoji} <b>${esc(b.femboyName)}</b> ایستاده است.`,
     `جواب روی کارتِ دعوت‌نامه می‌آید — مهلت ${chip(`${mm}:00`)}.`,
     "",
-    "<i>اگر جواب نیامد، شهر خودش دعوت را دفن می‌کند.</i>",
+    quote("اگر جواب نیامد، شهر خودش دعوت را دفن می‌کند."),
   ].join("\n")
 }
 
@@ -262,10 +270,11 @@ export async function createChallenge(ctx: GroupCallCtx, targetTelegramId: strin
   const challengerSide = await sideInfo(player.id)
   if (!challengerSide) {
     // کارتِ onboarding-گونه با دکمه‌ی url پی‌وی — گروه فقط راهنمای درست را نشان می‌دهد
+    // V24: نشانِ 🎀 در مرکزِ جداکننده
     return {
       text: [
         "🎀 <b>فمبوی نداری</b>",
-        SEP,
+        emblem("🎀"),
         "",
         "دوئلِ شهر بینِ فمبوی‌هاست. بدونِ فمبوی فقط تماشاگری — و تماشاچی‌ها شانسِ قهرمانی ندارند.",
         "ساختنِ فمبوی در پی‌ویِ ربات است؛ گروه فقط صدایش را می‌شنود.",

@@ -23,7 +23,7 @@ import type { Tx } from "./domain"
 import { esc, pushOutbox, pushOutboxTx, addHistoryTx, activeMembers, bumpCulture, checkAchievementsTx } from "./domain"
 import { adjustMemberRep } from "./social"
 import { awardPlayerStat, awardSoulProgress } from "./awards"
-import { SEP, SUB, chip, spoiler, faNum } from "./text"
+import { SUB, chip, spoiler, faNum, emblem, quote } from "./text"
 
 /** templateId رویدادِ ذخیره‌شده — رشته‌ی قراردادی بین spawn/resolve */
 export const STYLE_SHOW_ID: string = STYLE_SHOW.id
@@ -97,11 +97,12 @@ export function styleShowScore(entry: StyleShowEntry, rng: () => number): StyleS
 
 // ─── سازنده‌های خالصِ کارت (تست‌پذیر؛ V11) ────────────────────────────────────
 
-/** کارتِ اعلام — صحنه روشن می‌شود؛ معیارها زیرِ اسپویلر، خطِ تماشاچی آخری */
+/** کارتِ اعلام — صحنه روشن می‌شود؛ معیارها زیرِ اسپویلر، خطِ تماشاچی آخری.
+ *  V24 «ظاهرِ شهر»: نشانِ 💅 در مرکزِ جداکننده + خطِ مهلتِ قضاوت زیرِ بلوکِ نقل‌قولی. */
 export function styleShowOpenCardText(groupTitle: string, windowMinutes: number = STYLE_SHOW.windowMinutes): string {
   return [
     `${STYLE_SHOW.emoji} <b>نمایشِ استایلِ ${esc(groupTitle)}</b>`,
-    SEP,
+    emblem(STYLE_SHOW.emoji),
     "",
     STYLE_SHOW.openBody,
     "",
@@ -109,7 +110,7 @@ export function styleShowOpenCardText(groupTitle: string, windowMinutes: number 
     "",
     SUB,
     "",
-    `⏳ قضاوت تا ${chip(windowMinutes)} دقیقه‌ی دیگر.`,
+    quote(`⏳ قضاوت تا ${chip(windowMinutes)} دقیقه‌ی دیگر.`),
     spoiler(STYLE_SHOW.criteriaSpoiler),
     "",
     `<i>${STYLE_SHOW.spectatorTease}</i>`,
@@ -128,7 +129,7 @@ export function styleShowBreakdownLine(e: StyleShowScored): string {
     // دلتای تاس — قاعده‌ی «عدد+» / «عدد−»
     `تاسِ شهر ${chip(`${Math.abs(e.dice)}${e.dice >= 0 ? "+" : "−"}`)}`,
   ]
-  return `• ${e.classEmoji} <b>${esc(e.playerName)}</b> «<i>${esc(e.femboyName)}</i>» — ${chip(e.score)} · ${parts.join(" · ")}`
+  return `▪ ${e.classEmoji} <b>${esc(e.playerName)}</b> «<i>${esc(e.femboyName)}</i>» — ${chip(e.score)} · ${parts.join(" · ")}`
 }
 
 /** یک جایگاهِ سکو */
@@ -151,12 +152,13 @@ export interface StyleShowResultInput {
   spectators: number // شهروندهای بی‌فمبوی
 }
 
-/** کارتِ نتیجه — سکو بولد با تراش، ریزسنجش زیرِ اسپویلر، جوایز با SUB */
+/** کارتِ نتیجه — سکو بولد با تراش، ریزسنجش زیرِ اسپویلر، جوایز با SUB.
+ *  V24: نشانِ 💅 + بدرقه‌ی پایانی زیرِ نقل‌قول. */
 export function styleShowResultCardText(input: StyleShowResultInput): string {
   const medals = ["🥇", "🥈", "🥉"]
   const lines: string[] = [
     `${STYLE_SHOW.emoji} <b>نتیجه‌ی نمایشِ استایلِ ${esc(input.groupTitle)}</b>`,
-    SEP,
+    emblem(STYLE_SHOW.emoji),
     "",
     "🏆 <b>سکوی برتر:</b>",
     "",
@@ -185,17 +187,18 @@ export function styleShowResultCardText(input: StyleShowResultInput): string {
     lines.push("", `🏺 ${chip(input.spectators)} شهروندِ دیگر تماشا کردند — فمبوی ندارند. هنوز.`)
   }
 
-  lines.push("", `<i>صحنه جمع شد. ${chip(STYLE_SHOW.everyDays)} روزِ دیگر، داورها برمی‌گردند.</i>`)
+  lines.push("", quote(`صحنه جمع شد. ${chip(STYLE_SHOW.everyDays)} روزِ دیگر، داورها برمی‌گردند.`))
   return lines.join("\n")
 }
 
-/** کارتِ نمایشِ بی‌شرکت‌کننده — کلِ شهر تماشاچی بود */
+/** کارتِ نمایشِ بی‌شرکت‌کننده — کلِ شهر تماشاچی بود.
+ *  V24: نشانِ 💅 + روایتِ صحنه‌ی خالی زیرِ نقل‌قول. */
 export function styleShowEmptyCardText(groupTitle: string): string {
   return [
     `${STYLE_SHOW.emoji} <b>نتیجه‌ی نمایشِ استایلِ ${esc(groupTitle)}</b>`,
-    SEP,
+    emblem(STYLE_SHOW.emoji),
     "",
-    "هیچ‌کس روی صحنه نرفت. کلِ شهر تماشاچی بود — و گربه‌ی شهردار، خمیازه.",
+    quote("هیچ‌کس روی صحنه نرفت. کلِ شهر تماشاچی بود — و گربه‌ی شهردار، خمیازه."),
     "",
     `<i>${STYLE_SHOW.spectatorTease}</i>`,
   ].join("\n")

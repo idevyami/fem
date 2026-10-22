@@ -15,7 +15,7 @@ import { esc, parseJson, pushOutbox, pushOutboxTx, addHistoryTx, activeMembers, 
 import { adjustRelationship, adjustMemberRep } from "./social"
 import { applyPlayerStat } from "./events"
 import { awardSoulProgress } from "./awards"
-import { SEP, DOTS, faNum, chip, spoiler } from "./text"
+import { DOTS, faNum, chip, spoiler, quote, emblem } from "./text"
 
 export type Tx = import("@prisma/client").Prisma.TransactionClient
 
@@ -139,16 +139,18 @@ function lobbyCard(session: GameSession, def: GameDef): string {
   return lobbyCardText(def, parts, state.subject ?? "")
 }
 
-/** کارتِ لابیِ بازی — سازنده‌ی خالص (تست‌پذیر؛ V11)؛ رسترِ هم‌ردیف با DOTS */
+/** کارتِ لابیِ بازی — سازنده‌ی خالص (تست‌پذیر؛ V11)؛ رسترِ هم‌ردیف با DOTS.
+ *  V24 «ظاهرِ شهر»: نشانِ خودِ بازی در مرکزِ جداکننده + ردیف‌های ▪. */
 export function lobbyCardText(def: GameDef, parts: { name: string }[], subject: string): string {
-  const names = parts.map((p) => `• ${esc(p.name)}`).join("\n")
+  const names = parts.map((p) => `▪ ${esc(p.name)}`).join("\n")
   const roster = names ? `\n\n${DOTS}\n\n👥 (${chip(parts.length)})\n${names}` : "\n\n👥 هنوز کسی نیست. اولین باش."
-  return `<b>${def.emoji} ${def.name}</b>\n${SEP}\n\n${renderGame(def.introText, { game: def.name, n: parts.length, group: "", subject })}${roster}`
+  return `<b>${def.emoji} ${def.name}</b>\n${emblem(def.emoji)}\n\n${renderGame(def.introText, { game: def.name, n: parts.length, group: "", subject })}${roster}`
 }
 
-/** کارتِ اعلامِ بازی — سازنده‌ی خالص (تست‌پذیر؛ V11)؛ مهلتِ ثبت‌نام تراش می‌خورد */
+/** کارتِ اعلامِ بازی — سازنده‌ی خالص (تست‌پذیر؛ V11)؛ مهلتِ ثبت‌نام تراش می‌خورد.
+ *  V24: نشانِ خودِ بازی + مهلتِ ثبت‌نام زیرِ بلوکِ نقل‌قولی. */
 export function gameLobbyText(def: GameDef, n: number, groupTitle: string, subject: string, joinWindowMinutes: number): string {
-  return `<b>${def.emoji} ${def.name}</b>\n<i>${def.tagline}</i>\n${SEP}\n\n${renderGame(def.introText, { game: def.name, n, group: groupTitle, subject })}\n\n⏳ ${chip(joinWindowMinutes)} دقیقه مهلتِ ثبت‌نام.`
+  return `<b>${def.emoji} ${def.name}</b>\n<i>${def.tagline}</i>\n${emblem(def.emoji)}\n\n${renderGame(def.introText, { game: def.name, n, group: groupTitle, subject })}\n\n${quote(`⏳ ${chip(joinWindowMinutes)} دقیقه مهلتِ ثبت‌نام.`)}`
 }
 
 function lobbyButtons(session: GameSession): OutboxButton[] {
@@ -166,7 +168,9 @@ export async function beginGame(group: GroupWorld, sessionId: string, forcedBy?:
   const def = GAME_MAP[session.gameKey]!
   const parts = parseJson<Participant[]>(session.participantsJson, [])
   if (forcedBy && !parts.some((p) => p.playerId === forcedBy.id) && parts.length > 0) {
-    return { ok: false, message: "فقط بازیکنانِ ثبت‌نام‌شده می‌تونند شروع کنند." }
+    // V20 (ممیتیز V20-۷): دکمه‌ی «شروع» برای همه دیده می‌شود ولی فقط پیوسته‌ها
+    // می‌توانند — پیامِ رد حالا خودش راه‌حل را می‌آموزد، نه فقط قانون را.
+    return { ok: false, message: "فقط بازیکنانِ پیوسته می‌توانند شروع کنند — اول دکمه‌ی «🤝 پیوستن» همین کارت را بزن." }
   }
   if (parts.length < def.minPlayers) {
     return { ok: false, message: `هنوز کم‌تر از حدِ لازم است (${def.minPlayers}).` }
@@ -263,19 +267,19 @@ export async function beginGame(group: GroupWorld, sessionId: string, forcedBy?:
 
 // ─── سازنده‌های خالصِ کارت (تست‌پذیر؛ V11) ─────────────────────────────────────
 
-/** پی‌ویِ نقش — سازنده‌ی خالص؛ بریفِ نقش زیرِ اسپویلر */
+/** پی‌ویِ نقش — سازنده‌ی خالص؛ بریفِ نقش زیرِ اسپویلر (V24: نشانِ 🎭) */
 export function roleDmText(gameName: string, roleLabel: string, roleBrief: string): string {
-  return `🎭 <b>نقشِ تو در «${esc(gameName)}»</b>\n${SEP}\n\n<b>${roleLabel}</b>\n${spoiler(roleBrief)}\n\n<i>به هیچ‌کس نگفته باش. مخصوصاً به کسی که می‌شناسی.</i>`
+  return `🎭 <b>نقشِ تو در «${esc(gameName)}»</b>\n${emblem("🎭")}\n\n<b>${roleLabel}</b>\n${spoiler(roleBrief)}\n\n<i>به هیچ‌کس نگفته باش. مخصوصاً به کسی که می‌شناسی.</i>`
 }
 
-/** کارتِ مزایده — سازنده‌ی خالص */
+/** کارتِ مزایده — سازنده‌ی خالص (V24: نشانِ 🔨 + مهلتِ پیشنهاد زیرِ quote) */
 export function auctionOpenCardText(itemLabel: string, base: number, actionWindowMinutes: number): string {
-  return `🔨 <b>مزایده شروع شد</b>\n${SEP}\n\nجنس: <b>${esc(itemLabel)}</b>\nپایه: ${chip(base)} سکه — پول به صندوقِ شهر می‌رود.\n\n<i>بالاترین پیشنهاد تا ${chip(actionWindowMinutes)} دقیقه‌ی دیگه برنده‌ست.</i>`
+  return `🔨 <b>مزایده شروع شد</b>\n${emblem("🔨")}\n\nجنس: <b>${esc(itemLabel)}</b>\nپایه: ${chip(base)} سکه — پول به صندوقِ شهر می‌رود.\n\n${quote(`بالاترین پیشنهاد تا ${chip(actionWindowMinutes)} دقیقه‌ی دیگه برنده‌ست.`)}`
 }
 
-/** کارتِ رأیِ بازی — سازنده‌ی خالص */
+/** کارتِ رأیِ بازی — سازنده‌ی خالص (V24: نشانِ خودِ بازی) */
 export function gameVoteCardText(def: GameDef, n: number, groupTitle: string, subject: string): string {
-  return `<b>${def.emoji} ${def.name}</b>\n${SEP}\n\n${renderGame(def.introText, { game: def.name, n, group: groupTitle, subject })}\n\n🗳 رأی می‌دهید — هر کس یک بار.`
+  return `<b>${def.emoji} ${def.name}</b>\n${emblem(def.emoji)}\n\n${renderGame(def.introText, { game: def.name, n, group: groupTitle, subject })}\n\n🗳 رأی می‌دهید — هر کس یک بار.`
 }
 
 function bidButtons(sessionId: string, current: number): OutboxButton[] {
@@ -309,9 +313,10 @@ async function askQuestion(group: GroupWorld, sessionId: string): Promise<void> 
   })
 }
 
-/** کارتِ سؤالِ کوییز — سازنده‌ی خالص؛ شمارشِ «n از m» تراشِ یک‌تکه */
+/** کارتِ سؤالِ کوییز — سازنده‌ی خالص؛ شمارشِ «n از m» تراشِ یک‌تکه.
+ *  V24: نشانِ ❓ + خودِ سؤال زیرِ نقل‌قول — سؤال، صدا‌ی معلمِ شهر است. */
 export function quizCardText(qNumber: number, total: number, question: string): string {
-  return `❓ <b>سؤال ${chip(`${faNum(qNumber)}/${faNum(total)}`)}</b>\n${SEP}\n\n${question}`
+  return `❓ <b>سؤال ${chip(`${faNum(qNumber)}/${faNum(total)}`)}</b>\n${emblem("❓")}\n\n${quote(question)}`
 }
 
 // ─── کنش‌های بازیکن ────────────────────────────────────────────────────────────
@@ -443,7 +448,7 @@ export async function tickGames(group: GroupWorld, now = new Date(), opts: { for
         await db.gameSession.update({ where: { id: session.id }, data: { status: "aborted", resolvedAt: now } })
         await pushOutbox(group, {
           kind: "game",
-          text: `😴 بازیِ «${esc(GAME_MAP[session.gameKey]!.name)}» لغو شد — شرکت‌کننده کافی نشد.\n<i>شهر صبر می‌کند. بی‌صدا.</i>`,
+          text: `😴 بازیِ «${esc(GAME_MAP[session.gameKey]!.name)}» لغو شد — شرکت‌کننده کافی نشد.\n${quote("شهر صبر می‌کند. بی‌صدا.")}`,
           priority: 4,
         })
       }
@@ -606,7 +611,7 @@ async function resolveGame(session: GameSession, now = new Date()): Promise<void
         }
       }
 
-      // متنِ نتیجه — V11: هدرِ رندرشده + SEP + بدنه؛ {outcome} خودش HTML-safe ساخته می‌شود
+      // متنِ نتیجه — V24: هدرِ رندرشده + نشانِ خودِ بازی + بدنه؛ {outcome} خودش HTML-safe ساخته می‌شود
       const rendered = renderGame(def.resultText, {
         game: def.name,
         n: Object.values(state.votes ?? {}).length || parts.length,
@@ -650,11 +655,15 @@ function optionLabel(def: GameDef, key: string, parts: Participant[]): string {
 
 // ─── رندر ──────────────────────────────────────────────────────────────────────
 
-/** کارتِ نتیجه‌ی بازی — سازنده‌ی خالص (تست‌پذیر؛ V11): SEP زیرِ سطرِ اولِ قالب
- *  V14: soulLine — خطِ فشردنیِ رشدِ فمبوی از زندگیِ گروه (اختیاری، بدونِ شکستنِ شکل) */
+/** کارتِ نتیجه‌ی بازی — سازنده‌ی خالص (تست‌پذیر؛ V11): نشانِ خودِ بازی زیرِ سطرِ اولِ قالب
+ *  V14: soulLine — خطِ فشردنیِ رشدِ فمبوی از زندگیِ گروه (اختیاری، بدونِ شکستنِ شکل).
+ *  V24: نشانِ مرکز‌دار به‌جای SEPِ خالی — ایموجی از سرِ سطرِ اولِ قالب برداشته می‌شود. */
 export function gameResultCardText(renderedResult: string, outcomeText: string, soulLine = ""): string {
   const [firstLine, ...restLines] = renderedResult.split("\n")
-  const sepBody = restLines.length ? `\n${SEP}\n\n${restLines.join("\n")}` : `\n${SEP}`
+  // ایموجیِ سرِ سطرِ اول → نشانِ همان بازی در مرکزِ جداکننده (fallback: 🎲)
+  const lead = firstLine.trim().split(" ")[0] ?? ""
+  const leadEmoji = /\p{Extended_Pictographic}/u.test(lead) ? lead : "🎲"
+  const sepBody = restLines.length ? `\n${emblem(leadEmoji)}\n\n${restLines.join("\n")}` : `\n${emblem(leadEmoji)}`
   return `${firstLine}${sepBody}${outcomeText ? `\n\n<i>${outcomeText}</i>` : ""}${soulLine ? `\n\n${soulLine}` : ""}`
 }
 

@@ -25,7 +25,7 @@ export function PersonaSection({ card }: { card: SoulCardDTO }) {
 
   return (
     <div className="flex flex-col gap-3">
-      {/* کارتِ طبع */}
+      {/* کارتِ شخصیت */}
       <GlassCard>
         <div className="flex items-center gap-3">
           <div
@@ -38,7 +38,7 @@ export function PersonaSection({ card }: { card: SoulCardDTO }) {
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <h2 className="truncate text-lg font-extrabold">{persona.name}</h2>
-              <Chip tone="violet" className="shrink-0">🎭 طبع</Chip>
+              <Chip tone="violet" className="shrink-0">🎭 شخصیت</Chip>
             </div>
             <p className="mt-0.5 text-[13px] leading-5 text-foreground/80">{persona.tagline}</p>
           </div>
@@ -53,7 +53,7 @@ export function PersonaSection({ card }: { card: SoulCardDTO }) {
         </div>
       </GlassCard>
 
-      {/* صدای طبع — نمونه‌ی واقعی از خودِ موتور */}
+      {/* صدای شخصیت — نمونه‌ی واقعی از خودِ موتور */}
       {persona.voiceSample ? (
         <GlassCard>
           <SectionTitle icon="🗣️" title="این‌جوری حرف می‌زنه" />
@@ -61,7 +61,7 @@ export function PersonaSection({ card }: { card: SoulCardDTO }) {
             {persona.voiceSample}
           </blockquote>
           <p className="mt-2 px-1 text-[11px] leading-4 text-muted-foreground">
-            هر تعامل با همین لهجه جواب می‌گیرد — صدای طبع، خطِ پایه‌ی هر واکنش است.
+            هر تعامل با همین لهجه جواب می‌گیرد — صدای شخصیت، خطِ پایه‌ی هر واکنش است.
           </p>
         </GlassCard>
       ) : null}
@@ -124,7 +124,7 @@ export function PersonaSection({ card }: { card: SoulCardDTO }) {
       </GlassCard>
 
       <p className="px-2 pb-1 text-center text-[11px] leading-4 text-muted-foreground">
-        🎭 طبع از روزِ پیمان ثابت است — شخصیتش عوض نمی‌شود؛ فقط شناخته‌تر می‌شود.
+        🎭 شخصیت از روزِ پیمان ثابت است — عوض نمی‌شود؛ فقط شناخته‌تر می‌شود.
       </p>
     </div>
   )

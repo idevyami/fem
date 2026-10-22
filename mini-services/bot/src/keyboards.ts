@@ -67,6 +67,8 @@ export const CB = {
   market: "m:market",
   notify: "m:notify",
   bingo: "m:bingo",
+  // V20 — مقصدهای اولیه‌ی ناوبری (مأموریت §3.2: بازی/فمبوی/فعالیت/وسایل/شهر/راهنما)
+  acts: "m:acts",
   // V15-2 — خانه‌ی راهنما (کدکسِ تعاملیِ خصوصی) · حساب و تنظیمات · شهرِ گروهی
   help: "m:help",
   settings: "m:settings",
@@ -123,6 +125,7 @@ export type Callback =
   | { kind: "city" }
   | { kind: "items" }
   | { kind: "history" }
+  | { kind: "acts" }
   | { kind: "work" }
   | { kind: "rest" }
   | { kind: "guide" }
@@ -189,6 +192,8 @@ export function parseCallback(data: string | undefined): Callback | null {
       return { kind: "items" }
     case CB.history:
       return { kind: "history" }
+    case CB.acts:
+      return { kind: "acts" }
     case CB.work:
       return { kind: "work" }
     case CB.rest:
@@ -345,47 +350,58 @@ export function withMiniApp(kb: InlineKeyboard): InlineKeyboard {
 
 // ─── کیبورد ثابتِ خصوصی (Reply) ─────────────────────────────────────────────
 
-/** کیبورد ریسپانسیِ همیشه‌حاضرِ چتِ خصوصی — V16-3 (مأموریت §4): همان مقصدهای
- *  اولیه‌ی منویِ خانه، نه فهرستِ کامل. حداکثر ۳ دکمه در هر ردیف + placeholder.
- *  متنِ دکمه‌ها بعد از نرمال‌سازی باید نیتِ واقعی باشد (V13: مسیریابِ نیت می‌گیردشان) —
- *  «🎯 قدمِ بعدی» عبارتِ قاعده‌مندِ راهنماست (واژه‌نامه: nextStep). */
+/** کیبورد ریسپانسیِ همیشه‌حاضرِ چتِ خصوصی — V20 (مأموریت §3.3: ناوبریِ قابل‌پیش‌بینی):
+ *  همان مقصدهای اصلیِ منویِ خانه + میان‌برهای روزانه — هر برچسب پس از نرمال‌سازی
+ *  نیتِ زنده است (مسیریابِ intent.ts می‌گیردشان؛ تضمینِ ایستا در verify:bot).
+ *  «⚙ منو» حذف شد — آیکنِ ⚙ مالِ تنظیمات است؛ «منو» همچنان عبارتِ زنده است. */
 export function replyKeyboard(): Keyboard {
   const kb = new Keyboard()
   kb.text("🎀 فمبوی", "primary")
   kb.text("🎲 اتفاق", "primary")
   kb.text("🎯 قدمِ بعدی", "primary").row()
-  kb.text("🎒 کیف", "primary")
-  kb.text("💼 کار", "success").row()
+  kb.text("👤 من", "primary")
+  kb.text("⚡ فعالیت‌ها", "primary")
+  kb.text("🎒 کیف", "primary").row()
+  kb.text("🌍 شهر", "primary")
+  kb.text("💼 کار", "success")
   kb.text("📖 راهنما", "primary")
-  kb.text("⚙ منو", "primary")
   return kb.persistent().resized().placeholder("برای شهر چیزی بنویس…")
 }
 
 // ─── کیبوردهای Inline (نماهای پویا) ─────────────────────────────────────────
 
-/** خانه — هابِ گروه‌بندی‌شده (V16-3، مأموریت §4: «فقط مقصدهایِ واقعاً اولیه»).
- *  «👑 فمبوی من» با کال‌بکِ fw:hub می‌رود (لایه‌ی سول‌باند؛ مسیرِ مستقیمِ هاب).
- *  ۱۱ دکمه در ۴ ردیفِ معنادار: هویت/اقدام ← زندگی ← اقتصاد ← پشتیبانی/سطحِ دیگر.
- *  اهداف/فرصت‌ها/آرزوها/استراحت دیگر دکمه‌ی سطحِ خانه نیستند — فرصت‌ها و آرزوها
- *  بخش/دکمه‌ی کارتِ «قدمِ بعدی»‌اند، استراحت دکمه‌ی کارتِ «من» است؛ عبارت‌هایشان
- *  همیشه زنده‌اند (intent.ts). برچسب‌ها = واژه‌نامه‌ی قاعده‌مند (TERM):
- *  «قدمِ بعدی» (nextStep) · «شهرِ گروه» (groupWorld) — ۵ رشته‌ی قاعده‌مندِ
- *  bot-side عیناً از src/lib/game/terminology.ts تکرار می‌شوند (پکیجِ جدا،
- *  بدون import — مستند در worklogِ V16-3). */
+/** خانه — هابِ مرکزیِ V20 (مأموریت §3.1: چهار پرسش — کجایم/چه می‌گذرد/الان چه کنم/
+ *  کجا بروم). متنِ کارت وضعیت + «الان» را می‌سازد (format.ts homeText)؛ کیبورد
+ *  فقط دو ردیفِ زمینه‌ای (قدمِ بعدی + اتفاق) + شش مقصدِ اصلی + مینی‌اپ — ۸ دکمه
+ *  (دیروز ۱۲). بازار پایشِ کیف است؛ کار پایشِ فعالیت‌ها؛ شهرِ گروه و تنظیمات
+ *  از شهر/پروفایل باز می‌شوند — دیگر دکمه‌ی سطحِ خانه نیستند.
+ *  V24 — سلسله‌مراتبِ رنگ: فقط فعل‌های اصلی رنگ‌اند (آبی=قدم، سبز=اتفاقِ امروز،
+ *  فمبوی=آبی)؛ مقاصدِ ثانویه خاکستری‌اند — چشمِ کاربر اول به فعل می‌افتد. */
 export function homeKeyboard(): InlineKeyboard {
   const kb = new InlineKeyboard()
-  kb.text("👑 فمبوی من", "fw:hub").primary()
-  kb.text("🎲 اتفاق امروز", CB.event).primary().row()
   kb.text("🎯 قدمِ بعدی", CB.guide).primary()
-  kb.text("👤 من", CB.me).primary()
-  kb.text("🏙 شهر", CB.city).primary().row()
-  kb.text("🎒 کیف", CB.items).primary()
-  kb.text("🏪 بازار", CB.market).primary()
-  kb.text("💼 کار", CB.work).success().row()
-  kb.text("📖 راهنما", CB.help).primary()
-  kb.text("👥 شهرِ گروه", CB.groupCity).primary()
-  kb.text("⚙ حساب", CB.settings).primary()
+  kb.text("🎲 اتفاقِ امروز", CB.event).success().row()
+  kb.text("🎀 فمبویِ من", "fw:hub").primary()
+  kb.text("👤 من", CB.me).row()
+  kb.text("⚡ فعالیت‌ها", CB.acts)
+  kb.text("🎒 کیف و بازار", CB.items).row()
+  kb.text("🌍 شهر", CB.city)
+  kb.text("📖 راهنما", CB.help)
   return withMiniApp(kb)
+}
+
+/** ⚡ فعالیت‌ها — V20 (مأموریت §3.2: یک مقصدِ «انجامِ کارِ مفید»): کار/استراحت/
+ *  سفر/شغل در یک کارت با هزینه‌های روشن (متن از format.ts activitiesText).
+ *  دکمه‌ی کار سبز است — کنشِ مطمئنِ روزمره؛ سفر آبی — ناوبری. */
+export function activitiesKeyboard(player: PlayerDTO): InlineKeyboard {
+  const kb = new InlineKeyboard()
+  void player // شغل/انرژی در متنِ کارت است (format.ts) — دکمه‌ها ثابت‌اند
+  kb.text("💼 شیفتِ کار", CB.work).success()
+  kb.text("😴 استراحت", CB.rest).success().row()
+  kb.text("🗺 سفرِ بین محله‌ها", CB.city).primary()
+  kb.text("💼 شغل‌ها", CB.jobs).primary().row()
+  kb.text("↩ خانه", CB.menu)
+  return kb
 }
 
 /** قدمِ بعدی — انتخاب تصادفی + ناوبریِ اهداف/فرصت/آرزو (فرصت‌ها و آرزوها
@@ -393,26 +409,26 @@ export function homeKeyboard(): InlineKeyboard {
 export function guideKeyboard(): InlineKeyboard {
   const kb = new InlineKeyboard()
   kb.text("🎲 انتخاب تصادفی", CB.rand).primary().row()
-  kb.text("🎯 اهداف", CB.goals).primary()
-  kb.text("⚡ فرصت‌ها", CB.ops).primary().row()
-  kb.text("✨ آرزوها", CB.dreams).primary()
-  kb.text("↩ خانه", CB.menu).primary()
+  kb.text("🎯 اهداف", CB.goals)
+  kb.text("⚡ فرصت‌ها", CB.ops).row()
+  kb.text("✨ آرزوها", CB.dreams)
+  kb.text("↩ خانه", CB.menu)
   return withMiniApp(kb)
 }
 
 export function goalsKeyboard(): InlineKeyboard {
   const kb = new InlineKeyboard()
   kb.text("🎯 قدمِ بعدی", CB.guide).primary()
-  kb.text("⚡ فرصت‌ها", CB.ops).primary().row()
-  kb.text("↩ خانه", CB.menu).primary()
+  kb.text("⚡ فرصت‌ها", CB.ops).row()
+  kb.text("↩ خانه", CB.menu)
   return kb
 }
 
 export function dreamsKeyboard(): InlineKeyboard {
   const kb = new InlineKeyboard()
   kb.text("🎯 قدمِ بعدی", CB.guide).primary()
-  kb.text("🎯 اهداف", CB.goals).primary().row()
-  kb.text("↩ خانه", CB.menu).primary()
+  kb.text("🎯 اهداف", CB.goals).row()
+  kb.text("↩ خانه", CB.menu)
   return kb
 }
 
@@ -429,7 +445,9 @@ export function opsKeyboard(g: GuideResponse): InlineKeyboard {
   return kb
 }
 
-/** دکمه‌های یک اتفاق — هر گزینه یک ردیف؛ قفل‌ها 🔒 بی‌رنگ، ریسک از hint */
+/** دکمه‌های یک اتفاق — هر گزینه یک ردیف؛ قفل‌ها 🔒 بی‌رنگ، ریسک از hint.
+ *  V20 (مأموریت §4.3 — حذفِ بن‌بست): ردیفِ «↩ خانه» همیشه پایینِ گزینه‌هاست —
+ *  اتفاق دیگر گیرکرد‌کننده نیست؛ انتخاب یا بازگشت، هر دو مسیرِ زنده‌اند. */
 export function eventKeyboard(e: ActiveEventDTO): InlineKeyboard {
   const kb = new InlineKeyboard()
   e.choices.forEach((c, i) => {
@@ -439,55 +457,55 @@ export function eventKeyboard(e: ActiveEventDTO): InlineKeyboard {
     if (st) btn.style(st)
     btn.row()
   })
+  kb.text("↩ خانه", CB.menu)
   return kb
 }
 
-/** «🧭 بعدی: …» — بعد از نتیجه‌ی انتخاب/کار/claim */
-export function nextKeyboard(label: string): InlineKeyboard {
-  const kb = new InlineKeyboard()
-  kb.text(`🧭 ${clampText(label, 30)}`, CB.nextGo).primary().row()
-  kb.text("↩ خانه", CB.menu).primary()
-  return kb
-}
-
+/** بازگشتِ یک‌دکمه‌ای به خانه — برای کارت‌های بدونِ ناوبریِ خاص */
 export function backKeyboard(): InlineKeyboard {
-  return new InlineKeyboard().text("↩ خانه", CB.menu).primary()
+  return new InlineKeyboard().text("↩ خانه", CB.menu)
 }
 
 /** کارتِ بومیِ باز کردنِ مینی‌اپ — لینکِ عمیقِ /start app از کارت‌های گروه این‌جا فرود می‌آید */
 export function miniAppCardKeyboard(): InlineKeyboard {
   const kb = new InlineKeyboard()
   if (MINIAPP_URL) kb.webApp("📱 Femboy War", MINIAPP_URL).primary().row()
-  kb.text("↩ خانه", CB.menu).primary()
+  kb.text("↩ خانه", CB.menu)
   return kb
 }
 
-/** پروفایل — با ردیفِ قرمزِ بدهی (وقتی بدهی دارد) · V16-3: «😴 استراحت» این‌جاست
- *  (انرژی همین کارت دیده می‌شود — کنشِ بافتاری، مأموریت §4) · V16-4: «🏆 دستاوردها»
- *  همین‌جاست (کارتِ عمیق؛ ممیزی ⑪) · V17-3: «🏠 خانه و وسیله» همین‌جاست —
- *  کارتِ «من» همان‌جایی است که خانه/وسیله‌ات را نشان می‌دهد؛ خریدش هم از همان‌جا
- *  باز می‌شود (ممیزی ⑨). «✨ آرزوها» به کارتِ «قدمِ بعدی» تمرکز کرد (دکمه +
- *  عبارتِ «آرزوها» همچنان زنده‌اند) تا بودجه‌ی دکمه ≤ ۸ بماند. */
+/** پروفایل — V20: مقصدِ «من و پیشرفت» (مأموریت §6.2: هویت/وضعیت/پیشرفت یک‌جا).
+ *  استراحت به «فعالیت‌ها» رفت (کنش است، نه مقصد)؛ «🔔 خبرها» آمد — پیش از این
+ *  هیچ دکمه‌ای به کارتِ خبرها نمی‌رسید (ممیزی V20-گ: مسیرِ یتیم). بدهی فقط
+ *  وقتی هست دکمه می‌گیرد. */
 export function profileKeyboard(player: PlayerDTO): InlineKeyboard {
   const kb = new InlineKeyboard()
   if (player.debt > 0) {
     kb.text(`💳 پرداختِ بدهی (${faNum(player.debt)})`, CB.debt).danger().row()
   }
-  kb.text("📜 تاریخچه", CB.history).primary()
-  kb.text("🏆 دستاوردها", CB.ach).primary().row()
-  kb.text("🏷 عنوان‌ها", CB.titles).primary()
-  kb.text("🏠 خانه و وسیله", CB.livingHome).primary().row()
-  kb.text("⚙ حساب", CB.settings).primary()
-  kb.text("😴 استراحت", CB.rest).success().row()
-  kb.text("↩ خانه", CB.menu).primary()
+  kb.text("📜 تاریخچه", CB.history)
+  kb.text("🏆 دستاوردها", CB.ach).row()
+  kb.text("🏷 عنوان‌ها", CB.titles)
+  kb.text("🏠 خانه و وسیله", CB.livingHome).row()
+  kb.text("🔔 خبرها", CB.notify)
+  kb.text("⚙ حساب", CB.settings).row()
+  kb.text("↩ خانه", CB.menu)
   return kb
 }
 
 /** 🏆 دستاوردها — کارتِ عمیقِ پروفایل (V16-4)؛ بازگشت به «من» و خانه */
 export function achievementsKeyboard(): InlineKeyboard {
   const kb = new InlineKeyboard()
-  kb.text("👤 من", CB.me).primary()
-  kb.text("↩ خانه", CB.menu).primary()
+  kb.text("👤 من", CB.me)
+  kb.text("↩ خانه", CB.menu)
+  return kb
+}
+
+/** 📜 تاریخچه‌ی شخصی — V20 (مأموریت §4.3: حذفِ بن‌بست): «👤 من» صاحبِ بخش است */
+export function historyKeyboard(): InlineKeyboard {
+  const kb = new InlineKeyboard()
+  kb.text("👤 من", CB.me)
+  kb.text("↩ خانه", CB.menu)
   return kb
 }
 
@@ -517,11 +535,14 @@ export function cityKeyboard(currentDistrict: string): InlineKeyboard {
   if (forbidden) {
     kb.text(`${forbidden.emoji} ${forbidden.name}`, cbTravel(forbidden.key)).danger().row()
   }
-  kb.text("↩ خانه", CB.menu).primary()
+  // V20 — دو «شهر» یک مقصدند (ممیزی V20-ف): سفرِ محلی + شهرِ گروه از همین کارت
+  kb.text("👥 شهرِ گروه", CB.groupCity).primary()
+  kb.text("↩ خانه", CB.menu)
   return kb
 }
 
-/** 🎒 کیف (V6) — حیوان‌ها + عملیاتِ آیتم‌های صفحه‌ی فعلی؛ سقفِ کل ~۱۲ دکمه
+/** 🎒 کیف (V6) — V20: بازار پایشِ کیف است (مأموریت §3.2: «وسایل و بازار» یک
+ *  مقصد) — دکمه‌ی «🏪 بازار» همیشه تهِ کیف است؛ سقفِ کل ~۱۲ دکمه
  *  (V16-4، ممیزی ⑬: صفحه‌بندی — دکمه‌ی «آیتم‌های بیشتر» صفحه‌ی بعد را می‌آورد).
  *  هر حیوان: غذا/بازی (سبز) — برای همه‌ی حیوان‌ها تا سقفِ بودجه.
  *  هر آیتمِ همین صفحه: استفاده/پوشیدن (سبز) · ⭐ (خنثی) · فروش (آبی، با قیمت) — به‌ترتیبِ فهرست. */
@@ -570,10 +591,12 @@ export function bagKeyboard(p: {
     budget -= row.length
   }
 
-  // V17-W3 (W3-F9) — کیفِ خالی دیگر بن‌بست نیست: «🎲 اتفاق امروز» (همان CB.eventی
-  // که کارت‌های خانه/فرصت‌ها می‌دهند) + خانه — آینه‌ی CTAی حالتِ خالیِ مینی‌اپ
+  // V17-W3 (W3-F9) — کیفِ خالی دیگر بن‌بست نیست؛ V20: بازار هم کنارش است
   if (kb.inline_keyboard.length === 0 && pageCount <= 1) {
-    return new InlineKeyboard().text("🎲 اتفاق امروز", CB.event).primary().row().text("↩ خانه", CB.menu).primary()
+    return new InlineKeyboard()
+      .text("🎲 اتفاقِ امروز", CB.event).primary().row()
+      .text("🏪 بازار", CB.market).primary().row()
+      .text("↩ خانه", CB.menu).primary()
   }
   // V16-4 — ناوبریِ صفحه‌ها: جفتِ قبلی/بعدی + شمار‌صفحه (رقمِ انگلیسی)
   if (pageCount > 1) {
@@ -585,6 +608,8 @@ export function bagKeyboard(p: {
     }
     kb.row()
   }
+  // V20 — «وسایل و بازار» یک مقصد: بازار همیشه پایشِ کیف است
+  kb.text("🏪 بازار", CB.market).primary()
   kb.text("↩ خانه", CB.menu).primary()
   return kb
 }
@@ -626,8 +651,10 @@ export function jobsKeyboard(jobs: CatalogJobDTO[], player: PlayerDTO): InlineKe
   return kb
 }
 
-/** 🏪 بازار — خریدِ مغازه‌ی محله و آگهی‌های مردم (سبز) · فهرست‌کردن (V16-4) ·
- *  پس‌گرفتنِ آگهی‌های خودم (قرمز). سقفِ ~۱۲ دکمه (خرید+پس‌گرفتن) + دکمه‌ی فروش. */
+/** 🏪 بازار — خریدِ مغازه‌ی محله و آگهی‌های مردم (سبز) · فروشِ خودت (V16-4) ·
+ *  پس‌گرفتنِ آگهی‌های خودم (قرمز). V20 (مأموریت §5.4: برچسبِ صریح): «فهرست‌کردن»
+ *  → «به فروش بگذار» (فعلِ روشن) · «برداشتن» → «پس‌گرفتنِ» (بدونِ ابهام با ⭐) ·
+ *  «🎒 کیف» همیشه کنارِ خانه — بازار/کیف یک مقصدند (§3.2). سقفِ ~۱۲ دکمه. */
 export function marketKeyboard(m: MarketSnapshot): InlineKeyboard {
   const kb = new InlineKeyboard()
   let budget = 12
@@ -644,12 +671,13 @@ export function marketKeyboard(m: MarketSnapshot): InlineKeyboard {
   const mine = m.listings.filter((l) => l.mine && l.quantity > 0).slice(0, 3)
   for (const l of mine) {
     if (budget <= 0) break
-    kb.text(`✂️ برداشتن ${clampText(l.name, 12)} · ${faNum(l.price)}`, cbMarketCancel(l.listingId)).danger().row()
+    kb.text(`✂️ پس‌گرفتنِ ${clampText(l.name, 12)} · ${faNum(l.price)}`, cbMarketCancel(l.listingId)).danger().row()
     budget--
   }
-  // V16-4 — فهرست‌کردن: مسیرِ فروش (انتخابِ جنس ← قیمت ← آگهی)؛ همیشه هست —
-  // حتی وقتی قفسه‌ها خالی‌اند، فروشِ خودت شروعِ بازار است
-  kb.text("🛍 فهرست‌کردن", CB.marketSell).success().row()
+  // V16-4 — مسیرِ فروش (انتخابِ جنس ← قیمت ← آگهی)؛ همیشه هست — حتی وقتی
+  // قفسه‌ها خالی‌اند، فروشِ خودت شروعِ بازار است
+  kb.text("🛍 به فروش بگذار", CB.marketSell).success().row()
+  kb.text("🎒 کیف", CB.items).primary()
   kb.text("↩ خانه", CB.menu).primary()
   return kb
 }
@@ -678,7 +706,7 @@ export function marketPriceKeyboard(itemKey: string, suggestions: number[]): Inl
     kb.text(`🏷 ${faNum(p)} سکه`, cbMarketListAt(itemKey, p)).success().row()
   }
   kb.text("🛍 جنسِ دیگر", CB.marketSell).primary()
-  kb.text("🏪 بازار", CB.market).primary().row()
+  kb.text("🎒 کیف", CB.items).primary().row()
   kb.text("↩ خانه", CB.menu).primary()
   return kb
 }
@@ -731,8 +759,9 @@ export function livingConfirmKeyboard(which: LivingWhich, key: string, affordabl
 }
 
 /** 🎲 بینگو — فقط شرط‌هایی که جیب واقعاً می‌کشد (V16-3، ممیزی ⑩: شرطِ گران
- *  دو‌مرحله‌ای؛ دکمه‌ی ۵۰۰۰ به واخواهی می‌رود — b:go فقط از کارتِ تأیید).
- *  شرط‌هایِ بی‌جیب دکمه نمی‌گیرند — کارت با خطِ صادقانه‌ی خودش می‌گوید چرا. */
+ *  دو‌مرحله‌ای؛ دکمه‌ی ۵۰۰۰ به تأیید می‌رود — b:go فقط از کارتِ تأیید).
+ *  V20 (مأموریت §4.3): حالتِ خالی «💼 کار» را پیشنهاد می‌دهد — همان چیزی که
+ *  متنِ کارت می‌گوید («کار کن، بعد بیا») حالا دکمه‌اش هم هست. */
 export function bingoKeyboard(money: number): InlineKeyboard {
   const kb = new InlineKeyboard()
   const stakes = affordableStakes(money)
@@ -748,7 +777,8 @@ export function bingoKeyboard(money: number): InlineKeyboard {
   }
   if (open) kb.row()
   if (stakes.length === 0) {
-    // جیب هیچ‌کدام را نمی‌کشد — دکمه‌ی مرجوعِ بی‌عمل نمی‌سازیم (§6D: صادق باش)
+    // جیب هیچ‌کدام را نمی‌کشد — مسیرِ پولِ صادقانه همان است که متن می‌گوید
+    kb.text("💼 کار", CB.work).success().row()
     kb.text("↩ خانه", CB.menu).primary()
     return kb
   }
@@ -756,7 +786,7 @@ export function bingoKeyboard(money: number): InlineKeyboard {
   return kb
 }
 
-/** کارتِ واخواهی — «💥 بفرست» فقط این‌جا است (b:go:{stake}) */
+/** کارتِ تأییدِ شرطِ بزرگ — «💥 بفرست» فقط این‌جا است (b:go:{stake}) */
 export function bingoConfirmKeyboard(stake: number): InlineKeyboard {
   const kb = new InlineKeyboard()
   kb.text("💥 بفرست", cbGambleGo(stake)).danger().row()
@@ -764,11 +794,11 @@ export function bingoConfirmKeyboard(stake: number): InlineKeyboard {
   return kb
 }
 
-/** خطا — دوباره (قرمز) + خانه (آبی) */
+/** خطا — دوباره (قرمز) + خانه (آبی) — V20: برچسبِ بازگشت یکدست «↩ خانه» */
 export function errorKeyboard(): InlineKeyboard {
   const kb = new InlineKeyboard()
   kb.text("🔄 دوباره", CB.retry).danger()
-  kb.text("🏠 منو", CB.menu).primary()
+  kb.text("↩ خانه", CB.menu).primary()
   return kb
 }
 

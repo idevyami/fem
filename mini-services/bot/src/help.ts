@@ -30,7 +30,7 @@ import { api, GameApiError } from "./api"
 import type { HelpCategoryDTO } from "./api"
 import { backKeyboard, CB } from "./keyboards"
 import { fail, show, tgId } from "./ui"
-import { chip, clampText, esc, SEP, SUB } from "./format"
+import { chip, clampText, esc, emblem, quote, SUB } from "./format"
 
 // ─── ثابت‌های رندر ─────────────────────────────────────────────────────────────
 
@@ -131,7 +131,7 @@ async function failHelp(ctx: Context, e: unknown): Promise<void> {
     await show(
       ctx,
       [
-        "📖 <b>کدکس پیشِ رویِ توست — ولی هنوز شهروندِ این شهر نشده‌ای.</b>",
+        "📖 <b>راهنما پیشِ رویِ توست — ولی هنوز شهروندِ این شهر نشده‌ای.</b>",
         "",
         `اول ${chip("شروع بازی")} را بفرست تا پیمانِ فمبوی‌ات را ببندیم؛ بعد همه‌ی دسته‌ها همین‌جا باز می‌شوند.`,
       ].join("\n"),
@@ -146,7 +146,7 @@ async function failHelp(ctx: Context, e: unknown): Promise<void> {
 async function showStale(ctx: Context): Promise<void> {
   await show(
     ctx,
-    ["🕸 <b>این برگه از کدکس کهنه شده</b>", "", "شاید نسخه‌ی راهنما عوض شده — از «راهنما» دوباره بازش کن."].join("\n"),
+    ["🕸 <b>این برگه از راهنما کهنه شده</b>", "", "شاید نسخه‌ی راهنما عوض شده — از «راهنما» دوباره بازش کن."].join("\n"),
     helpKeyboard([{ label: "↩ راهنما", cb: CB_HELP_HOME }]),
   )
 }
@@ -158,7 +158,7 @@ const QUICK_START = [
   "شروعِ سریع:",
   `🎀 ${chip("پیمان فمبوی")} — فمبویِ اختصاصی‌ات را ببند؛ او مرکزِ جهان است.`,
   `🎲 ${chip("اتفاق امروز")} · 💼 ${chip("کار")} · 😴 ${chip("استراحت")} — حلقه‌ی روزانه‌ات.`,
-  `💬 بقیه‌ی عبارت‌ها: دسته‌ی «زبانِ طبیعی» همین کدکس همه‌شان را دارد.`,
+  `💬 بقیه‌ی عبارت‌ها: دسته‌ی «زبانِ طبیعی» همین راهنما همه‌شان را دارد.`,
 ]
 
 export async function showHelpHome(ctx: Context): Promise<void> {
@@ -175,16 +175,18 @@ export async function showHelpHome(ctx: Context): Promise<void> {
       return
     }
   }
+  // V25 «کارت‌های ماندنی»: نشانِ 📖 در مرکزِ جداکننده + خطِ داده زیرِ نقل‌قول —
+  // هم‌زبانِ کدکسِ گروهیِ موتور (gh:m) و بقیه‌ی کارت‌های شهر.
   const lines = [
     "",
     "📖 <b>راهنمای FEMBOY WAR</b>",
-    SEP,
+    emblem("📖"),
     "",
     ...QUICK_START,
     "",
     SUB,
     "",
-    `کدکسِ شهر: ${chip(cats.length)} دسته‌ی واقعی — هر عددش از خودِ بازی.`,
+    quote(`راهنمای شهر: ${chip(cats.length)} دسته‌ی واقعی — هر عددش از خودِ بازی.`),
     "دسته‌ات را باز کن 👇",
     "",
   ]
@@ -193,7 +195,7 @@ export async function showHelpHome(ctx: Context): Promise<void> {
     cb: cbHelpCat(c.id),
   }))
   items.push("row")
-  items.push({ label: "🏠 خانه", cb: CB.menu })
+  items.push({ label: "↩ خانه", cb: CB.menu })
   await show(ctx, lines.join("\n"), helpKeyboard(items))
 }
 
@@ -224,7 +226,7 @@ async function showCategory(ctx: Context, catId: string, pageRaw: number): Promi
   const lines = [
     "",
     `${cat.icon} <b>${esc(cat.titleFa)}</b>`,
-    SEP,
+    emblem(cat.icon),
     "",
     esc(cat.descFa),
     "",
@@ -243,7 +245,7 @@ async function showCategory(ctx: Context, catId: string, pageRaw: number): Promi
   }
   items.push("row")
   items.push({ label: "↩ راهنما", cb: CB_HELP_HOME })
-  items.push({ label: "🏠 خانه", cb: CB.menu })
+  items.push({ label: "↩ خانه", cb: CB.menu })
   await show(ctx, lines.join("\n"), helpKeyboard(items))
 }
 
@@ -264,11 +266,12 @@ async function showTopic(ctx: Context, topicId: string, pageRaw: number): Promis
   const t = r.topic
   const { blocks, page, pageCount } = r
 
+  // V25: نشانِ خودِ موضوع در مرکزِ جداکننده (هم‌زبانِ gh:t موتور)
   const lines = [
     "",
     `${t.icon} <b>${esc(t.titleFa)}</b>`,
     `صفحه‌ی ${page + 1} از ${pageCount}`,
-    SEP,
+    emblem(t.icon),
     "",
   ]
   if (page === 0) lines.push(`<i>${esc(t.summaryFa)}</i>`, "")
@@ -278,12 +281,13 @@ async function showTopic(ctx: Context, topicId: string, pageRaw: number): Promis
     lines.push("")
   }
   // عبارت‌های پشتیبانی‌شده — همان چیپِ مونوی کارت‌های شهر (آخرین صفحه)
+  // V25: ردیف‌های ▪ (هم‌زبانِ کدکسِ گروهی)
   if (page === pageCount - 1 && t.phrases.length > 0) {
     lines.push(
       "عبارت‌ها:",
       ...t.phrases.map(
         (p) =>
-          `• ${chip(p.fa)}${p.en ? ` · ${chip(p.en)}` : ""} — ${p.where === "private" ? "خصوصی" : p.where === "group" ? "گروه" : "خصوصی و گروه"}`,
+          `▪ ${chip(p.fa)}${p.en ? ` · ${chip(p.en)}` : ""} — ${p.where === "private" ? "خصوصی" : p.where === "group" ? "گروه" : "خصوصی و گروه"}`,
       ),
       "",
     )
@@ -304,7 +308,7 @@ async function showTopic(ctx: Context, topicId: string, pageRaw: number): Promis
   }
   items.push("row")
   items.push({ label: "↩ دسته", cb: cbHelpCat(t.cat) })
-  items.push({ label: "🏠 راهنما", cb: CB_HELP_HOME })
+  items.push({ label: "↩ راهنما", cb: CB_HELP_HOME })
   await show(ctx, lines.join("\n"), helpKeyboard(items))
 }
 

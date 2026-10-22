@@ -40,7 +40,7 @@
 import type { GroupCallCtx, GroupCommandResult, CallbackResult } from "./router"
 import type { OutboxButton } from "./types"
 import { esc, parseJson } from "./domain"
-import { SEP, SUB, chip, pct, remainChip } from "./text"
+import { SUB, chip, pct, remainChip, emblem, quote, barRow, faNum } from "./text"
 import { buildGroupSnapshot, buildHomeViewer } from "./snapshot"
 import { GROUP_ACHIEVEMENTS, SOCIAL_GAMES } from "./content"
 import { memberRep } from "./social"
@@ -105,7 +105,9 @@ function chipDigits(label: string): string {
 
 const MEDALS = ["🥇", "🥈", "🥉"]
 
-/** کارتِ بخش — عنوان + یک خط + خلاصه‌ی واقعی + فرزندان. همه‌ی داده‌ها از snapshot. */
+/** کارتِ بخش — عنوان + یک خط + خلاصه‌ی واقعی + فرزندان. همه‌ی داده‌ها از snapshot.
+ *  V24 «ظاهرِ شهر»: نشانِ خودِ بخش در مرکزِ جداکننده؛ حالت‌هایِ خالی و خط‌هایِ راهنما
+ *  زیرِ نقل‌قول (هم‌زبانِ بقیه‌ی کارت‌های شهر). */
 export async function navSection(ctx: GroupCallCtx, key: string): Promise<CallbackResult> {
   if (!NAV_KEYS.has(key)) {
     return { ok: false, ackText: "چنین بخشی در شهر نیست." }
@@ -113,7 +115,7 @@ export async function navSection(ctx: GroupCallCtx, key: string): Promise<Callba
   const snap = await buildGroupSnapshot(ctx.chatId, ctx.player?.id, ctx.group)
   const viewer = ctx.player ? await buildHomeViewer(ctx.db, ctx.group, ctx.player, snap) : null
   const def = NAV_SECTIONS.find((s) => s.key === key)!
-  const lines: string[] = ["", `${def.emoji} <b>${def.title}</b>`, SEP, "", def.line, ""]
+  const lines: string[] = ["", `${def.emoji} <b>${def.title}</b>`, emblem(def.emoji), "", def.line, ""]
 
   const children: OutboxButton[] = []
 
@@ -137,7 +139,7 @@ export async function navSection(ctx: GroupCallCtx, key: string): Promise<Callba
         const ev = snap.currentEvent
         lines.push(`${ev.emoji} <b>${esc(ev.title)}</b> — ${chip(ev.participantsCount)} انتخاب · ⏳ ${remainChip(ev.expiresAt)}`)
       } else {
-        lines.push("اتفاقی باز نیست — شهر منتظرِ کسی است که یکی بسازد.")
+        lines.push(quote("اتفاقی باز نیست — شهر منتظرِ کسی است که یکی بسازد."))
       }
       children.push(
         { label: "💥 اتفاقِ شهر", style: "danger", cb: "gm:event" },
@@ -152,7 +154,7 @@ export async function navSection(ctx: GroupCallCtx, key: string): Promise<Callba
         const total = v.options.reduce((s, o) => s + o.count, 0)
         lines.push(`🗳 <b>${esc(v.subject)}</b> — ${chip(total)} رأی · ⏳ ${remainChip(v.closesAt)}`)
       } else {
-        lines.push("رأیِ بازی در جریان نیست — انتخاباتِ شهردار هر هفته خودکار برگزار می‌شود.")
+        lines.push(quote("رأیِ بازی در جریان نیست — انتخاباتِ شهردار هر هفته خودکار برگزار می‌شود."))
       }
       children.push(
         { label: "🗳 رأیِ باز", style: "primary", cb: "gm:vote" },
@@ -165,14 +167,14 @@ export async function navSection(ctx: GroupCallCtx, key: string): Promise<Callba
     case "battle": {
       const pend = (snap.challenges ?? []).filter((c) => c.status === "pending")
       if (pend.length === 0) {
-        lines.push("هیچ دوئلی در انتظار نیست — آرام است… فعلاً.")
+        lines.push(quote("هیچ دوئلی در انتظار نیست — آرام است… فعلاً."))
       } else {
         for (const c of pend) {
           const mine = c.myRole === "target" ? " · منتظرِ جوابِ توست" : c.myRole === "challenger" ? " · دعوت از توست" : ""
           lines.push(`⚔️ <b>${esc(c.challengerName)}</b> در برابرِ <b>${esc(c.targetName)}</b> — ⏳ ${remainChip(c.expiresAt)}${mine}`)
         }
       }
-      lines.push("", SUB, "", `دعوتِ تازه: روی پیامِ رقیب reply بزن و ${chip("جنگ فمبوی")} بگو.`)
+      lines.push("", SUB, "", quote(`دعوتِ تازه: روی پیامِ رقیب reply بزن و ${chip("جنگ فمبوی")} بگو.`))
       // دعوتِ خودِ بیننده — همان دکمه‌های contextuیِ خانه (§6.3)
       const mine = pend.find((c) => c.myRole === "target")
       if (mine) {
@@ -222,7 +224,7 @@ export async function navSection(ctx: GroupCallCtx, key: string): Promise<Callba
     case "items": {
       lines.push(
         "کیف و تجهیزات شخصی‌اند — زندگیِ خصوصی، در پی‌ویِ ربات.",
-        `در خصوصی ${chip("کیف")} را بگو تا کیفت باز شود؛ این‌جا فقط قوانینش خوانده می‌شود.`,
+        quote(`در خصوصی ${chip("کیف")} را بگو تا کیفت باز شود؛ این‌جا فقط قوانینش خوانده می‌شود.`),
       )
       children.push(
         { label: "🎒 کیف من — در خصوصیِ ربات", style: "primary", url: "https://t.me/femwarbot?start=items" },
@@ -234,7 +236,7 @@ export async function navSection(ctx: GroupCallCtx, key: string): Promise<Callba
       const building = snap.projects.find((p) => p.status === "building")
       lines.push(
         `💰 صندوق: ${chip(snap.treasury)} · 🏛 اعتبار: ${snap.reputationLabel}`,
-        ...(building ? [`🏗 ${building.emoji} ${building.name} — ${pct(Math.min(100, (building.contributed / Math.max(1, building.goal)) * 100))}`] : []),
+        ...(building ? [barRow(building.emoji, building.name, building.contributed, building.goal)] : []),
         `🛒 شاخصِ بازارِ جهان و آگهی‌ها روی کارتِ «بازار و شاخص» است.`,
       )
       children.push(
@@ -249,7 +251,8 @@ export async function navSection(ctx: GroupCallCtx, key: string): Promise<Callba
     case "fame": {
       const unlocked = snap.achievementsUnlockedCount ?? snap.achievementsUnlocked.length
       const total = GROUP_ACHIEVEMENTS.length
-      lines.push(`🏘 ${chip(unlocked)} از ${chip(total)} دستاوردِ شهر باز شده.`)
+      // V24: N-of-M با سقفِ واقعیِ دستاوردهای شهر — نوارِ زنده + چیپِ کسر
+      lines.push(barRow("🏘", "دستاوردهایِ شهر", unlocked, total, `${faNum(unlocked)}/${faNum(total)}`))
       const recent = snap.achievementsUnlocked
         .map((k) => GROUP_ACHIEVEMENTS.find((a) => a.key === k))
         .filter((a): a is (typeof GROUP_ACHIEVEMENTS)[number] => Boolean(a))
@@ -275,7 +278,7 @@ export async function navSection(ctx: GroupCallCtx, key: string): Promise<Callba
           children.push({ label: "✋ ثبت‌نامِ بازیِ باز", style: "success", cb: `gg:${g.id}:j` })
         }
       } else {
-        lines.push("بازیِ بازی در جریان نیست — یکی از فهرست باز کن.")
+        lines.push(quote("بازیِ بازی در جریان نیست — یکی از فهرست باز کن."))
       }
       lines.push(`🎲 ${chip(SOCIAL_GAMES.length)} بازی در شهر است — با جایزه و عواقبِ واقعی.`)
       children.push(
@@ -314,7 +317,8 @@ export async function navSection(ctx: GroupCallCtx, key: string): Promise<Callba
 
 // ─── فرمانِ duels — دعوت‌های دوئلِ این شهر (V15-1) ─────────────────────────────
 
-/** کارتِ دعوت‌های دوئل — بازها با دکمه‌های نقشی (gc:)، تاریخچه‌ی نزدیک، راهنمای reply. */
+/** کارتِ دعوت‌های دوئل — بازها با دکمه‌های نقشی (gc:)، تاریخچه‌ی نزدیک، راهنمای reply.
+ *  V24 «ظاهرِ شهر»: نشانِ ⚔️ + حالتِ خالی و راهنمای reply زیرِ نقل‌قول. */
 export async function duelsCommandCard(ctx: GroupCallCtx): Promise<GroupCommandResult> {
   const groupId = ctx.group.id
   const [pend, recent] = await Promise.all([
@@ -332,11 +336,11 @@ export async function duelsCommandCard(ctx: GroupCallCtx): Promise<GroupCommandR
     }),
   ])
 
-  const lines: string[] = ["", "⚔️ <b>دعوت‌های دوئل</b>", SEP, ""]
+  const lines: string[] = ["", "⚔️ <b>دعوت‌های دوئل</b>", emblem("⚔️"), ""]
   const buttons: OutboxButton[] = []
 
   if (pend.length === 0) {
-    lines.push("هیچ دوئلی در انتظار نیست — آرام است… فعلاً.")
+    lines.push(quote("هیچ دوئلی در انتظار نیست — آرام است… فعلاً."))
   }
   for (const c of pend) {
     const myRole = ctx.player?.id === c.challengerId ? "challenger" : ctx.player?.id === c.targetId ? "target" : null
@@ -361,7 +365,7 @@ export async function duelsCommandCard(ctx: GroupCallCtx): Promise<GroupCommandR
     }
   }
 
-  lines.push("", SUB, "", `دعوتِ تازه: روی پیامِ رقیب reply بزن و ${chip("جنگ فمبوی")} بگو.`)
+  lines.push("", SUB, "", quote(`دعوتِ تازه: روی پیامِ رقیب reply بزن و ${chip("جنگ فمبوی")} بگو.`))
 
   buttons.push(
     { label: "📖 راهنمای دوئل", style: "primary", cb: "gh:t:combat-duels:0" },
@@ -374,7 +378,8 @@ export async function duelsCommandCard(ctx: GroupCallCtx): Promise<GroupCommandR
 // ─── فرمانِ economy — اقتصاد و بازار (V15-1) ──────────────────────────────────
 
 /** کارتِ اقتصاد — صندوق/اعتبار/پروژه از شهر + شاخصِ جهان و آگهی‌هایِ فعالِ بازار
- *  (بازارِ آیتم‌ها جهانی است — همان داده‌ای که مینی‌اپ و رباتِ خصوصی می‌بینند). */
+ *  (بازارِ آیتم‌ها جهانی است — همان داده‌ای که مینی‌اپ و رباتِ خصوصی می‌بینند).
+ *  V24 «ظاهرِ شهر»: نشانِ 💰 + راهنمایِ بازارِ شخصی زیرِ نقل‌قول. */
 export async function economyCommandCard(ctx: GroupCallCtx): Promise<GroupCommandResult> {
   const snap = await buildGroupSnapshot(ctx.chatId, ctx.player?.id, ctx.group)
   const [world, listings, prices] = await Promise.all([
@@ -386,13 +391,14 @@ export async function economyCommandCard(ctx: GroupCallCtx): Promise<GroupComman
   const lines: string[] = [
     "",
     "💰 <b>اقتصاد و بازار</b>",
-    SEP,
+    emblem("💰"),
     "",
     `🏛 صندوقِ شهر: ${chip(snap.treasury)} · اعتبار: ${snap.reputationLabel}`,
   ]
   const building = snap.projects.find((p) => p.status === "building")
   if (building) {
-    lines.push(`🏗 ${building.emoji} ${building.name} — ${pct(Math.min(100, (building.contributed / Math.max(1, building.goal)) * 100))}`)
+    // V24: پیشرفتِ پروژه با سقفِ واقعیِ goal — نوارِ زنده به‌جای چیپِ درصد
+    lines.push(barRow(building.emoji, building.name, building.contributed, building.goal))
   }
   lines.push(`🛒 شاخصِ بازارِ جهان: ${chip(world.economyIndex)} · ${chip(listings)} آگهیِ فعال`)
 
@@ -412,7 +418,7 @@ export async function economyCommandCard(ctx: GroupCallCtx): Promise<GroupComman
     "",
     SUB,
     "",
-    `خرید و فروش و کیف شخصی‌اند — در پی‌ویِ ربات ${chip("بازار")} را بگو.`,
+    quote(`خرید و فروش و کیف شخصی‌اند — در پی‌ویِ ربات ${chip("بازار")} را بگو.`),
   )
 
   return {
@@ -430,16 +436,17 @@ export async function economyCommandCard(ctx: GroupCallCtx): Promise<GroupComman
 // ─── فرمانِ fame — تالارِ افتخارات (V15-1) ────────────────────────────────────
 
 /** کارتِ تالار — همان hallOfFameِ موتور (منبعِ /champ ربات و مینی‌اپ): ۶ تابلو
- *  از soulCharacterهایِ واقعی + شمارِ دستاوردهایِ همین شهر. */
+ *  از soulCharacterهایِ واقعی + شمارِ دستاوردهایِ همین شهر.
+ *  V24 «ظاهرِ شهر»: نشانِ 🏆 + حالتِ خالی زیرِ نقل‌قول. */
 export async function fameCommandCard(ctx: GroupCallCtx, board = "level"): Promise<GroupCommandResult> {
   const [hall, snap] = await Promise.all([
     hallOfFame(board),
     buildGroupSnapshot(ctx.chatId, ctx.player?.id, ctx.group),
   ])
 
-  const lines: string[] = ["", `🏆 <b>تالارِ افتخارات — ${esc(hall.boardLabel)}</b>`, SEP, ""]
+  const lines: string[] = ["", `🏆 <b>تالارِ افتخارات — ${esc(hall.boardLabel)}</b>`, emblem("🏆"), ""]
   if (hall.entries.length === 0) {
-    lines.push("هنوز کسی اسمی از خودش نگذاشته…", "", "<i>اولین افسانه تو باش.</i>")
+    lines.push(quote("هنوز کسی اسمی از خودش نگذاشته…"), "", "<i>اولین افسانه تو باش.</i>")
   } else {
     hall.entries.slice(0, 10).forEach((e, i) => {
       const rank = i < 3 ? (MEDALS[i] ?? `${chip(e.rank)}.`) : `${chip(e.rank)}.`
@@ -450,7 +457,8 @@ export async function fameCommandCard(ctx: GroupCallCtx, board = "level"): Promi
     }
   }
   const unlocked = snap.achievementsUnlockedCount ?? snap.achievementsUnlocked.length
-  lines.push("", SUB, "", `🏘 دستاوردهایِ این شهر: ${chip(unlocked)} از ${chip(GROUP_ACHIEVEMENTS.length)}`)
+  // V24: N-of-M با سقفِ واقعی — نوارِ زنده + چیپِ کسر (هم‌زبانِ نوارِ دستاوردهای ربات)
+  lines.push("", SUB, "", barRow("🏘", "دستاوردهایِ این شهر", unlocked, GROUP_ACHIEVEMENTS.length, `${faNum(unlocked)}/${faNum(GROUP_ACHIEVEMENTS.length)}`))
 
   // تخته‌ها — همان کلیدهایی که موتور برمی‌گرداند (ربات hardcode نمی‌کند)
   const buttons: OutboxButton[] = hall.boards.map((b, i) => ({
@@ -470,7 +478,8 @@ export async function fameCommandCard(ctx: GroupCallCtx, board = "level"): Promi
 
 /** کارتِ برترین‌های شهر — از آمارِ واقعیِ اعضایِ همین گروه (برد/بازی/آبرو).
  *  V17-W2 (§12): بیننده رتبه‌ی خودش را هم همان‌جا می‌بیند — «تو کجایی؟» دیگر
- *  به سفرِ پی‌وی نیاز ندارد؛ سطرِ ردیفِ خودش در فهرست هم «← تو» می‌گیرد. */
+ *  به سفرِ پی‌وی نیاز ندارد؛ سطرِ ردیفِ خودش در فهرست هم «← تو» می‌گیرد.
+ *  V24 «ظاهرِ شهر»: نشانِ 🏆 + حالتِ خالی زیرِ نقل‌قول. */
 export async function topCommandCard(ctx: GroupCallCtx): Promise<GroupCommandResult> {
   // کلِ اعضا (شهرها کوچک‌اند؛ سقفِ دفاعی ۵۰۰) — تا رتبه‌ی بیننده فراتر از ۱۰ هم درست بماند
   const all = await ctx.db.groupMember.findMany({
@@ -484,9 +493,9 @@ export async function topCommandCard(ctx: GroupCallCtx): Promise<GroupCommandRes
   const viewerIdx = viewerId ? all.findIndex((m) => m.playerId === viewerId) : -1
   const viewerRow = viewerIdx >= 0 ? all[viewerIdx] : undefined
 
-  const lines: string[] = ["", "🏆 <b>برترین‌های شهر</b>", SEP, "", "رتبه از آمارِ واقعیِ همین شهر می‌آید — برد، بازی و آبرو.", ""]
+  const lines: string[] = ["", "🏆 <b>برترین‌های شهر</b>", emblem("🏆"), "", "رتبه از آمارِ واقعیِ همین شهر می‌آید — برد، بازی و آبرو.", ""]
   if (rows.length === 0) {
-    lines.push("هنوز هیچ‌کس در این شهر قهرمان نشده — تابلو خالی است.", "", "<i>اولین نامش می‌تواند نامِ تو باشد.</i>")
+    lines.push(quote("هنوز هیچ‌کس در این شهر قهرمان نشده — تابلو خالی است."), "", "<i>اولین نامش می‌تواند نامِ تو باشد.</i>")
   } else {
     for (const [i, m] of rows.entries()) {
       const rep = memberRep(m)

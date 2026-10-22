@@ -30,7 +30,7 @@ import { expireStaleChallenges } from "./challenges"
 import { expireOpenEvents } from "./events"
 import { closeVotes } from "./politics"
 import { tickGames } from "./games"
-import { SEP, SUB, chip } from "./text"
+import { SUB, chip, quote, emblem } from "./text"
 
 export type GroupSettings = GroupSettingsDTO
 
@@ -107,11 +107,12 @@ export interface AdminCounts {
   openVotes: number
 }
 
-/** کارتِ وضعیت/تنظیمات — یک سازنده برای هر دو گونه (ادمین دکمه‌های اکشن دارد) */
+/** کارتِ وضعیت/تنظیمات — یک سازنده برای هر دو گونه (ادمین دکمه‌های اکشن دارد).
+ *  V24 «ظاهرِ شهر»: نشانِ 🛠 در مرکزِ جداکننده؛ سطرهای وضعیت عیناً مانده‌اند (لنگرِ verify). */
 export function settingsCardText(s: GroupSettings, counts: AdminCounts, isAdmin: boolean): string {
   return [
     "🛠 <b>تنظیماتِ شهر</b>",
-    SEP,
+    emblem("🛠"),
     "",
     `وضعیتِ بازی: ${s.enabled ? "✅ باز" : "⛔ بسته"}`,
     `سروصدایِ شهر: ${NOISE_LABELS[s.noise]}`,
@@ -122,9 +123,11 @@ export function settingsCardText(s: GroupSettings, counts: AdminCounts, isAdmin:
     `⚔️ ${chip(counts.pendingChallenges)} دعوتِ بی‌جواب · 💥 ${chip(counts.openEvents)} اتفاقِ باز`,
     `🎲 ${chip(counts.openGames)} بازیِ باز · 🗳 ${chip(counts.openVotes)} رأیِ باز`,
     "",
-    isAdmin
-      ? "<i>دکمه‌ها همین کارت را به‌روز می‌کنند. بازیابی، هرچه باز مانده را محترمانه می‌بندد.</i>"
-      : "<i>تنظیم فقط با ادمین‌های گروه — این کارت فقط گزارش است.</i>",
+    quote(
+      isAdmin
+        ? "دکمه‌ها همین کارت را به‌روز می‌کنند. بازیابی، هرچه باز مانده را محترمانه می‌بندد."
+        : "تنظیم فقط با ادمین‌های گروه — این کارت فقط گزارش است.",
+    ),
   ].join("\n")
 }
 
@@ -249,11 +252,11 @@ export async function recover(group: GroupWorld): Promise<RecoverReport> {
   }
 }
 
-/** کارتِ گزارشِ بازیابی (خالص؛ V11) */
+/** کارتِ گزارشِ بازیابی (خالص؛ V11) — V24: نشانِ 🧹 + تعهدِ بی‌پاداشِ دوباره زیرِ quote */
 export function recoverCardText(r: RecoverReport): string {
   return [
     "🧹 <b>بازیابیِ شهر</b>",
-    SEP,
+    emblem("🧹"),
     "",
     `⚔️ ${chip(r.challenges)} دعوتِ دوئل بسته شد.`,
     `💥 ${chip(r.events)} اتفاقِ باز به مسیرِ حل رفت.`,
@@ -261,6 +264,6 @@ export function recoverCardText(r: RecoverReport): string {
     `🗳 ${chip(r.votes)} رأیِ باز بسته شد.`,
     `📤 ${chip(r.outboxUnclaimed)} پیامِ گیرکرده در صف، آزاد شد.`,
     "",
-    "<i>هیچ پاداشی دوباره پرداخت نشد — همه‌ی بستن‌ها همان فلیپ‌های شرطیِ تیک‌اند.</i>",
+    quote("هیچ پاداشی دوباره پرداخت نشد — همه‌ی بستن‌ها همان فلیپ‌های شرطیِ تیک‌اند."),
   ].join("\n")
 }

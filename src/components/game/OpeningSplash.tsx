@@ -1,7 +1,8 @@
 "use client"
 
 // V8 — صفحه‌ی ورود: هر بازیکنِ برگشته یک برخوردِ کوتاهِ برند می‌بیند، بعد شهر.
-// اسپلشِ تمام‌صفحه با وردمارک + نبضِ شهر + هویتِ بازیکن — اتو-ادوانس ~2.6 ثانیه یا یک لمس.
+// اسپلشِ تمام‌صفحه با وردمارک + روزِ شهر + هویتِ بازیکن — اتو-ادوانس ~2.6 ثانیه یا یک لمس.
+// V22: چیپ‌های هوا/مود/آشوب حذف شدند — همان لحظه در هدرِ پوسته می‌آیند؛ این‌جا تکرار نیست.
 import * as React from "react"
 import { motion } from "framer-motion"
 import type { GameSnapshot } from "@/lib/game/contract"
@@ -53,7 +54,7 @@ export function OpeningSplash({ snapshot, onDone }: OpeningSplashProps) {
       />
 
       <p className="sr-only">
-        FEMBOY WAR — روز {faNum(world.dayCount)}، هوا {world.weatherLabel}، حالِ شهر {world.moodLabel}، آشوب {faNum(world.chaosLevel)}.
+        FEMBOY WAR — روز {faNum(world.dayCount)} از زندگیِ {player.name}.
       </p>
 
       {/* وردمارک + روبانِ شناور */}
@@ -76,7 +77,7 @@ export function OpeningSplash({ snapshot, onDone }: OpeningSplashProps) {
         </motion.h1>
       </div>
 
-      {/* نبضِ شهر */}
+      {/* روز — هوا/مود/آشوب همان لحظه در هدرِ پوسته می‌آیند؛ این‌جا فقط روز (V22) */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -85,13 +86,6 @@ export function OpeningSplash({ snapshot, onDone }: OpeningSplashProps) {
       >
         <Chip tone="pink" className="font-bold">
           🎀 روز {faNum(world.dayCount)}
-        </Chip>
-        <Chip>
-          {world.weatherEmoji} {world.weatherLabel}
-        </Chip>
-        <Chip>{world.moodLabel}</Chip>
-        <Chip tone="rose" className="font-bold">
-          🔥 {faNum(world.chaosLevel)}
         </Chip>
       </motion.div>
 
