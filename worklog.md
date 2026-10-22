@@ -555,7 +555,7 @@ Work Log:
 - Read full V8 spec (1279 lines): soulbound identity rework + world-wide terminology overhaul (همدم→فمبوی) + 3-surface integration + Persian voice rules
 - AUDITED live state: SoulCharacter model solid (playerId @unique, permanent classKey, 7 XP tracks, spirit/stamina, skills, bond, logs); bot v4.0.0 awake/polling (health :3021 OK, engine ok, errors:0); colored glass buttons 🔴🟢🔵 fully shipped (keyboards.ts Bot API 9.4 styles); private/group branching exists throughout
 - Terminology census: 166× «همدم» (108 in src across 21 files, 58 in bot across 6 files) — this is the core V8 correction
-- ROOT-CAUSED user-reported bug «صفحه‌ی شروع رد می‌شود»: GameShell.boot() → returning player (onboarded=true, DB-verified for admin tg [ID-پاک‌شده]) + device localStorage femwar.introSeen=1 ⇒ setPhase("ready") immediately — no opening page exists for returning sessions at all. Fix design: per-player introSeen key (v2 namespace) + new OpeningSplash for every subsequent session (pinned in agent-ctx/V8-plan.md)
+- ROOT-CAUSED user-reported bug «صفحه‌ی شروع رد می‌شود»: GameShell.boot() → returning player (onboarded=true, DB-verified for admin tg 5618796040) + device localStorage femwar.introSeen=1 ⇒ setPhase("ready") immediately — no opening page exists for returning sessions at all. Fix design: per-player introSeen key (v2 namespace) + new OpeningSplash for every subsequent session (pinned in agent-ctx/V8-plan.md)
 - ENV DRIFT FIXED: root .env had stale SERVICE_KEY (cf446…) + GAME_SECRET (cee7da…) vs live process env (femboy-war-service-dev / 04354de4…) — synced .env to live values (verified via /proc/<pid>/environ + live curl accept); bot↔engine auth confirmed working
 - WROTE agent-ctx/V8-plan.md: terminology map, file ownership (A=engine/B=miniapp/C=bot), public-card API contract (GET /api/game/character?targetTelegramId=X, service-key only, public subset only), opening-splash design, bot scope (/myfemboy + /femboy target resolution), non-goals
 - Launching V8-A (engine terminology + public-card API) and V8-B (Mini App terminology + opening fix) in parallel; V8-C (bot) after A
@@ -702,7 +702,7 @@ Stage Summary:
 - تشخیصِ آینده gratis: هر ردشدنِ initData حالا با reason (no_token/no_hash/hash_mismatch/no_user/bad_user/user_json) در dev.log ثبت می‌شود
 - تجربهٔ Mini App ضدِ گیر: رتریِ خودکار + مسیر نجاتِ «ورود به‌عنوان مهمان» — در بدترین حالت اپ بالا می‌آید (حساب تلگرامی بعداً سر جایش است)
 - فایل‌های تغییر یافته (۹): +src/lib/game/secrets.ts، src/lib/game/{session,api}.ts، src/lib/db.ts، src/lib/bot-keeper.ts، src/components/game/GameShell.tsx، ۸ route file — بدون تغییر schema/داده؛ bot v5.0.0 دست‌نخورده
-- محدودیت صادقانه: کلیکِ دکمه در کلاینتِ واقعی تلگرام از سندباکس ممکن نیست — به جایش initData واقعی با tgWebAppData hash + کلیدِ امضاشدهٔ سینتتیک در سرورِ زنده و همهٔ مسیرها E2E شد؛ اولین کاربر واقعی (telegramId [ID-پاک‌شده]) فعال است و ردیفش سالم
+- محدودیت صادقانه: کلیکِ دکمه در کلاینتِ واقعی تلگرام از سندباکس ممکن نیست — به جایش initData واقعی با tgWebAppData hash + کلیدِ امضاشدهٔ سینتتیک در سرورِ زنده و همهٔ مسیرها E2E شد؛ اولین کاربر واقعی (telegramId 6257710756) فعال است و ردیفش سالم
 
 ---
 Task ID: V9-0
@@ -1411,7 +1411,7 @@ Agent: full-stack-developer (V13 wave 1 engine foundation)
 Task: router/awards/safety/presentation extraction + housekeeping (behavior-preserving)
 
 Work Log:
-- Read worklog tail (2-a/2-b/3) + V13 doc Parts 0-2/7-8; read all target files fully before editing; baseline captured: tsc 0, lint 0, 8 HTTP probes (game/help/city/members/projects/history/play/vote on real group -1004315929514, member [ID-پاک‌شده]) saved to /tmp/before-*.json.
+- Read worklog tail (2-a/2-b/3) + V13 doc Parts 0-2/7-8; read all target files fully before editing; baseline captured: tsc 0, lint 0, 8 HTTP probes (game/help/city/members/projects/history/play/vote on real group -1004315929514, member 6257710756) saved to /tmp/before-*.json.
 - NEW router.ts (422): GroupCallCtx {chatId, chatTitle?, telegramId?, isAdmin?, playerName?, group, player, db} + GroupCommandResult (+kind?:'home' — route drops it, wire unchanged) + CallbackResult + COMMANDS table (game/city/play/event/court/vote/projects/members/history/help + unknown fallback) + CALLBACKS table (ge/gg/gv/ru/gp/cit/gm with exact legacy parsing; gm: inner prefix/switch incl. elect/court/app) + ACTIONS table (contribute/startProject/vote/joinGame/startGame/triggerEvent/rumor) + dispatchCommand/dispatchCallback/dispatchAction; header documents pipeline + callback grammar contract (incl. future gc:/gs:) + facade relationship.
 - NEW awards.ts (52): awardPlayerStat(tx, player, stat, delta, source?) — EXACT applyPlayerStat semantics (money→applyMoney("event"), xp=Math.max(0,xp+delta) unclamped-top, others clamp 0..100, delta 0 = no-op, value from PASSED row — legacy contract); single Player-stat write authority per §2.3.
 - NEW safety.ts (44): requireGroupMember(db, groupId, playerId) tx-friendly gate + NOT_CITIZEN_MSG re-export; expireRumors(db, groupId?, now) — DEVIATION from spec: GroupRumor HAS status field (schema:543), so expired rumors flip active→dead (not deleted) — identical observable behavior (all reads filter status:"active"), non-destructive, rides existing 7-day GC in world.ts.
@@ -1478,7 +1478,7 @@ Task: Durable verify scripts (engine E2E scenarios A–F + bot offline suite) + 
 Work Log:
 - Implementation agent built scripts/verify/{group-engine.ts (58KB), bot-group.ts (27KB), README.md} + package.json scripts (verify:group / verify:bot / verify:all); timed out pre-run; main finished the wave.
 - Debugged 8 red engine assertions → single root cause: harness created characters BEFORE the Player row existed (404 no_player). Fixed with the REAL pre-made path: POST /api/auth service-key upsert before every create (§A-uB, §B-uC, §C-uD/uE, §E-uG/uH/uI); §B welcome-order fixed (char-holder registered last so the identity welcome is the latest).
-- Cleaned main's own manual-repro residue (players 99009002/99009003, group -100999002, 1 pending challenge, 2 throwaway chars) — real data back to 36/2/0; verified «تست» group (-1003795821912, member DEV [ID-پاک‌شده]) is REAL live traffic from the waves window → kept as 10.4 evidence.
+- Cleaned main's own manual-repro residue (players 99009002/99009003, group -100999002, 1 pending challenge, 2 throwaway chars) — real data back to 36/2/0; verified «تست» group (-1003795821912, member DEV 6257710756) is REAL live traffic from the waves window → kept as 10.4 evidence.
 - §Z hardened: dynamic start==end baselines (was hardcoded 36/2 — brittle), replaced a vacuous in-empty-arrays residue check with real challenge/encounter baseline comparison; §E paused-tick assertion now snapshots pre-tick outbox count (creation-time invitation no longer miscounted); hall assertion fixed to HallDTO.entries.
 - FINAL: verify:group 148 PASS / 0 FAIL · verify:bot 48 PASS / 0 FAIL · tsc 0 · eslint 0 · engine+bot health 200 (bot 8.0.0, errors:0) · dev.log zero errors.
 
@@ -1836,9 +1836,9 @@ Work Log:
 - Diffed upload → byte-identical to V15 mission doc (3rd time) → the complaint is about the RUNNING EXPERIENCE, not the code.
 - DECISIVE DISCOVERY: the public URL (https://r1bdq800xx80-d.space-z.ai) is a SEPARATE PLATFORM DEPLOYMENT running a PRE-V15 build — proof: POST /api/group/command {"command":"duels"} → «چنین فرمانی در دفترِ شهر نیست» on public (same as nonsense control), while local :3000 returns the real V15 duels card. Public HTML also carries a production build-ID comment (Gl2P2wGFHSpcoWcDwaeX_) vs local dev chunks → different servers.
 - ROOT CAUSE of user's complaint: bot-secret.env had API_BASE=<public URL> (old brain, PRIMARY) with localhost only as fallback → the live @femwarbot was serving the OLD engine's cards (old group home, no hub, no duels/economy/fame) to real users.
-- Data check before switching: LOCAL db holds the real gameplay data — 19 real Telegram players (incl. [ID-پاک‌شده] «𝗺𝗿 𝗿𝗲𝘇𝗮») + real groups (-1004315929514 «Twink Fight» w/ 14 real members, -1003795821912 «تست») → switching to local engine PRESERVES all progress.
+- Data check before switching: LOCAL db holds the real gameplay data — 19 real Telegram players (incl. 5618796040 «𝗺𝗿 𝗿𝗲𝘇𝗮») + real groups (-1004315929514 «Twink Fight» w/ 14 real members, -1003795821912 «تست») → switching to local engine PRESERVES all progress.
 - FIX: bot-secret.env API_BASE → http://localhost:3000; API_FALLBACK commented out (deliberate: silent fallback to the OLD brain would regress the user to the old version; instead the bot's own dev-keeper keeps the local engine alive every 20s). Killed bot pid → engine bot-keeper respawned it within 30s with the new env.
-- POST-FIX VERIFICATION: bot 8.3.0 awake/polling/errors:0, routes {active:localhost:3000, primary:localhost:3000, fallback:"-"}, engine latency 9ms, lastEngineOk ticking. verify:bot re-run → 168 PASS / 0 FAIL (no regression). Real-group proof: POST game/home for member [ID-پاک‌شده] of «Twink Fight» → full V15 home card: «🧭 منوی شهر» hub summary + ALL 12 gm:nav section buttons (world,events,votes,battle,players,femboy,items,economy,fame,games,help,settings) + 6 sameRow pairs, 14 buttons total. Old-card compatibility: callback gm:game (buttons on old cards already sitting in the user's chat) → editCard = new V15 home card → in-place upgrade of existing messages.
+- POST-FIX VERIFICATION: bot 8.3.0 awake/polling/errors:0, routes {active:localhost:3000, primary:localhost:3000, fallback:"-"}, engine latency 9ms, lastEngineOk ticking. verify:bot re-run → 168 PASS / 0 FAIL (no regression). Real-group proof: POST game/home for member 7029196190 of «Twink Fight» → full V15 home card: «🧭 منوی شهر» hub summary + ALL 12 gm:nav section buttons (world,events,votes,battle,players,femboy,items,economy,fame,games,help,settings) + 6 sameRow pairs, 14 buttons total. Old-card compatibility: callback gm:game (buttons on old cards already sitting in the user's chat) → editCard = new V15 home card → in-place upgrade of existing messages.
 - Mini App: still served by the public URL's OLD deployment (V14-era, functional codex). Searched for machine-side deploy tooling: no .fw-deploy (also absent from git history), z-ai CLI has NO deploy command (AI SDK only), platform internal ports (19001/19005/19006) not owned by user-accessible processes → platform Deploy is user-side. GitHub remote already has V15 @ 08c94d4 → one platform Deploy press brings the public brain to V15.
 
 Stage Summary:
@@ -1855,7 +1855,7 @@ Work Log:
 - Why suites missed it: verify:bot §13-E tested the TEXT «راهنما» path and the hp:-in-group guard, but never pressed a gh: callback through the real router; verify:group tested gh: directly over engine HTTP — both halves green, the wire between them broken.
 - FIX: one token — added "gh:" to GROUP_CB_PREFIXES (+ explanatory comment). handleGroupCallback already forwards generically (chatId/title/telegramId → engine callback action, editCard applied in place, stale-card resend fallback) — no other change needed. gs: admin flag unaffected (gh: needs none).
 - REGRESSION TEST added (verify:bot §13-E2, 5 assertions): 3 different users in a supergroup press gh:m / gh:c:combat / gh:t:start-basics:0 → all 3 reach the engine as action=callback with correct chatId + own presser identity; 3 editMessageText applied; every press acknowledged. Different users to pass the 300ms anti-flood and prove multi-user codex browsing.
-- LIVE E2E (strongest proof): standalone harness — real grammY Bot + REAL registerBot router + REAL engine :3000 (fetch passthrough) + REAL group -1004315929514 «Twink Fight» + real member [ID-پاک‌شده]: pressed gh:m → gh:c:femboy → gh:t:femboy-creation:0 → bot issued editMessageText with the REAL engine card («بستنِ پیمان — ساختِ فمبوی», real numbers 18/8) + working buttons (🔗 related topics, ↩ دسته, 🏠 راهنما) + answerCallbackQuery toast. The exact Telegram wire a real button press takes.
+- LIVE E2E (strongest proof): standalone harness — real grammY Bot + REAL registerBot router + REAL engine :3000 (fetch passthrough) + REAL group -1004315929514 «Twink Fight» + real member 7029196190: pressed gh:m → gh:c:femboy → gh:t:femboy-creation:0 → bot issued editMessageText with the REAL engine card («بستنِ پیمان — ساختِ فمبوی», real numbers 18/8) + working buttons (🔗 related topics, ↩ دسته, 🏠 راهنما) + answerCallbackQuery toast. The exact Telegram wire a real button press takes.
 - GATES: verify:bot 173 PASS / 0 FAIL (168+5) · tsc bot 0 · eslint 0 · live bot 8.3.0 awake/polling/errors:0 after bun --hot picked up the fix · temp harness removed.
 
 Stage Summary:
@@ -2507,3 +2507,18 @@ Stage Summary:
 - سرورِ موتور مرده بود و زنده شد (ریشه‌ی «ربات جواب نمی‌داد» در چند دقیقه‌ی اولِ این موج).
 - V20→V25 بالاخره به GitHub رسید — کاربر با یک Deploy همه‌ی موج‌های دیده‌نشده را یک‌جا می‌گیرد.
 - خارج از موج (صادقانه): کلاس‌آرت‌های ۸گانه عمداً قدیمی ماندند (شخصی‌سازی > تازگی)؛ عمق‌های رفتاریِ بعدی (واکنش به رسانه‌ی گروه، کارتِ تعاملیِ میم) به موج‌های بعد.
+
+---
+Task ID: V25-PUSH
+Agent: main (Z.ai Code)
+Task: پوشِ GitHub — بستنِ موجِ V25 (بالا رفتنِ V20→V25 به idevyami/fem)
+
+Work Log:
+- remote main: 41f711d (V19) → 169fdd4 (V20→V25، ۶۹ فایل، +۴۵۱۶/−۱۵۱۸): فست-فورواردِ تمیز رویِ تاریخِ عمومیِ موجود (بازسازیِ /tmp/fem-upload با clone نه archiveِ تازه).
+- اسکنِ رازِ دو-مرحله‌ای (tree + staged blobs) پیش از پوش: صفر — BOT_TOKEN/PAT در هیچ بلابی نیست؛ الگوی github_pat_ فقط در متنِ توصیفیِ گزارش‌ها.
+- سه ID شخصیِ قدیمیِ تلگرام (۶۲۵۷۷۱۰۷۵۶/۵۶۱۸۷۹۶۰۴۰/۷۰۲۹۱۹۶۱۹۰) در worklogِ export → [ID-پاک‌شده] (سوراخِ rsync که هر بار سانسِ قبلی را برمی‌گرداند — این بار در مرحله‌ی stage زده شد؛ IDهای واقعیِ تازه: صفر).
+- agent-ctx/ طبقِ سیاستِ V16→V19 بیرون ماند (دایرکتوریِ غیرمحصولی)؛ bot-secret.env (توکنِ زنده — عمداً tracked در سندباکس چون .env* موقعِ ری‌استارت پاک می‌شود) از export حذف شد؛ .env/db/.agent-shots/upload مثل همیشه بیرون.
+- بهداشتِ پس از پوش: ls-remote HEAD == 169fdd4 ✓ · remote URL بدون PAT ✓ ·PAT فقط در /home/z/.github_pat (محلِ خواسته‌ی کاربر، ۶۰۰) ✓.
+
+Stage Summary:
+- همه‌ی موج‌های دیده‌نشده (V20/V21/V22/V23/V24/V25) حالا رویِ GitHub است — کاربر با یک Deploy کلِ آن‌ها را یک‌جا می‌گیرد؛ رباتِ سندباکس از قبل زنده است.
